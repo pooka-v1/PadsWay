@@ -28,6 +28,14 @@ static ButtonAction parseButtonAction(const json& val) {
             action.type   = ButtonActionType::Trigger;
             action.target = val.at("target").get<std::string>();
             if (val.contains("axis")) action.axis = val["axis"].get<std::string>();
+        } else if (type == "keyboard") {
+            action.type = ButtonActionType::Keyboard;
+            if (val.contains("keys"))
+                for (const auto& k : val["keys"])
+                    action.keys.push_back(k.get<std::string>());
+        } else if (type == "mouse_click") {
+            action.type        = ButtonActionType::MouseClick;
+            action.mouseButton = val.value("button", "left");
         }
     }
     return action;
@@ -67,6 +75,7 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             AxisMapping m;
             m.target = axisJson.at("target").get<std::string>();
             m.invert = axisJson.value("invert", false);
+            m.speed  = axisJson.value("speed",  15.0f);
             cfg.axes[source] = m;
         }
 

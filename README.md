@@ -42,12 +42,27 @@ Interfaz gráfica con Dear ImGui (Win32 + DirectX 11).
 
 ```json
 "N": "a"
-"N": { "type": "trigger", "target": "l2" }
-"N": { "type": "macro",   "name": "NombreMacro" }
-"N": { "type": "bot",     "name": "LightningBot" }
+"N": { "type": "trigger",    "target": "l2" }
+"N": { "type": "macro",      "name": "NombreMacro" }
+"N": { "type": "bot",        "name": "LightningBot" }
+"N": { "type": "keyboard",   "keys": ["alt", "tab"] }
+"N": { "type": "mouse_click","button": "left" }
 ```
 
 Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
+
+---
+
+## Movimiento del ratón desde un stick analógico
+
+```json
+"axes": {
+  "dwZpos": { "target": "mouse_x", "invert": false, "speed": 15 },
+  "dwRpos": { "target": "mouse_y", "invert": false, "speed": 15 }
+}
+```
+
+`speed` = píxeles por tick (8ms) a deflexión máxima. Con 15 → ~1875 px/s a full stick.
 
 ---
 
@@ -63,36 +78,14 @@ Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
       "vid": "2DC8", "pid": "6009",
       "buttons": {
         "3":  { "type": "macro", "name": "BanishingBlade" },
-        "6":  { "type": "bot",   "name": "LightningBot" },
-        "15": { "type": "macro", "name": "LuluOverdrive" }
+        "6":  { "type": "bot",   "name": "LightningBot" }
       }
     }
   ]
 }
 ```
 
-Solo se declaran los botones que cambian. El perfil se selecciona desde la UI o `virtualpad.json`. Hot-swap en tiempo real.
-
----
-
-## Mando de botones — mandos soportados
-
-### 8BitDo Pro 3 — D-mode (VID:2DC8 PID:6009)
-
-| WinMM | Físico | Virtual |
-|---|---|---|
-| 1 | B | b | 2 | A | a | **3** | **Rp** | **—** | 4 | Y | y | 5 | X | x | **6** | **Lp** | **—** |
-| 7 | LB | l1 | 8 | RB | r1 | 9 | L2 | trigger l2 | 10 | R2 | trigger r2 |
-| 11 | Select | select | 12 | Start | start | 13 | Home | home | 14 | L3 | l3 | 15 | R3 | r3 |
-| **17** | **L4** | **—** | **18** | **R4** | **—** |
-
-### Logitech F310 — D-mode (VID:046D PID:C216)
-
-Gatillos digitales (botones 7/8). Sin Home ni botones extra.
-
-### Sony DualShock 4 v2 (VID:054C PID:09CC)
-
-L2/R2 analógicos (dwUpos/dwVpos). USB y BT comparten VID/PID.
+Hot-swap en tiempo real. El perfil se selecciona desde la UI de VirtualPad.
 
 ---
 

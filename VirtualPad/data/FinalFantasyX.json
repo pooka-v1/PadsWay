@@ -16,9 +16,10 @@
       "pid": "6006",
       "_note": "Pro 2 D-mode: mismos overrides que Pro 3, verificado 2026/03/20",
       "buttons": {
-        "3":  { "type": "macro", "name": "BanishingBlade" },
-        "6":  { "type": "bot",   "name": "LightningBot"   },
-        "15": { "type": "macro", "name": "LuluOverdrive"  }
+        "3":  { "type": "macro",    "name": "BanishingBlade" },
+        "6":  { "type": "bot",      "name": "LightningBot"   },
+        "15": { "type": "macro",    "name": "LuluOverdrive"  },
+        "13": { "type": "keyboard", "keys": ["alt", "tab"]   }
       }
     }
   ]

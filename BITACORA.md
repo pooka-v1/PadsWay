@@ -5,7 +5,7 @@
 
 ---
 
-## V1–V11 (resumen)
+## V1–V12 (resumen)
 
 - **V1** — WinMM → ViGEm. Loop consola.
 - **V2** — Config JSON por VID/PID.
@@ -17,31 +17,39 @@
 - **V8** — virtualpad.json.
 - **V9** — HIDInputSource + HIDScanner. DeviceCandidate.
 - **V10** — spdlog + HidHide. Cadena completa verificada ✓.
-- **V11** — Fix normalizeHIDAxis (unsigned axes). Fix hat switch [1,8] vs [0,8].
+- **V11** — Fix normalizeHIDAxis + hat switch.
+- **V12** — DS4, F310, botones extra, perfiles de juego hot-swap.
 
 ---
 
-## Sesión 2026/03/20 (1) — V12: perfiles de juego + DS4 + F310 + botones extra
+## Sesión 2026/03/21 — V13: Fase C — salida teclado/ratón
 
-### Sistema de perfiles de juego
-- Limpiado `controllers.json`: eliminados macros y bots. Config base pura.
-- Botones sin equivalente Xbox (Rp, Lp, L4, R4) documentados con claves `_` en buttons.
-- `data/FinalFantasyX.json`: overrides para Pro 3 y Pro 2 D-mode.
-- `ConfigLoader`: `GameProfile`, `loadGameProfile`, `applyProfile`. Claves `_` ignoradas en el parser.
-- Selector de perfil en tab Engine: descubre JSONs de perfiles en `data/` automáticamente.
-- Hot-swap en `PadEngine`: detección de cambio en el loop, `effectiveCfg` se recalcula, `input->setConfig()` actualiza IInputSource sin reabrir el device.
-- `setConfig()` añadido a `IInputSource` (virtual pura), implementado en `EightBitDoInputSource` y `HIDInputSource`.
+### Reorganización de fases
+- Fases A y B cerradas definitivamente.
+- Plan: C (teclado/ratón), D (UI visual), E (drift + hot-plug), F (Steam Controller).
 
-### A4.3 — Logitech F310 D-mode ✓
-- Gatillos **digitales** (botones 7/8). Ejes: dwXpos/dwYpos (left), dwZpos/dwRpos (right).
-- Mode `dinput` (WinMM). Descartado modo HID.
+### Implementación
 
-### A4.2 — Sony DualShock 4 v2 ✓ (USB + BT)
-- VID:054C PID:09CC. WinMM dinput. BT y USB comparten VID/PID → config única.
-- Gatillos analógicos en dwUpos (L2) y dwVpos (R2). 13 botones activos.
+#### Acciones de botón — teclado y ratón
+- `ButtonActionType::Keyboard` — combo de teclado con `SendInput` al pulsar/soltar. Edge-triggered.
+- `ButtonActionType::MouseClick` — click de ratón (left/right/middle). Edge-triggered.
+- Press: teclas en orden → down. Release: en orden inverso → up. Correcto para modificadores.
+- Helpers estáticos: `keyNameToVK`, `sendKeyCombo`, `sendMouseButton`.
 
-### A4.4 — Botones extra Pro 3/Pro 2 D-mode ✓
-- Home mapeado. Lp/Rp/L4/R4 sin equivalente Xbox → solo macro/bot en perfiles.
+#### Movimiento de ratón desde stick analógico
+- Targets de eje nuevos: `mouse_x` / `mouse_y` — campos en `GamepadState`, populados por ambos InputSource.
+- PadEngine: acumulador sub-píxel (`mouseAccumX/Y`) → `SendInput(MOUSEEVENTF_MOVE)` cada tick.
+- `speed` como parámetro de `AxisMapping` (default 15 px/tick a deflexión máxima).
+- `setMouseSpeed`/`getMouseSpeed` expuestos en PadEngine.
 
-### Fix: traza periódica HIDInputSource
-- `m_readCount` ahora avanza también en el path de timeout (mandos que solo envían en cambio de estado).
+#### Fixes
+- **Zona muerta ratón**: `kMouseDeadZone = 0.12f` — stick Pro 2 derivaba levemente en reposo.
+- **Inversión eje Y**: `mouse_y` lleva `invert` contrario al `right_y` del mismo eje físico.
+
+### Verificado
+- Pro 2 D-mode: stick derecho mueve cursor ✓, botón 13 (Home) → Alt+Tab ✓.
+
+### Pendientes dentro de Fase C
+- Axis overrides en perfiles de juego.
+- Sintaxis teclado: cambiar array `["alt","tab"]` por cadena `"alt+tab"`.
+- `freeze_output`: flag en acción keyboard → output neutral hasta primer input del mando.

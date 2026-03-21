@@ -73,6 +73,8 @@ bool EightBitDoInputSource::read(GamepadState& state) {
             state.triggerL = (v > 0.0f) ?  v : 0.0f;
             state.triggerR = (v < 0.0f) ? -v : 0.0f;
         }
+        else if (mapping.target == "mouse_x") state.mouseX = v;
+        else if (mapping.target == "mouse_y") state.mouseY = v;
     }
 
     if (m_config.dpad == "pov")

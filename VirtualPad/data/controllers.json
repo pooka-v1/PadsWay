@@ -85,8 +85,8 @@
       "axes": {
         "hid_x":  { "target": "left_x",  "invert": false },
         "hid_y":  { "target": "left_y",  "invert": true  },
-        "hid_z":  { "target": "right_x", "invert": false },
-        "hid_rz": { "target": "right_y", "invert": true  },
+        "hid_z":  { "target": "mouse_x", "invert": false, "speed": 15 },
+        "hid_rz": { "target": "mouse_y", "invert": false, "speed": 15 },
         "hid_brake": { "target": "trigger_r", "invert": false },
         "hid_accel": { "target": "trigger_l", "invert": false }
       },

@@ -47,4 +47,8 @@ struct GamepadState {
     // --- Right stick [-1.0 .. 1.0] ---
     float rightX = 0.0f;
     float rightY = 0.0f;
+
+    // --- Mouse movement [-1.0 .. 1.0] (populated when an axis maps to mouse_x/mouse_y) ---
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
 };

@@ -62,6 +62,81 @@ static std::vector<JoyEntry> scanPorts() {
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// Keyboard / mouse helpers
+// ---------------------------------------------------------------------------
+
+static WORD keyNameToVK(const std::string& name) {
+    if (name == "alt")        return VK_MENU;
+    if (name == "ctrl")       return VK_CONTROL;
+    if (name == "shift")      return VK_SHIFT;
+    if (name == "win")        return VK_LWIN;
+    if (name == "tab")        return VK_TAB;
+    if (name == "enter")      return VK_RETURN;
+    if (name == "esc" || name == "escape") return VK_ESCAPE;
+    if (name == "space")      return VK_SPACE;
+    if (name == "backspace")  return VK_BACK;
+    if (name == "delete")     return VK_DELETE;
+    if (name == "insert")     return VK_INSERT;
+    if (name == "home_key")   return VK_HOME;
+    if (name == "end")        return VK_END;
+    if (name == "pageup")     return VK_PRIOR;
+    if (name == "pagedown")   return VK_NEXT;
+    if (name == "up")         return VK_UP;
+    if (name == "down")       return VK_DOWN;
+    if (name == "left")       return VK_LEFT;
+    if (name == "right")      return VK_RIGHT;
+    if (name == "f1")  return VK_F1;  if (name == "f2")  return VK_F2;
+    if (name == "f3")  return VK_F3;  if (name == "f4")  return VK_F4;
+    if (name == "f5")  return VK_F5;  if (name == "f6")  return VK_F6;
+    if (name == "f7")  return VK_F7;  if (name == "f8")  return VK_F8;
+    if (name == "f9")  return VK_F9;  if (name == "f10") return VK_F10;
+    if (name == "f11") return VK_F11; if (name == "f12") return VK_F12;
+    if (name.size() == 1) {
+        char c = name[0];
+        if (c >= 'a' && c <= 'z') return static_cast<WORD>('A' + (c - 'a'));
+        if (c >= 'A' && c <= 'Z') return static_cast<WORD>(c);
+        if (c >= '0' && c <= '9') return static_cast<WORD>(c);
+    }
+    return 0;
+}
+
+// press=true  → press all keys in order
+// press=false → release all keys in reverse order
+static void sendKeyCombo(const std::vector<std::string>& keys, bool press) {
+    if (keys.empty()) return;
+    std::vector<INPUT> inputs;
+    inputs.reserve(keys.size());
+    auto addKey = [&](const std::string& k, bool up) {
+        WORD vk = keyNameToVK(k);
+        if (vk == 0) return;
+        INPUT inp = {};
+        inp.type       = INPUT_KEYBOARD;
+        inp.ki.wVk     = vk;
+        inp.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+        inputs.push_back(inp);
+    };
+    if (press) {
+        for (const auto& k : keys)          addKey(k, false);
+    } else {
+        for (int i = (int)keys.size()-1; i >= 0; --i) addKey(keys[i], true);
+    }
+    if (!inputs.empty())
+        SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
+}
+
+static void sendMouseButton(const std::string& btn, bool press) {
+    INPUT inp = {};
+    inp.type = INPUT_MOUSE;
+    if      (btn == "left")   inp.mi.dwFlags = press ? MOUSEEVENTF_LEFTDOWN   : MOUSEEVENTF_LEFTUP;
+    else if (btn == "right")  inp.mi.dwFlags = press ? MOUSEEVENTF_RIGHTDOWN  : MOUSEEVENTF_RIGHTUP;
+    else if (btn == "middle") inp.mi.dwFlags = press ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+    else return;
+    SendInput(1, &inp, sizeof(INPUT));
+}
+
+// ---------------------------------------------------------------------------
+
 static int findBotBit(const ControllerConfig& cfg, const std::string& botName) {
     for (const auto& [bit, action] : cfg.buttons)
         if (action.type == ButtonActionType::Bot && action.name == botName)
@@ -125,6 +200,16 @@ std::string PadEngine::getProfilePath() const {
 std::string PadEngine::getActiveProfileName() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_activeProfileName;
+}
+
+void PadEngine::setMouseSpeed(float s) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_mouseSpeed = s;
+}
+
+float PadEngine::getMouseSpeed() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_mouseSpeed;
 }
 
 void PadEngine::setDevice(const std::string& s) {
@@ -358,6 +443,8 @@ void PadEngine::threadFunc() {
     std::unordered_map<int, int>         macroRotCount;
     std::unordered_map<int, float>       macroLastRX;
     std::unordered_map<int, float>       macroLastRY;
+    std::unordered_map<int, bool>        kbPrevBtn;
+    std::unordered_map<int, bool>        mousePrevBtn;
 
     auto initMacros = [&]() {
         macros.clear();
@@ -366,6 +453,12 @@ void PadEngine::threadFunc() {
         macroRotCount.clear();
         macroLastRX.clear();
         macroLastRY.clear();
+        kbPrevBtn.clear();
+        mousePrevBtn.clear();
+        for (const auto& [bit, action] : cfg->buttons) {
+            if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
+            if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
+        }
 
         lightningBotBit = findBotBit(*cfg, "LightningBot");
         if (lightningBotBit > 0)
@@ -407,6 +500,8 @@ void PadEngine::threadFunc() {
     GamepadState state;
     bool         botBtnPrev = false;
     bool         btnAPrev   = false;
+    float        mouseAccumX = 0.0f;
+    float        mouseAccumY = 0.0f;
 
     while (m_running) {
         // Profile hot-swap: detect change and re-apply without reopening the device
@@ -429,8 +524,10 @@ void PadEngine::threadFunc() {
             }
             input->setConfig(*cfg);   // cfg == &effectiveCfg, now updated
             if (bot.isActive()) bot.toggle();
-            botBtnPrev = false;
-            btnAPrev   = false;
+            botBtnPrev  = false;
+            btnAPrev    = false;
+            mouseAccumX = 0.0f;
+            mouseAccumY = 0.0f;
             initMacros();
         }
 
@@ -511,6 +608,47 @@ void PadEngine::threadFunc() {
 
                 if (wasActive && !macro.isActive())
                     spdlog::info("[MACRO][{}] '{}' AUTO-OFF (laps: {})", GetTickCount64(), macroNames[bit], macroRotCount[bit]);
+            }
+
+            // --- Keyboard actions (edge-triggered) ---
+            for (auto& [bit, prev] : kbPrevBtn) {
+                bool pressed = (btns & (1u << (bit - 1))) != 0;
+                const auto& action = cfg->buttons.at(bit);
+                if (pressed && !prev) { sendKeyCombo(action.keys, true);  spdlog::debug("[KB] button {} down", bit); }
+                if (!pressed && prev) { sendKeyCombo(action.keys, false); spdlog::debug("[KB] button {} up",   bit); }
+                prev = pressed;
+            }
+
+            // --- Mouse click actions (edge-triggered) ---
+            for (auto& [bit, prev] : mousePrevBtn) {
+                bool pressed = (btns & (1u << (bit - 1))) != 0;
+                if (pressed != prev) {
+                    sendMouseButton(cfg->buttons.at(bit).mouseButton, pressed);
+                    spdlog::debug("[MOUSE] button {} {}", bit, pressed ? "down" : "up");
+                }
+                prev = pressed;
+            }
+
+            // --- Mouse movement (continuous, sub-pixel accumulator) ---
+            constexpr float kMouseDeadZone = 0.12f;
+            float mx = (fabsf(state.mouseX) > kMouseDeadZone) ? state.mouseX : 0.0f;
+            float my = (fabsf(state.mouseY) > kMouseDeadZone) ? state.mouseY : 0.0f;
+            if (mx != 0.0f || my != 0.0f) {
+                float speed = getMouseSpeed();
+                mouseAccumX += mx * speed;
+                mouseAccumY += my * speed;
+                LONG dx = static_cast<LONG>(mouseAccumX);
+                LONG dy = static_cast<LONG>(mouseAccumY);
+                if (dx != 0 || dy != 0) {
+                    mouseAccumX -= static_cast<float>(dx);
+                    mouseAccumY -= static_cast<float>(dy);
+                    INPUT inp = {};
+                    inp.type       = INPUT_MOUSE;
+                    inp.mi.dwFlags = MOUSEEVENTF_MOVE;
+                    inp.mi.dx      = dx;
+                    inp.mi.dy      = dy;
+                    SendInput(1, &inp, sizeof(INPUT));
+                }
             }
 
             output.update(state);

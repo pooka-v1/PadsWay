@@ -63,6 +63,10 @@ public:
     std::string getProfilePath()       const;
     std::string getActiveProfileName() const;
 
+    // Mouse speed (pixels/tick at full stick deflection) — set from UI slider
+    void  setMouseSpeed(float s);
+    float getMouseSpeed() const;
+
 private:
     void threadFunc();
 
@@ -83,6 +87,7 @@ private:
     GamepadState                 m_lastState;        // protected by m_mutex
     std::string                  m_profilePath;      // protected by m_mutex
     std::string                  m_activeProfileName; // protected by m_mutex
+    float                        m_mouseSpeed = 15.0f; // protected by m_mutex
     HidHideClient                m_hidHide;
 
     void setDevice(const std::string& s);
