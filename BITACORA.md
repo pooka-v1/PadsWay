@@ -16,3 +16,15 @@
 - Loop principal en consola: scan manual de puertos WinMM → lectura → forwarding → salida.
 
 **Hardware objetivo:** 8BitDo Pro 2/Pro 3 en modo D (DInput).
+
+---
+
+## V2Pro3 — ~2026/03/04 — Configuración dinámica por VID/PID
+
+**Qué se hizo:**
+- `ConfigLoader`: carga mappings desde JSON (`configs/controllers.json`) en lugar de estar hardcodeados.
+- `ControllerConfig`: estructura de mapeos (ejes, triggers, botones) indexada por VID/PID del mando.
+- El scan de WinMM captura `wMid`/`wPid` para identificar qué mando está conectado.
+- Soporte para dos modos de dispositivo (`dinput` / `xinput`) en el JSON.
+- Introducción de `AxisMapping` y `TriggerMapping` como tipos de configuración.
+- Librería `nlohmann/json` añadida para parseo de JSON.

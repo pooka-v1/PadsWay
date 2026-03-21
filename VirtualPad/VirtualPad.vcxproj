@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{99ED69D7-A56B-479C-A04B-12C4418908DD}</ProjectGuid>
-    <RootNamespace>VirtualPadV1Pro3</RootNamespace>
+    <ProjectGuid>{CF301D50-A5B0-4764-9240-4205CAE5E210}</ProjectGuid>
+    <RootNamespace>VirtualPadV2Pro3</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -105,7 +105,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>G:\C++\Git\ViGEmClient\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);G:\C++\Git\ViGEmClient\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -123,7 +123,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>G:\C++\Git\ViGEmClient\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);G:\C++\Git\ViGEmClient\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -134,11 +134,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ConfigLoader.cpp" />
     <ClCompile Include="EightBitDoInputSource.cpp" />
     <ClCompile Include="ViGEmOutputAdapter.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ConfigLoader.h" />
+    <ClInclude Include="ControllerConfig.h" />
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="IInputSource.h" />
     <ClInclude Include="EightBitDoInputSource.h" />

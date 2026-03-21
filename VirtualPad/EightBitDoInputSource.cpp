@@ -3,44 +3,8 @@
 
 #pragma comment(lib, "WinMM.lib")
 
-// --- Button mapping for 8BitDo Pro 2 in D-mode ---
-// Determined experimentally with PadScannerV3.
-// JOY_BUTTON1 = bit 0x00000001, JOY_BUTTON2 = 0x00000002, etc.
-static constexpr DWORD BTN_B      = JOY_BUTTON1;
-static constexpr DWORD BTN_A      = JOY_BUTTON2;
-static constexpr DWORD BTN_Y      = JOY_BUTTON4;
-static constexpr DWORD BTN_X      = JOY_BUTTON5;
-static constexpr DWORD BTN_LB     = JOY_BUTTON7;
-static constexpr DWORD BTN_RB     = JOY_BUTTON8;
-static constexpr DWORD BTN_SELECT = JOY_BUTTON11;
-static constexpr DWORD BTN_START  = JOY_BUTTON12;
-static constexpr DWORD BTN_HOME   = JOY_BUTTON13;
-static constexpr DWORD BTN_L3     = JOY_BUTTON14;
-static constexpr DWORD BTN_R3     = JOY_BUTTON15;
-
-// Axis mapping in D-mode:
-//   dwXpos = Left stick X
-//   dwYpos = Left stick Y  (inverted: low = up)
-//   dwZpos = Right stick X
-//   dwRpos = Right stick Y (inverted: low = up)
-//   dwUpos = L2 analog
-//   dwVpos = R2 analog
-//   dwPOV  = D-pad hat switch
-
-EightBitDoInputSource::EightBitDoInputSource(UINT joyId)
-    : m_joyId(joyId) {}
-
-UINT EightBitDoInputSource::scan() {
-    UINT numDevs = joyGetNumDevs();
-    for (UINT id = 0; id < numDevs; ++id) {
-        JOYINFOEX info = {};
-        info.dwSize  = sizeof(JOYINFOEX);
-        info.dwFlags = JOY_RETURNBUTTONS;
-        if (joyGetPosEx(id, &info) == JOYERR_NOERROR)
-            return id;
-    }
-    return UINT_MAX;
-}
+EightBitDoInputSource::EightBitDoInputSource(UINT joyId, const ControllerConfig& config)
+    : m_joyId(joyId), m_config(config) {}
 
 bool EightBitDoInputSource::isConnected() const {
     JOYINFOEX info;
@@ -52,84 +16,89 @@ bool EightBitDoInputSource::isConnected() const {
 bool EightBitDoInputSource::read(GamepadState& state) {
     JOYINFOEX info;
     info.dwSize  = sizeof(JOYINFOEX);
-    info.dwFlags = JOY_RETURNALL;  // Request all axes, buttons and POV
+    info.dwFlags = JOY_RETURNALL;
 
     if (joyGetPosEx(m_joyId, &info) != JOYERR_NOERROR)
         return false;
 
-    // --- Face buttons ---
-    state.btnA = (info.dwButtons & BTN_A) != 0;
-    state.btnB = (info.dwButtons & BTN_B) != 0;
-    state.btnX = (info.dwButtons & BTN_X) != 0;
-    state.btnY = (info.dwButtons & BTN_Y) != 0;
+    // Reads a button by name; returns false if not mapped.
+    auto btn = [&](const std::string& name) -> bool {
+        auto it = m_config.buttons.find(name);
+        if (it == m_config.buttons.end()) return false;
+        return (info.dwButtons & (1u << (it->second - 1))) != 0;
+    };
 
-    // --- Shoulder buttons ---
-    state.btnLB = (info.dwButtons & BTN_LB) != 0;
-    state.btnRB = (info.dwButtons & BTN_RB) != 0;
+    // Reads an axis by name; applies inversion if configured.
+    auto axis = [&](const std::string& name) -> float {
+        auto it = m_config.axes.find(name);
+        if (it == m_config.axes.end()) return 0.0f;
+        float v = normalizeAxis(getAxisValue(info, it->second.source));
+        return it->second.invert ? -v : v;
+    };
 
-    // --- Analog triggers ---
-    // In D-mode the 8BitDo Pro 2 exposes L2/R2 on the U and V axes.
-    state.triggerL = normalizeTrigger(info.dwUpos);
-    state.triggerR = normalizeTrigger(info.dwVpos);
+    // Reads a trigger by name; axis takes priority over button fallback.
+    auto trigger = [&](const std::string& name) -> float {
+        auto it = m_config.triggers.find(name);
+        if (it == m_config.triggers.end()) return 0.0f;
+        const auto& t = it->second;
+        if (!t.axis.empty())
+            return normalizeTrigger(getAxisValue(info, t.axis));
+        if (t.button > 0)
+            return (info.dwButtons & (1u << (t.button - 1))) ? 1.0f : 0.0f;
+        return 0.0f;
+    };
 
-    // --- Menu buttons ---
-    state.btnBack  = (info.dwButtons & BTN_SELECT) != 0;
-    state.btnStart = (info.dwButtons & BTN_START)  != 0;
-    state.btnHome  = (info.dwButtons & BTN_HOME)   != 0;
+    state.btnA     = btn("a");
+    state.btnB     = btn("b");
+    state.btnX     = btn("x");
+    state.btnY     = btn("y");
+    state.btnLB    = btn("l1");
+    state.btnRB    = btn("r1");
+    state.btnBack  = btn("select");
+    state.btnStart = btn("start");
+    state.btnHome  = btn("home");
+    state.btnL3    = btn("l3");
+    state.btnR3    = btn("r3");
 
-    // --- Stick clicks ---
-    state.btnL3 = (info.dwButtons & BTN_L3) != 0;
-    state.btnR3 = (info.dwButtons & BTN_R3) != 0;
+    state.leftX  = axis("left_x");
+    state.leftY  = axis("left_y");
+    state.rightX = axis("right_x");
+    state.rightY = axis("right_y");
 
-    // --- D-Pad ---
-    parsePOV(info.dwPOV, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
+    state.triggerL = trigger("l2");
+    state.triggerR = trigger("r2");
 
-    // --- Sticks ---
-    // The X axis is natural: low = left, high = right.
-    // The Y axis is inverted in WinMM: low = up, high = down.
-    // We negate Y so that +1.0 means "up", matching Xbox convention.
-    state.leftX  =  normalizeAxis(info.dwXpos);
-    state.leftY  = -normalizeAxis(info.dwYpos);  // inverted
-    state.rightX =  normalizeAxis(info.dwZpos);
-    state.rightY = -normalizeAxis(info.dwRpos);  // inverted
+    if (m_config.dpad == "pov")
+        parsePOV(info.dwPOV, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
 
     return true;
 }
 
+DWORD EightBitDoInputSource::getAxisValue(const JOYINFOEX& info, const std::string& source) {
+    if (source == "dwXpos") return info.dwXpos;
+    if (source == "dwYpos") return info.dwYpos;
+    if (source == "dwZpos") return info.dwZpos;
+    if (source == "dwRpos") return info.dwRpos;
+    if (source == "dwUpos") return info.dwUpos;
+    if (source == "dwVpos") return info.dwVpos;
+    return 32768; // center value as safe fallback
+}
+
 float EightBitDoInputSource::normalizeAxis(DWORD value) {
-    // Input:  0 to 65535 (center ≈ 32767.5)
-    // Output: -1.0 to +1.0
     float normalized = (static_cast<float>(value) - 32767.5f) / 32767.5f;
     return std::clamp(normalized, -1.0f, 1.0f);
 }
 
 float EightBitDoInputSource::normalizeTrigger(DWORD value) {
-    // Input:  0 to 65535
-    // Output: 0.0 to 1.0
     float normalized = static_cast<float>(value) / 65535.0f;
     return std::clamp(normalized, 0.0f, 1.0f);
 }
 
 void EightBitDoInputSource::parsePOV(DWORD pov, bool& up, bool& down, bool& left, bool& right) {
-    // POV angles are in hundredths of a degree, clockwise from North:
-    //   0     = N (up)
-    //   4500  = NE  →  up + right
-    //   9000  = E (right)
-    //   13500 = SE  →  right + down
-    //   18000 = S (down)
-    //   22500 = SW  →  down + left
-    //   27000 = W (left)
-    //   31500 = NW  →  left + up
-    //   65535 = centered (JOY_POVCENTERED)
-    //
-    // We use inclusive bounds on both sides of each range so that diagonal
-    // angles activate exactly two directions.
-
     if (pov == JOY_POVCENTERED) {
         up = down = left = right = false;
         return;
     }
-
     up    = (pov >= 31500 || pov <= 4500);
     right = (pov >= 4500  && pov <= 13500);
     down  = (pov >= 13500 && pov <= 22500);

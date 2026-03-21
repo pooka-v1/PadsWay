@@ -5,6 +5,7 @@
 
 #include "EightBitDoInputSource.h"
 #include "ViGEmOutputAdapter.h"
+#include "ConfigLoader.h"
 
 #pragma comment(lib, "ViGEmClient.lib")
 #pragma comment(lib, "Setupapi.lib")
@@ -14,6 +15,8 @@ struct JoyEntry {
     UINT    id;
     UINT    axes;
     UINT    buttons;
+    WORD    wMid;
+    WORD    wPid;
     wchar_t name[MAXPNAMELEN];
 };
 
@@ -33,6 +36,8 @@ static std::vector<JoyEntry> scanPorts() {
         if (joyGetDevCaps(id, &caps, sizeof(caps)) == JOYERR_NOERROR) {
             e.axes    = caps.wNumAxes;
             e.buttons = caps.wNumButtons;
+            e.wMid    = caps.wMid;
+            e.wPid    = caps.wPid;
             wcsncpy_s(e.name, caps.szPname, MAXPNAMELEN);
         } else {
             wcscpy_s(e.name, L"(unknown)");
@@ -52,36 +57,60 @@ int main() {
     // scanning first lets the real device claim its port before ViGEm occupies one.
     std::cout << "Scanning for joystick devices...\n";
 
-    UINT joyPort = UINT_MAX;
+    UINT     joyPort = UINT_MAX;
+    JoyEntry selected = {};
+
     while (joyPort == UINT_MAX) {
         if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) return 0;
 
         auto entries = scanPorts();
 
         if (entries.empty()) {
-            std::cout << "\rNo joystick found. Connect the Pro 2 in D-mode.    ";
+            std::cout << "\rNo joystick found. Connect the controller in D-mode.    ";
             Sleep(500);
             continue;
         }
 
         if (entries.size() == 1) {
-            joyPort = entries[0].id;
-            printf("\nAuto-selected port %u: %ls (%u axes, %u buttons)\n",
-                joyPort, entries[0].name, entries[0].axes, entries[0].buttons);
+            selected = entries[0];
+            joyPort  = selected.id;
+            printf("\nAuto-selected port %u: %ls (%u axes, %u buttons) [VID=%04X PID=%04X]\n",
+                joyPort, selected.name, selected.axes, selected.buttons,
+                selected.wMid, selected.wPid);
         } else {
-            // Multiple devices found: show list and let the user pick.
             std::cout << "\nMultiple joystick devices found:\n";
             for (auto& e : entries)
-                printf("  Port %u: %ls (%u axes, %u buttons)\n",
-                    e.id, e.name, e.axes, e.buttons);
-            std::cout << "Enter port number of the 8BitDo Pro 2: ";
+                printf("  Port %u: %ls (%u axes, %u buttons) [VID=%04X PID=%04X]\n",
+                    e.id, e.name, e.axes, e.buttons, e.wMid, e.wPid);
+            std::cout << "Enter port number: ";
             std::cin >> joyPort;
+            for (auto& e : entries)
+                if (e.id == joyPort) { selected = e; break; }
         }
     }
 
-    EightBitDoInputSource input(joyPort);
+    // --- Step 2: Load controller config and find the one matching the selected device. ---
+    std::vector<ControllerConfig> configs;
+    try {
+        configs = loadControllerConfigs("configs/controllers.json");
+    } catch (const std::exception& ex) {
+        std::cerr << "Error loading config: " << ex.what() << "\n";
+        return 1;
+    }
 
-    // --- Step 2: Initialize ViGEm (virtual Xbox 360) after the real port is secured. ---
+    const ControllerConfig* cfg = findConfig(configs, selected.wMid, selected.wPid);
+    if (!cfg) {
+        fprintf(stderr,
+            "No config found for VID=%04X PID=%04X (%ls).\n"
+            "Add an entry to configs/controllers.json and restart.\n",
+            selected.wMid, selected.wPid, selected.name);
+        return 1;
+    }
+    printf("Config loaded: %s\n", cfg->source_name.c_str());
+
+    EightBitDoInputSource input(joyPort, *cfg);
+
+    // --- Step 3: Initialize ViGEm (virtual Xbox 360) after the real port is secured. ---
     ViGEmOutputAdapter output;
     if (!output.isReady()) {
         std::cerr << "Aborting: could not create virtual pad.\n";
@@ -90,7 +119,6 @@ int main() {
 
     std::cout << "Forwarding input. Press ESC to exit.\n\n";
 
-    // --- Main loop ---
     GamepadState state;
 
     while (true) {
@@ -98,15 +126,14 @@ int main() {
             break;
 
         if (!input.isConnected()) {
-            std::cout << "\r[8BitDo Pro 2 (D-mode)] disconnected. Waiting...    ";
+            printf("\r[%s] disconnected. Waiting...    ", cfg->source_name.c_str());
             Sleep(500);
             continue;
         }
 
         if (input.read(state)) {
             output.update(state);
-            // Debug: print what is being read from the controller.
-            printf("\r  A:%d B:%d X:%d Y:%d LB:%d RB:%d Bk:%d St:%d | LX:%+.2f LY:%+.2f | RX:%+.2f RY:%+.2f | L2:%.2f R2:%.2f",
+            printf("\r  A:%d B:%d X:%d Y:%d L1:%d R1:%d Bk:%d St:%d | LX:%+.2f LY:%+.2f | RX:%+.2f RY:%+.2f | L2:%.2f R2:%.2f",
                 state.btnA, state.btnB, state.btnX, state.btnY,
                 state.btnLB, state.btnRB, state.btnBack, state.btnStart,
                 state.leftX, state.leftY,
@@ -114,7 +141,7 @@ int main() {
                 state.triggerL, state.triggerR);
         }
 
-        Sleep(8);  // ~120 Hz polling rate
+        Sleep(8);
     }
 
     std::cout << "\nGoodbye.\n";

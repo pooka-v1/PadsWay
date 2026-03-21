@@ -1,6 +1,7 @@
 # VirtualPad
 
 Lee mandos físicos (WinMM) y los reenvía como un mando Xbox 360 virtual via ViGEm.
+Configuración de mandos por JSON sin tocar el código.
 
 ---
 
@@ -14,26 +15,52 @@ Lee mandos físicos (WinMM) y los reenvía como un mando Xbox 360 virtual via Vi
 ### Para compilar
 
 - Visual Studio 2022 (con soporte C++17 y Windows SDK)
+- `nlohmann/json` incluido en el repositorio
 
 ---
 
-## Cómo funciona
+## Configurar un mando — `configs/controllers.json`
 
-1. Escanea los puertos WinMM buscando joysticks conectados.
-2. Lee el estado del mando físico (`joyGetPosEx`): ejes, botones, D-pad.
-3. Normaliza el estado a un `GamepadState` interno.
-4. Envía el `GamepadState` al mando Xbox 360 virtual creado por ViGEmBus.
+Cada entrada describe un mando físico identificado por **VID y PID**.
 
-El loop corre en consola. El mando físico queda emulado como Xbox 360 para cualquier juego.
+```json
+{
+  "vid": "XXXX",
+  "pid": "YYYY",
+  "source_name": "Nombre descriptivo",
+  "mode": "dinput",
+  "buttons": { "1": "a", "2": "b" },
+  "axes": { "dwXpos": { "target": "left_x", "invert": false } },
+  "dpad": "pov"
+}
+```
+
+El campo `"mode"` determina qué API se usa:
+
+| mode | API | Cuándo usarlo |
+|---|---|---|
+| `"dinput"` | WinMM (`joyGetPosEx`) | Mando en modo D (DInput) |
+| `"xinput"` | WinMM compat layer | Mando en modo X (XInput) |
 
 ---
 
-## Arquitectura
+## Ejes disponibles (modo `dinput`)
 
-| Componente | Rol |
+| Nombre | Campo WinMM | Uso típico |
+|---|---|---|
+| `"dwXpos"` | `dwXpos` | Stick izquierdo X |
+| `"dwYpos"` | `dwYpos` | Stick izquierdo Y |
+| `"dwZpos"` | `dwZpos` | Stick derecho X |
+| `"dwRpos"` | `dwRpos` | Stick derecho Y |
+
+---
+
+## Botones virtuales disponibles
+
+| Valor | Botón virtual |
 |---|---|
-| `IInputSource` | Interfaz abstracta de lectura (strategy pattern) |
-| `EightBitDoInputSource` | Lee mando físico vía WinMM, normaliza a `GamepadState` |
-| `GamepadState` | Estado normalizado compartido (sticks, triggers, botones, dpad) |
-| `ViGEmOutputAdapter` | Crea y actualiza el mando Xbox 360 virtual vía ViGEmBus |
-| `VirtualPad.cpp` | Loop principal: scan → lectura → forwarding |
+| `"a"` / `"b"` / `"x"` / `"y"` | Cara |
+| `"l1"` / `"r1"` | Bumpers |
+| `"select"` / `"start"` | Back / Start |
+| `"l3"` / `"r3"` | Click sticks |
+| `{ "type": "trigger", "target": "l2" }` | Gatillo digital |
