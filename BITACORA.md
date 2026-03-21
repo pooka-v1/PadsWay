@@ -28,3 +28,20 @@
 - Soporte para dos modos de dispositivo (`dinput` / `xinput`) en el JSON.
 - Introducción de `AxisMapping` y `TriggerMapping` como tipos de configuración.
 - Librería `nlohmann/json` añadida para parseo de JSON.
+
+---
+
+## V3Pro3 — ~2026/03/10 — Bot visual: LightningBot (FFX Thunder Plains)
+
+**Qué se hizo:**
+- `LightningBot`: bot especializado para esquivar rayos en Final Fantasy X (Thunder Plains).
+- Detecta flash lavanda en pantalla (brightness > umbral) monitorizando una región de la pantalla.
+- Thread dedicado: detect → wait → press (pulsa un botón del mando virtual al detectar el flash).
+- Contador de esquivas (`dodgeCount`).
+- La acción bot se dispara desde `ButtonActionType::Bot` en la config: un botón físico activa/desactiva el bot.
+
+**TriggerCount** (`tools/TriggerCount/`): herramienta de calibración desarrollada en paralelo.
+- Monitoriza flashes de pantalla (misma lógica que LightningBot) sin pulsar ningún botón.
+- Mide duración de la pulsación manual del botón A y la correlaciona con los flashes detectados.
+- Usada para calibrar los timings del LightningBot antes de automatizarlos.
+- No forma parte del producto final — es un utilitario de desarrollo/investigación.

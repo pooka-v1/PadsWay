@@ -4,13 +4,10 @@
 #include <vector>
 
 #include "EightBitDoInputSource.h"
-#include "ViGEmOutputAdapter.h"
 #include "ConfigLoader.h"
-#include "LightningBot.h"
+#include "FlashMonitor.h"
 
-#pragma comment(lib, "ViGEmClient.lib")
-#pragma comment(lib, "Setupapi.lib")
-#pragma comment(lib, "cfgmgr32.lib")
+#pragma comment(lib, "WinMM.lib")
 
 struct JoyEntry {
     UINT    id;
@@ -50,12 +47,12 @@ static std::vector<JoyEntry> scanPorts() {
 
 int main() {
     SetConsoleOutputCP(CP_UTF8);
-    std::cout << "=== VirtualPad ===\n";
-    std::cout << "Press ESC to exit.\n\n";
+    std::cout << "=== TriggerCount ===\n";
+    std::cout << "Monitors screen flashes and measures your A-button press duration.\n";
+    std::cout << "  Button 6 : toggle flash monitor ON/OFF\n";
+    std::cout << "  Hold ESC : exit\n\n";
 
-    // --- Step 1: Find the real controller BEFORE creating the virtual one.
-    // ViGEm's virtual Xbox 360 competes with the real controller for WinMM slots;
-    // scanning first lets the real device claim its port before ViGEm occupies one.
+    // --- Step 1: Find the real controller. ---
     std::cout << "Scanning for joystick devices...\n";
 
     UINT     joyPort = UINT_MAX;
@@ -90,7 +87,7 @@ int main() {
         }
     }
 
-    // --- Step 2: Load controller config and find the one matching the selected device. ---
+    // --- Step 2: Load controller config. ---
     std::vector<ControllerConfig> configs;
     try {
         configs = loadControllerConfigs("configs/controllers.json");
@@ -111,27 +108,24 @@ int main() {
 
     EightBitDoInputSource input(joyPort, *cfg);
 
-    // --- Step 3: Initialize ViGEm (virtual Xbox 360) after the real port is secured. ---
-    ViGEmOutputAdapter output;
-    LightningBot       bot;
-    if (!output.isReady()) {
-        std::cerr << "Aborting: could not create virtual pad.\n";
-        return 1;
-    }
+    // --- Step 3: Start flash monitor (idle until toggled ON with button 6). ---
+    FlashMonitor monitor;
 
-    std::cout << "Forwarding input. Hold ESC for 1 second to exit.\n\n";
+    std::cout << "Ready. Press button 6 on the controller to start flash monitoring.\n\n";
 
     GamepadState state;
     bool         btn6Prev  = false;
     bool         btnAPrev  = false;
-    ULONGLONG    escSince  = 0;   // timestamp when ESC was first seen held down
+    ULONGLONG    aPressStart = 0;   // timestamp of A rising edge
+    ULONGLONG    escSince    = 0;
 
     while (true) {
+        // Exit: hold ESC for 1 second
         if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
             if (escSince == 0) escSince = GetTickCount64();
-            if (GetTickCount64() - escSince >= 1000) break;  // held for 1 s → exit
+            if (GetTickCount64() - escSince >= 1000) break;
         } else {
-            escSince = 0;   // released → reset timer
+            escSince = 0;
         }
 
         if (!input.isConnected()) {
@@ -140,40 +134,45 @@ int main() {
             continue;
         }
 
-        // --- Detect button 6 rising edge to toggle the lightning bot ---
-        // Button N uses bit (N-1) in dwButtons (WinMM convention).
+        // --- Button 6: toggle flash monitor ---
         {
             JOYINFOEX raw = {};
             raw.dwSize  = sizeof(JOYINFOEX);
             raw.dwFlags = JOY_RETURNBUTTONS;
             bool btn6 = false;
             if (joyGetPosEx(joyPort, &raw) == JOYERR_NOERROR)
-                btn6 = (raw.dwButtons >> 5) & 1u;  // button 6 = bit 5
+                btn6 = (raw.dwButtons >> 5) & 1u;
 
             if (btn6 && !btn6Prev) {
-                bot.toggle();
-                printf("\n[BOT] Lightning bot %s\n", bot.isActive() ? "ON" : "OFF");
+                monitor.toggle();
+                printf("\n[MON] Flash monitor %s\n",
+                       monitor.isActive() ? "ON" : "OFF");
             }
             btn6Prev = btn6;
         }
 
         if (input.read(state)) {
-            // Log manual A press (rising edge, before bot OR)
-            if (state.btnA && !btnAPrev)
-                printf("\n[MAN][%llu] Manual A press\n", GetTickCount64());
+            ULONGLONG now = GetTickCount64();
+
+            // --- A button: measure press duration ---
+            if (state.btnA && !btnAPrev) {
+                // Rising edge: record when the press started
+                aPressStart = now;
+                printf("[A]  Pressed   T=%llu  (flashes so far: %d)\n",
+                       now, monitor.flashCount());
+            }
+            if (!state.btnA && btnAPrev) {
+                // Falling edge: compute and print hold duration
+                ULONGLONG held = now - aPressStart;
+                printf("[A]  Released  T=%llu  held=%llums\n", now, held);
+            }
             btnAPrev = state.btnA;
-
-            // OR in the bot's A press so it works alongside the real controller
-            bool botPressed = bot.consumePressA();
-            if (botPressed)
-                state.btnA = true;
-
-            output.update(state);
         }
 
         Sleep(8);
     }
 
-    std::cout << "\nGoodbye.\n";
+    printf("\nTotal flashes detected: %d\n", monitor.flashCount());
+    std::cout << "Goodbye.\n";
     return 0;
 }

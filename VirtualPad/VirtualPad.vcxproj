@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{CF301D50-A5B0-4764-9240-4205CAE5E210}</ProjectGuid>
-    <RootNamespace>VirtualPadV2Pro3</RootNamespace>
+    <ProjectGuid>{D90773CE-E112-4A34-9788-608C2FF32749}</ProjectGuid>
+    <RootNamespace>VirtualPadV3Pro3</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -136,15 +136,17 @@
   <ItemGroup>
     <ClCompile Include="ConfigLoader.cpp" />
     <ClCompile Include="EightBitDoInputSource.cpp" />
+    <ClCompile Include="LightningBot.cpp" />
     <ClCompile Include="ViGEmOutputAdapter.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ConfigLoader.h" />
     <ClInclude Include="ControllerConfig.h" />
+    <ClInclude Include="EightBitDoInputSource.h" />
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="IInputSource.h" />
-    <ClInclude Include="EightBitDoInputSource.h" />
+    <ClInclude Include="LightningBot.h" />
     <ClInclude Include="ViGEmOutputAdapter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
