@@ -1,7 +1,7 @@
 #pragma once
 #include <vector>
 #include <windows.h>
-#include "GamepadState.h"
+#include "../GamepadState.h"
 
 // ---- Effect: what a single step writes to the controller state ----
 // Buttons are OR'd into the existing state; sticks override only if hasXxxStick is true.

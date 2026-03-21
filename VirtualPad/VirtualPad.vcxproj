@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{B8F83163-7E9E-4D23-A440-64286D495393}</ProjectGuid>
+    <ProjectGuid>{641B8EEF-CF78-41D2-AF64-DBE8E63A18DE}</ProjectGuid>
     <RootNamespace>VirtualPad</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -134,26 +134,24 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="ConfigLoader.cpp" />
-    <ClCompile Include="EightBitDoInputSource.cpp" />
-    <ClCompile Include="LightningBot.cpp" />
-    <ClCompile Include="LuluMacro.cpp" />
-    <ClCompile Include="Macro.cpp" />
-    <ClCompile Include="MacroParser.cpp" />
-    <ClCompile Include="ViGEmOutputAdapter.cpp" />
+    <ClCompile Include="config\ConfigLoader.cpp" />
+    <ClCompile Include="input\EightBitDoInputSource.cpp" />
+    <ClCompile Include="bots\LightningBot.cpp" />
+    <ClCompile Include="macros\Macro.cpp" />
+    <ClCompile Include="macros\MacroParser.cpp" />
+    <ClCompile Include="output\ViGEmOutputAdapter.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="ConfigLoader.h" />
-    <ClInclude Include="ControllerConfig.h" />
+    <ClInclude Include="config\ConfigLoader.h" />
+    <ClInclude Include="input\ControllerConfig.h" />
     <ClInclude Include="GamepadState.h" />
-    <ClInclude Include="IInputSource.h" />
-    <ClInclude Include="EightBitDoInputSource.h" />
-    <ClInclude Include="LightningBot.h" />
-    <ClInclude Include="LuluMacro.h" />
-    <ClInclude Include="Macro.h" />
-    <ClInclude Include="MacroParser.h" />
-    <ClInclude Include="ViGEmOutputAdapter.h" />
+    <ClInclude Include="input\IInputSource.h" />
+    <ClInclude Include="input\EightBitDoInputSource.h" />
+    <ClInclude Include="bots\LightningBot.h" />
+    <ClInclude Include="macros\Macro.h" />
+    <ClInclude Include="macros\MacroParser.h" />
+    <ClInclude Include="output\ViGEmOutputAdapter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

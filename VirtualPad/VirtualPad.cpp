@@ -4,12 +4,12 @@
 #include <mmsystem.h>
 #include <vector>
 
-#include "EightBitDoInputSource.h"
-#include "ViGEmOutputAdapter.h"
-#include "ConfigLoader.h"
-#include "LightningBot.h"
-#include "Macro.h"
-#include "MacroParser.h"
+#include "input/EightBitDoInputSource.h"
+#include "output/ViGEmOutputAdapter.h"
+#include "config/ConfigLoader.h"
+#include "bots/LightningBot.h"
+#include "macros/Macro.h"
+#include "macros/MacroParser.h"
 #include <unordered_map>
 #include <string>
 

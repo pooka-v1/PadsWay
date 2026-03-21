@@ -2,7 +2,7 @@
 
 #include <windows.h>
 #include <ViGEm/Client.h>
-#include "GamepadState.h"
+#include "../GamepadState.h"
 
 // Wraps the ViGEmBus driver to expose a virtual Xbox 360 controller to Windows.
 //

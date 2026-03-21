@@ -1,5 +1,5 @@
 #pragma once
-#include "ControllerConfig.h"
+#include "../input/ControllerConfig.h"
 #include <vector>
 #include <string>
 #include <unordered_map>

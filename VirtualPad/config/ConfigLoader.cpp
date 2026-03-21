@@ -1,5 +1,5 @@
 #include "ConfigLoader.h"
-#include "nlohmann/json.hpp"
+#include "./nlohmann/json.hpp"
 #include <fstream>
 #include <stdexcept>
 
@@ -12,7 +12,7 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
     json root = json::parse(f);
     std::vector<ControllerConfig> result;
-
+ 
     for (const auto& c : root.at("controllers")) {
         ControllerConfig cfg;
         cfg.vid         = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));

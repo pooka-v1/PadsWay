@@ -61,3 +61,18 @@
 - `tools/lulu_macro_tests.csv`: datos de prueba de la LuluMacro, registro de iteraciones de calibración del timing de la rotación.
 
 **Estado:** aplicación de consola pura, sin GUI. Versión pre-refactor.
+
+---
+
+## V5Pro3 — ~2026/03/15 — Refactor: modularización en directorios
+
+**Qué se hizo:**
+- Reorganización de todos los archivos fuente en subdirectorios:
+  - `input/` — IInputSource, EightBitDoInputSource, ControllerConfig
+  - `output/` — ViGEmOutputAdapter
+  - `config/` — ConfigLoader
+  - `bots/` — LightningBot
+  - `macros/` — Macro, MacroParser
+- En root solo quedan: `VirtualPad.cpp`, `GamepadState.h`, `.vcxproj`.
+- Los includes se actualizan a rutas relativas.
+- No se añade funcionalidad nueva: es un refactor puro de estructura.

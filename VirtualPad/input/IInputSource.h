@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GamepadState.h"
+#include "../GamepadState.h"
 
 // Pure abstract interface that every input source must implement.
 //
