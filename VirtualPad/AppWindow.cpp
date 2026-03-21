@@ -1,6 +1,7 @@
 #include "AppWindow.h"
 
 #include <algorithm>
+#include <chrono>
 #include <d3d11.h>
 #include <dxgi.h>
 #include <tchar.h>
@@ -148,12 +149,16 @@ void AppWindow::renderEngineTab() {
         ImGui::Spacing();
 
         auto candidates = m_engine.getCandidates();
-        for (const auto& dev : candidates) {
+        for (int i = 0; i < (int)candidates.size(); ++i) {
+            const auto& dev = candidates[i];
+            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
+            const char* displayName = cfg ? cfg->source_name.c_str() : dev.name.c_str();
+            const char* src = (dev.source == DeviceCandidate::Source::HID) ? "HID" : "WinMM";
             char label[256];
-            snprintf(label, sizeof(label), "[Port %u]  %ls    VID:%04X  PID:%04X    %u axes  %u buttons",
-                dev.port, dev.name, dev.vid, dev.pid, dev.axes, dev.buttons);
+            snprintf(label, sizeof(label), "[%s]  %s    VID:%04X  PID:%04X",
+                src, displayName, dev.vid, dev.pid);
             if (ImGui::Button(label))
-                m_engine.selectDevice(dev.port);
+                m_engine.selectDevice(i);
         }
     } else if (connected) {
         ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "●");
@@ -277,18 +282,48 @@ static void drawPOVCompass(DWORD pov) {
 // ---------------------------------------------------------------------------
 
 void AppWindow::renderScannerTab() {
-    // Auto-refresh device list every second
-    ULONGLONG now        = GetTickCount64();
-    uint16_t  vVid       = m_engine.getVirtualVid();
-    uint16_t  vPid       = m_engine.getVirtualPid();
+    ULONGLONG now  = GetTickCount64();
+    uint16_t  vVid = m_engine.getVirtualVid();
+    uint16_t  vPid = m_engine.getVirtualPid();
+
+    // WinMM scan — fast, runs synchronously every second
     if (now - m_lastScanTime > 1000) {
         auto all = PadScanner::scan();
         m_scanDevices.clear();
-        for (auto& d : all)
-            if (!(vVid && d.vid == vVid && d.pid == vPid)) m_scanDevices.push_back(d);
+        for (auto& d : all) {
+            if (vVid && d.vid == vVid && d.pid == vPid) continue; // skip virtual pad
+            const ControllerConfig* dcfg = findConfig(m_controllerConfigs, d.vid, d.pid);
+            if (dcfg && dcfg->mode == "hid") continue;           // HID devices go to HID section
+            m_scanDevices.push_back(d);
+        }
         m_lastScanTime = now;
-        if (m_scanSelected >= (int)m_scanDevices.size())
-            m_scanSelected = -1;
+        if (m_scanSelected >= (int)m_scanDevices.size()) m_scanSelected = -1;
+    }
+
+    // HID scan — slow (opens every HID device), runs on a background thread
+    auto kickHidScan = [&]() {
+        if (!m_hidScanRunning.exchange(true)) {
+            m_lastHidScanTime = now;
+            m_hidScanFuture = std::async(std::launch::async, HIDScanner::scan);
+        }
+    };
+    if (now - m_lastHidScanTime > 1000)
+        kickHidScan();
+
+    // Apply HID results as soon as the background scan completes
+    if (m_hidScanRunning && m_hidScanFuture.valid() &&
+        m_hidScanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        auto raw = m_hidScanFuture.get();
+        // Remove virtual pad and devices already visible via WinMM
+        raw.erase(std::remove_if(raw.begin(), raw.end(), [&](const HIDScanner::DeviceInfo& h) {
+            if (vVid && h.vid == vVid && h.pid == vPid) return true;
+            for (auto& w : m_scanDevices)
+                if (w.vid == h.vid && w.pid == h.pid) return true;
+            return false;
+        }), raw.end());
+        m_hidDevices = std::move(raw);
+        if (m_hidSelected >= (int)m_hidDevices.size()) m_hidSelected = -1;
+        m_hidScanRunning = false;
     }
 
     ImGui::Spacing();
@@ -302,23 +337,26 @@ void AppWindow::renderScannerTab() {
     // ── Left panel: device list ──────────────────────────────────────────
     ImGui::BeginChild("##DeviceList", { m_scanSplitX, 0.0f }, true);
 
-    ImGui::Text("Devices (%zu)", m_scanDevices.size());
+    ImGui::Text("WinMM (%zu)", m_scanDevices.size());
     ImGui::SameLine();
     if (ImGui::SmallButton("Refresh")) {
         auto all = PadScanner::scan();
         m_scanDevices.clear();
-        for (auto& d : all)
-            if (!(vVid && d.vid == vVid && d.pid == vPid)) m_scanDevices.push_back(d);
-        m_lastScanTime = GetTickCount64();
-        if (m_scanSelected >= (int)m_scanDevices.size())
-            m_scanSelected = -1;
+        for (auto& d : all) {
+            if (vVid && d.vid == vVid && d.pid == vPid) continue;
+            const ControllerConfig* dcfg = findConfig(m_controllerConfigs, d.vid, d.pid);
+            if (dcfg && dcfg->mode == "hid") continue;
+            m_scanDevices.push_back(d);
+        }
+        m_lastScanTime = now;
+        if (m_scanSelected >= (int)m_scanDevices.size()) m_scanSelected = -1;
+        kickHidScan();
     }
     ImGui::Separator();
 
     if (m_scanDevices.empty()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("No devices found.");
-        ImGui::TextDisabled("Connect a controller and click Refresh.");
+        ImGui::TextDisabled("No WinMM devices found.");
     } else {
         for (int i = 0; i < (int)m_scanDevices.size(); ++i) {
             const auto& dev = m_scanDevices[i];
@@ -329,14 +367,44 @@ void AppWindow::renderScannerTab() {
             else
                 snprintf(label, sizeof(label), "[%u] %ls", dev.port, dev.name);
 
-            bool selected = (m_scanSelected == i);
-            if (ImGui::Selectable(label, selected, 0, { 0, 0 }))
+            bool sel = (m_scanSelected == i);
+            if (ImGui::Selectable(label, sel, 0, { 0, 0 })) {
                 m_scanSelected = i;
-
-            // Show VID/PID + capabilities as a subtitle
+                m_hidSelected  = -1;
+            }
             ImGui::SameLine();
             ImGui::TextDisabled("  VID:%04X PID:%04X  %uax %ubtn",
                 dev.vid, dev.pid, dev.axes, dev.buttons);
+        }
+    }
+
+    // ── HID-only devices ──────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Text("HID-only (%zu)", m_hidDevices.size());
+    ImGui::Separator();
+
+    if (m_hidDevices.empty()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("No HID-only devices found.");
+    } else {
+        for (int i = 0; i < (int)m_hidDevices.size(); ++i) {
+            const auto& dev = m_hidDevices[i];
+            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
+            char label[128];
+            if (cfg)
+                snprintf(label, sizeof(label), "[HID] %s", cfg->source_name.c_str());
+            else if (!dev.productName.empty())
+                snprintf(label, sizeof(label), "[HID] %s", dev.productName.c_str());
+            else
+                snprintf(label, sizeof(label), "[HID] VID:%04X PID:%04X", dev.vid, dev.pid);
+
+            bool sel = (m_hidSelected == i);
+            if (ImGui::Selectable(label, sel, 0, { 0, 0 })) {
+                m_hidSelected  = i;
+                m_scanSelected = -1;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("  VID:%04X PID:%04X", dev.vid, dev.pid);
         }
     }
 
@@ -355,6 +423,131 @@ void AppWindow::renderScannerTab() {
     // ── Right panel: input monitor ───────────────────────────────────────
     ImGui::BeginChild("##InputMonitor", { 0.0f, 0.0f }, true);
 
+    // ── HID device live monitor ───────────────────────────────────────────
+    if (m_hidSelected >= 0 && m_hidSelected < (int)m_hidDevices.size()) {
+        const auto& hdev = m_hidDevices[m_hidSelected];
+        const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid);
+
+        // Header
+        ImGui::Spacing();
+        ImGui::Text("%s", hdev.productName.empty() ? "HID Device" : hdev.productName.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("VID:%04X PID:%04X", hdev.vid, hdev.pid);
+        if (cfg)
+            ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "Config: %s", cfg->source_name.c_str());
+        else {
+            ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "No config");
+            ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"", hdev.vid, hdev.pid);
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Read live state from the engine (avoids competing with it on Bluetooth HID)
+        if (!m_engine.isConnected()) {
+            ImGui::TextDisabled("Engine not running — start the engine to monitor inputs.");
+            ImGui::EndChild();
+            return;
+        }
+
+        m_hidScanState = m_engine.getLastState();
+        // Reconstruct a button mask from the mapped state for the button grid
+        DWORD btns = 0;
+        if (m_hidScanState.btnA)     btns |= (1u << 1);
+        if (m_hidScanState.btnB)     btns |= (1u << 0);
+        if (m_hidScanState.btnX)     btns |= (1u << 4);
+        if (m_hidScanState.btnY)     btns |= (1u << 3);
+        if (m_hidScanState.btnLB)    btns |= (1u << 6);
+        if (m_hidScanState.btnRB)    btns |= (1u << 7);
+        if (m_hidScanState.btnBack)  btns |= (1u << 10);
+        if (m_hidScanState.btnStart) btns |= (1u << 11);
+        if (m_hidScanState.btnHome)  btns |= (1u << 12);
+        if (m_hidScanState.btnL3)    btns |= (1u << 13);
+        if (m_hidScanState.btnR3)    btns |= (1u << 14);
+        const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
+
+        // ── Buttons ──────────────────────────────────────────────────────
+        ImGui::Text("Buttons");
+        ImGui::Separator();
+        ImGui::Spacing();
+        for (int i = 0; i < 16; ++i) {
+            bool pressed = (btns & (1u << i)) != 0;
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f) : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                pressed ? ImVec4(0.25f, 0.85f, 0.25f, 1.0f) : ImVec4(0.28f, 0.28f, 0.30f, 1.0f));
+            char lbl[4]; snprintf(lbl, sizeof(lbl), "%d", i + 1);
+            ImGui::Button(lbl, { 34.0f, 34.0f });
+            ImGui::PopStyleColor(2);
+            if ((i + 1) % 8 != 0) ImGui::SameLine(0.0f, 4.0f);
+        }
+
+        // ── Sticks ───────────────────────────────────────────────────────
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::Text("Sticks");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        struct { const char* name; float v; } sticks[] = {
+            { "LX", m_hidScanState.leftX  }, { "LY", m_hidScanState.leftY  },
+            { "RX", m_hidScanState.rightX }, { "RY", m_hidScanState.rightY },
+        };
+        for (auto& s : sticks) {
+            float dev_f = fabsf(s.v);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
+            ImGui::Text("%-2s", s.name);
+            ImGui::SameLine();
+            char ov[12]; snprintf(ov, sizeof(ov), "%+.3f", s.v);
+            ImGui::ProgressBar((s.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
+            ImGui::PopStyleColor();
+        }
+
+        // ── Triggers ─────────────────────────────────────────────────────
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::Text("Triggers");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        struct { const char* name; float v; } triggers[] = {
+            { "L2", m_hidScanState.triggerL },
+            { "R2", m_hidScanState.triggerR },
+        };
+        for (auto& t : triggers) {
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                ImVec4(0.20f + t.v * 0.60f, 0.55f - t.v * 0.20f, 0.15f, 1.0f));
+            ImGui::Text("%-2s", t.name);
+            ImGui::SameLine();
+            char ov[12]; snprintf(ov, sizeof(ov), "%.3f", t.v);
+            ImGui::ProgressBar(t.v, { barW, 18.0f }, ov);
+            ImGui::PopStyleColor();
+        }
+
+        // ── D-pad ─────────────────────────────────────────────────────────
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::Text("D-pad");
+        ImGui::Separator();
+        ImGui::Spacing();
+        // Convert booleans to a POV value for the existing compass widget
+        DWORD pov = JOY_POVCENTERED;
+        if      ( m_hidScanState.dpadUp   && !m_hidScanState.dpadRight && !m_hidScanState.dpadLeft)  pov = 0;
+        else if ( m_hidScanState.dpadUp   &&  m_hidScanState.dpadRight)                              pov = 4500;
+        else if (!m_hidScanState.dpadUp   &&  m_hidScanState.dpadRight && !m_hidScanState.dpadDown)  pov = 9000;
+        else if ( m_hidScanState.dpadDown &&  m_hidScanState.dpadRight)                              pov = 13500;
+        else if ( m_hidScanState.dpadDown && !m_hidScanState.dpadRight && !m_hidScanState.dpadLeft)  pov = 18000;
+        else if ( m_hidScanState.dpadDown &&  m_hidScanState.dpadLeft)                               pov = 22500;
+        else if (!m_hidScanState.dpadDown &&  m_hidScanState.dpadLeft  && !m_hidScanState.dpadUp)    pov = 27000;
+        else if ( m_hidScanState.dpadUp   &&  m_hidScanState.dpadLeft)                               pov = 31500;
+        drawPOVCompass(pov);
+
+        ImGui::EndChild();
+        return;
+    }
+
+    // ── WinMM device input monitor ────────────────────────────────────────
     if (m_scanSelected < 0 || m_scanSelected >= (int)m_scanDevices.size()) {
         ImGui::Spacing();
         ImGui::TextDisabled("Select a device on the left to monitor its inputs.");

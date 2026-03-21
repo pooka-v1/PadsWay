@@ -2,9 +2,13 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <vector>
+#include <future>
+#include <atomic>
 #include "PadEngine.h"
 #include "PadScanner.h"
+#include "input/HIDScanner.h"
 #include "config/ConfigLoader.h"
+#include "GamepadState.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -47,10 +51,21 @@ private:
 
     // --- Scanner state (used only on the main/render thread) ---
     std::vector<PadScanner::DeviceInfo> m_scanDevices;
+    std::vector<HIDScanner::DeviceInfo> m_hidDevices;
     int       m_scanSelected  = -1;   // index into m_scanDevices (-1 = none)
-    ULONGLONG m_lastScanTime  = 0;    // tick of last auto-refresh
+    int       m_hidSelected   = -1;   // index into m_hidDevices  (-1 = none)
+    ULONGLONG m_lastScanTime  = 0;    // tick of last WinMM refresh
+    ULONGLONG m_lastHidScanTime = 0;  // tick of last HID scan kick-off
     float     m_scanSplitX    = 340.0f; // width of the left (device list) panel
+
+    // --- Async HID scan (runs on a background thread to avoid blocking render) ---
+    std::future<std::vector<HIDScanner::DeviceInfo>> m_hidScanFuture;
+    std::atomic<bool> m_hidScanRunning { false };
 
     // --- Controller configs (for friendly name lookup in the scanner) ---
     std::vector<ControllerConfig> m_controllerConfigs;
+
+    // --- HID live monitor (scanner right panel for HID devices) ---
+    // Uses the engine's last read state — avoids competing with the engine on BT HID.
+    GamepadState m_hidScanState = {};
 };

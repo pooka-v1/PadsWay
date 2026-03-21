@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{83201A26-2D2E-41CB-B082-24EBC4CEB935}</ProjectGuid>
+    <ProjectGuid>{0DEAB295-28D0-459F-9A0B-BDA8618B795F}</ProjectGuid>
     <RootNamespace>VirtualPad</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -136,6 +136,8 @@
   <ItemGroup>
     <ClCompile Include="config\ConfigLoader.cpp" />
     <ClCompile Include="input\EightBitDoInputSource.cpp" />
+    <ClCompile Include="input\HIDScanner.cpp" />
+    <ClCompile Include="input\HIDInputSource.cpp" />
     <ClCompile Include="bots\LightningBot.cpp" />
     <ClCompile Include="macros\Macro.cpp" />
     <ClCompile Include="macros\MacroParser.cpp" />
@@ -157,6 +159,8 @@
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="input\IInputSource.h" />
     <ClInclude Include="input\EightBitDoInputSource.h" />
+    <ClInclude Include="input\HIDScanner.h" />
+    <ClInclude Include="input\HIDInputSource.h" />
     <ClInclude Include="bots\LightningBot.h" />
     <ClInclude Include="macros\Macro.h" />
     <ClInclude Include="macros\MacroParser.h" />

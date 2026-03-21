@@ -4,7 +4,24 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <windows.h>
 #include "PadScanner.h"
+#include "GamepadState.h"
+
+// Unified description of a physical input device, regardless of API.
+// Built during the scan phase; used to create the right IInputSource.
+struct DeviceCandidate {
+    enum class Source { WinMM, HID };
+
+    Source      source  = Source::WinMM;
+    UINT        port    = UINT_MAX;   // WinMM only
+    std::string hidPath;              // HID only
+    WORD        vid     = 0;
+    WORD        pid     = 0;
+    std::string name;
+    UINT        axes    = 0;
+    UINT        buttons = 0;
+};
 
 enum class EnginePhase {
     Idle,
@@ -36,8 +53,9 @@ public:
     EnginePhase getPhase()       const { return m_phase.load(); }
     uint16_t    getVirtualVid()  const { return m_virtualVid.load(); }
     uint16_t    getVirtualPid()  const { return m_virtualPid.load(); }
-    std::vector<PadScanner::DeviceInfo> getCandidates() const;
-    void        selectDevice(UINT port);   // call from UI during WaitingSelection
+    std::vector<DeviceCandidate> getCandidates() const;
+    void        selectDevice(int index);   // call from UI during WaitingSelection
+    GamepadState getLastState() const;
 
 private:
     void threadFunc();
@@ -50,12 +68,13 @@ private:
     std::string        m_device;   // name of the active input device
     std::string        m_status;   // one-line human-readable status
 
-    // A3 additions
-    std::atomic<EnginePhase> m_phase       { EnginePhase::Idle };
-    std::atomic<UINT>        m_selectedPort{ UINT_MAX };
-    std::atomic<uint16_t>    m_virtualVid  { 0 };
-    std::atomic<uint16_t>    m_virtualPid  { 0 };
-    std::vector<PadScanner::DeviceInfo> m_candidates;   // protected by m_mutex
+    // A3/A4 additions
+    std::atomic<EnginePhase> m_phase         { EnginePhase::Idle };
+    std::atomic<int>         m_selectedIndex { -1 };      // index into m_candidates
+    std::atomic<uint16_t>    m_virtualVid    { 0 };
+    std::atomic<uint16_t>    m_virtualPid    { 0 };
+    std::vector<DeviceCandidate> m_candidates;   // protected by m_mutex
+    GamepadState                 m_lastState;    // protected by m_mutex
 
     void setDevice(const std::string& s);
     void setStatus(const std::string& s);

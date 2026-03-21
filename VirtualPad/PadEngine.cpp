@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <cmath>
+#include <memory>
 #include <windows.h>
 #include <mmsystem.h>
 #include <vector>
@@ -9,6 +10,8 @@
 #include <string>
 
 #include "input/EightBitDoInputSource.h"
+#include "input/HIDScanner.h"
+#include "input/HIDInputSource.h"
 #include "output/ViGEmOutputAdapter.h"
 #include "config/ConfigLoader.h"
 #include "bots/LightningBot.h"
@@ -18,6 +21,7 @@
 #pragma comment(lib, "ViGEmClient.lib")
 #pragma comment(lib, "Setupapi.lib")
 #pragma comment(lib, "cfgmgr32.lib")
+#pragma comment(lib, "hid.lib")
 
 // ---------------------------------------------------------------------------
 // Internal helpers (not exposed in the header)
@@ -94,13 +98,18 @@ std::string PadEngine::getStatus() const {
     return m_status;
 }
 
-std::vector<PadScanner::DeviceInfo> PadEngine::getCandidates() const {
+std::vector<DeviceCandidate> PadEngine::getCandidates() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_candidates;
 }
 
-void PadEngine::selectDevice(UINT port) {
-    m_selectedPort.store(port);
+void PadEngine::selectDevice(int index) {
+    m_selectedIndex.store(index);
+}
+
+GamepadState PadEngine::getLastState() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lastState;
 }
 
 void PadEngine::setDevice(const std::string& s) {
@@ -122,76 +131,9 @@ void PadEngine::threadFunc() {
     setStatus("Scanning for devices...");
     std::cout << "\n=== VirtualPad — device init ===\n";
 
-    // --- Step 1: Find the real controller BEFORE creating the virtual one ---
-    UINT     joyPort = UINT_MAX;
-    JoyEntry selected = {};
-
-    while (m_running && joyPort == UINT_MAX) {
-        auto entries = scanPorts();
-
-        if (entries.empty()) {
-            setStatus("No device found — connect controller");
-            Sleep(500);
-            continue;
-        }
-
-        if (entries.size() == 1) {
-            selected = entries[0];
-            joyPort  = selected.id;
-            char narrow[MAXPNAMELEN];
-            WideCharToMultiByte(CP_UTF8, 0, selected.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-            printf("Auto-selected port %u: %s (%u axes, %u buttons) [VID=%04X PID=%04X]\n",
-                joyPort, narrow, selected.axes, selected.buttons, selected.wMid, selected.wPid);
-            setStatus(std::string("Auto-selected: ") + narrow);
-        } else {
-            // Build candidate list for the UI
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                m_candidates.clear();
-                for (auto& e : entries) {
-                    PadScanner::DeviceInfo d = {};
-                    d.port    = e.id;
-                    d.axes    = e.axes;
-                    d.buttons = e.buttons;
-                    d.vid     = e.wMid;
-                    d.pid     = e.wPid;
-                    wcsncpy_s(d.name, e.name, MAXPNAMELEN);
-                    m_candidates.push_back(d);
-                }
-            }
-            m_selectedPort.store(UINT_MAX);
-            m_phase.store(EnginePhase::WaitingSelection);
-            setStatus("Multiple controllers detected — select one in the Engine tab");
-
-            // Wait for UI to call selectDevice()
-            while (m_running && m_selectedPort.load() == UINT_MAX)
-                Sleep(50);
-
-            if (!m_running) return;
-
-            UINT picked = m_selectedPort.load();
-            for (auto& e : entries)
-                if (e.id == picked) { selected = e; joyPort = picked; break; }
-
-            if (joyPort == UINT_MAX) {
-                // Selected port not in current list (device disappeared?) — re-scan
-                m_phase.store(EnginePhase::Scanning);
-                setStatus("Selected device not found — rescanning...");
-                continue;
-            }
-
-            char narrow[MAXPNAMELEN];
-            WideCharToMultiByte(CP_UTF8, 0, selected.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-            printf("User selected port %u: %s\n", joyPort, narrow);
-        }
-    }
-
-    if (!m_running) return;
-
-    m_phase.store(EnginePhase::Configuring);
-
-    // --- Step 2: Load controller config ---
-    setStatus("Loading config...");
+    // --- Step 1: Load configs early so the scan can route devices correctly ---
+    // (Devices with mode="hid" must use HIDInputSource even if they appear in WinMM,
+    //  because joyGetPosEx returns no data for them.)
     std::vector<ControllerConfig> configs;
     try {
         configs = loadControllerConfigs("data/controllers.json");
@@ -202,6 +144,112 @@ void PadEngine::threadFunc() {
         return;
     }
 
+    // --- Step 2: Find the real controller BEFORE creating the virtual one ---
+    DeviceCandidate selected;
+
+    while (m_running && selected.vid == 0) {
+        // Scan both WinMM and HID
+        auto winmmEntries = scanPorts();
+        auto hidEntries   = HIDScanner::scan();
+
+        std::vector<DeviceCandidate> allCandidates;
+
+        // WinMM entries: skip devices that have a "hid" mode config
+        // (those need HIDInputSource even if they appear in WinMM)
+        for (auto& e : winmmEntries) {
+            const ControllerConfig* cfg = findConfig(configs, e.wMid, e.wPid);
+            if (cfg && cfg->mode == "hid") continue;
+
+            DeviceCandidate c;
+            c.source  = DeviceCandidate::Source::WinMM;
+            c.port    = e.id;
+            c.vid     = e.wMid;
+            c.pid     = e.wPid;
+            c.axes    = e.axes;
+            c.buttons = e.buttons;
+            char narrow[MAXPNAMELEN];
+            WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
+            c.name = narrow;
+            allCandidates.push_back(c);
+        }
+
+        // HID entries: include if has "hid" config, or if not covered by WinMM (for discovery)
+        for (auto& h : hidEntries) {
+            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid);
+            bool inWinMM = false;
+            for (auto& e : winmmEntries)
+                if (e.wMid == h.vid && e.wPid == h.pid) { inWinMM = true; break; }
+
+            if (!cfg && inWinMM) continue; // unknown device already in WinMM — skip duplicate
+            if (cfg && cfg->mode != "hid" && inWinMM) continue; // WinMM handles it
+
+            DeviceCandidate c;
+            c.source  = DeviceCandidate::Source::HID;
+            c.hidPath = h.path;
+            c.vid     = h.vid;
+            c.pid     = h.pid;
+            c.name    = h.productName.empty()
+                ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
+                : h.productName;
+            allCandidates.push_back(c);
+        }
+
+        printf("[Scan] WinMM: %zu entries, HID: %zu entries, Candidates: %zu\n",
+               winmmEntries.size(), hidEntries.size(), allCandidates.size());
+        for (auto& h : hidEntries)
+            printf("[HID found] VID:%04X PID:%04X '%s' path=%s\n",
+                   h.vid, h.pid, h.productName.c_str(), h.path.c_str());
+        for (auto& c : allCandidates)
+            printf("[Candidate] [%s] VID:%04X PID:%04X '%s'\n",
+                   c.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                   c.vid, c.pid, c.name.c_str());
+
+        if (allCandidates.empty()) {
+            setStatus("No device found — connect controller");
+            Sleep(500);
+            continue;
+        }
+
+        if (allCandidates.size() == 1) {
+            selected = allCandidates[0];
+            printf("Auto-selected [%s]: %s [VID=%04X PID=%04X]\n",
+                selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                selected.name.c_str(), selected.vid, selected.pid);
+            setStatus(std::string("Auto-selected: ") + selected.name);
+        } else {
+            // Multiple devices — ask the user
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_candidates = allCandidates;
+            }
+            m_selectedIndex.store(-1);
+            m_phase.store(EnginePhase::WaitingSelection);
+            setStatus("Multiple controllers detected — select one in the Engine tab");
+
+            while (m_running && m_selectedIndex.load() < 0)
+                Sleep(50);
+
+            if (!m_running) return;
+
+            int idx = m_selectedIndex.load();
+            if (idx < 0 || idx >= (int)allCandidates.size()) {
+                m_phase.store(EnginePhase::Scanning);
+                setStatus("Invalid selection — rescanning...");
+                continue;
+            }
+            selected = allCandidates[idx];
+            printf("User selected [%s]: %s [VID=%04X PID=%04X]\n",
+                selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                selected.name.c_str(), selected.vid, selected.pid);
+        }
+    }
+
+    if (!m_running) return;
+
+    m_phase.store(EnginePhase::Configuring);
+
+    // --- Step 3: Load macros and find config for selected device ---
+    setStatus("Loading config...");
     std::unordered_map<std::string, std::string> macroLibrary;
     try {
         macroLibrary = loadMacroLibrary("data/macros.json");
@@ -211,12 +259,12 @@ void PadEngine::threadFunc() {
         fprintf(stderr, "Warning: could not load macro library: %s\n", ex.what());
     }
 
-    const ControllerConfig* cfg = findConfig(configs, selected.wMid, selected.wPid);
+    const ControllerConfig* cfg = findConfig(configs, selected.vid, selected.pid);
     if (!cfg) {
         fprintf(stderr,
-            "No config found for VID=%04X PID=%04X (%ls).\n"
-            "Add an entry to configs/controllers.json and restart.\n",
-            selected.wMid, selected.wPid, selected.name);
+            "No config found for VID=%04X PID=%04X (%s).\n"
+            "Add an entry to data/controllers.json and restart.\n",
+            selected.vid, selected.pid, selected.name.c_str());
         setStatus("No config for this device");
         m_running = false;
         return;
@@ -224,7 +272,19 @@ void PadEngine::threadFunc() {
     printf("Config loaded: %s\n", cfg->source_name.c_str());
     setDevice(cfg->source_name);
 
-    EightBitDoInputSource input(joyPort, *cfg);
+    // --- Factory: pick the right IInputSource based on the config mode ---
+    std::unique_ptr<IInputSource> input;
+    if (selected.source == DeviceCandidate::Source::HID) {
+        input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
+    } else {
+        input = std::make_unique<EightBitDoInputSource>(selected.port, *cfg);
+    }
+    if (!input->isConnected()) {
+        fprintf(stderr, "Failed to open input device.\n");
+        setStatus("Failed to open input device");
+        m_running = false;
+        return;
+    }
 
     // --- Step 3: Initialize ViGEm after the real port is secured ---
     // Load virtual pad identity (VID/PID) from config so the scanner can filter it out
@@ -297,7 +357,7 @@ void PadEngine::threadFunc() {
     bool         btnAPrev   = false;
 
     while (m_running) {
-        if (!input.isConnected()) {
+        if (!input->isConnected()) {
             if (m_connected) {
                 printf("\r[%s] disconnected. Waiting...    ", cfg->source_name.c_str());
                 m_connected = false;
@@ -312,14 +372,10 @@ void PadEngine::threadFunc() {
             setStatus("Running");
         }
 
-        // Read raw buttons for special actions (bots, macros)
-        {
-            JOYINFOEX raw = {};
-            raw.dwSize  = sizeof(JOYINFOEX);
-            raw.dwFlags = JOY_RETURNBUTTONS;
-            DWORD btns  = 0;
-            if (joyGetPosEx(joyPort, &raw) == JOYERR_NOERROR)
-                btns = raw.dwButtons;
+        if (input->read(state)) {
+            { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = state; }
+            // Bot and macro toggle detection uses the button mask from the read just performed
+            DWORD btns = input->getLastButtonMask();
 
             if (lightningBotBit > 0) {
                 bool pressed = (btns & (1u << (lightningBotBit - 1))) != 0;
@@ -353,9 +409,7 @@ void PadEngine::threadFunc() {
                         macro.stop();
                 prev = pressed;
             }
-        }
 
-        if (input.read(state)) {
             if (state.btnA && !btnAPrev)
                 printf("\n[MAN][%llu] Manual A press\n", GetTickCount64());
             btnAPrev = state.btnA;

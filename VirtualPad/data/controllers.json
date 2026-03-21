@@ -57,6 +57,36 @@
       "dpad": "pov"
     },
     {
+      "vid": "2DC8",
+      "pid": "6006",
+      "source_name": "8BitDo Pro 2 (D-mode)",
+      "mode": "hid",
+      "buttons": {
+        "1":  "b",
+        "2":  "a",
+        "3":  { "type": "macro", "name": "BanishingBlade" },
+        "4":  "y",
+        "5":  "x",
+        "6":  { "type": "bot", "name": "LightningBot" },
+        "7":  "l1",
+        "8":  "r1",
+        "11": "select",
+        "12": "start",
+        "13": "home",
+        "14": "l3",
+        "15": { "type": "macro", "name": "LuluOverdrive" }
+      },
+      "axes": {
+        "hid_x":  { "target": "left_x",  "invert": false },
+        "hid_y":  { "target": "left_y",  "invert": true  },
+        "hid_z":  { "target": "right_x", "invert": false },
+        "hid_rz": { "target": "right_y", "invert": true  },
+        "hid_brake": { "target": "trigger_r", "invert": false },
+        "hid_accel": { "target": "trigger_l", "invert": false }
+      },
+      "dpad": "hid_hat"
+    },
+    {
       "vid": "045E",
       "pid": "02E0",
       "source_name": "8BitDo Pro 2 (X-mode)",
@@ -81,6 +111,59 @@
         "dwUpos": { "target": "right_x", "invert": false }
       },
       "dpad": "pov"
+    },
+	{
+      "vid": "046D",
+      "pid": "C216",
+      "source_name": "Logitech F310 (D-mode)",
+      "mode": "hid",
+      "buttons": {
+        "1":  "x",
+        "2":  "a",
+        "3":  "b",
+        "4":  "y",
+        "5":  "l1",
+        "6":  "r1",
+        "7":  { "type": "trigger", "target": "l2" },
+        "8":  { "type": "trigger", "target": "r2" },
+        "9":  "select",
+        "10": "start",
+        "11": "l3",
+        "12": "r3"
+      },
+      "axes": {
+        "hid_x":  { "target": "left_x",  "invert": false },
+        "hid_y":  { "target": "left_y",  "invert": false  },
+        "hid_rx": { "target": "right_x", "invert": false },
+        "hid_ry": { "target": "right_y", "invert": false }
+      },
+      "dpad": "hid_hat"
+    },
+	{
+      "vid": "046D",
+      "pid": "C21D",
+      "source_name": "Logitech F310 (x-mode)",
+      "mode": "xinput",
+      "buttons": {
+        "1":  "a",
+        "2":  "b",
+        "3":  "x",
+        "4":  "y",
+        "5":  "l1",
+        "6":  "r1",
+        "7":  "select",
+        "8": "start",
+        "9": "l3",
+        "10": "r3"
+      },
+      "axes": {
+        "dwXpos": { "target": "left_x",  "invert": false },
+        "dwYpos": { "target": "left_y",  "invert": false  },
+        "dwZpos": { "target": "trigger_combined", "invert": false },
+        "dwRpos": { "target": "right_y", "invert": false  },
+        "dwUpos": { "target": "right_x", "invert": false }
+      },
+      "dpad": "hid_hat"
     }
   ]
 }

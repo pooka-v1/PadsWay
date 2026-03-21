@@ -14,13 +14,13 @@ struct ButtonAction {
 };
 
 struct AxisMapping {
-    std::string target;   // virtual axis name: "left_x", "left_y", "right_x", "right_y"
-    bool        invert;
+    std::string target;
+    bool        invert = false;
 };
 
 struct ControllerConfig {
-    uint16_t    vid;
-    uint16_t    pid;
+    uint16_t    vid = 0;
+    uint16_t    pid = 0;
     std::string source_name;
     std::string mode;
 

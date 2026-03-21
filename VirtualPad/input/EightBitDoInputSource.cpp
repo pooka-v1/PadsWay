@@ -21,6 +21,8 @@ bool EightBitDoInputSource::read(GamepadState& state) {
     if (joyGetPosEx(m_joyId, &info) != JOYERR_NOERROR)
         return false;
 
+    m_lastButtonMask = info.dwButtons;
+
     // Apply a virtual button name to the corresponding GamepadState field.
     auto setVirtualButton = [&](const std::string& name, bool value) {
         if      (name == "a")      state.btnA     = value;
@@ -52,7 +54,8 @@ bool EightBitDoInputSource::read(GamepadState& state) {
             break;
         }
         case ButtonActionType::Bot:
-            // Bot toggle is handled in VirtualPad.cpp — skip here.
+        case ButtonActionType::Macro:
+            // Handled in PadEngine — skip here.
             break;
         }
     }
