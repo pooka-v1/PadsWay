@@ -36,7 +36,7 @@ private:
     int              m_btnErrCount    = 0;
     BYTE             m_buttonReportId = 0xFF; // report ID in descriptor for buttons (0xFF = unknown)
 
-    struct ValueRange { LONG logMin; LONG logMax; };
+    struct ValueRange { LONG logMin; LONG logMax; USHORT bitSize; };
     std::unordered_map<USHORT, ValueRange> m_valueCaps; // HID usage → logical range
     std::unordered_map<USHORT, USHORT>     m_usagePage; // HID usage → actual page from descriptor
 

@@ -35,6 +35,12 @@
       "pid": "310B",
       "source_name": "8BitDo Pro 3 (X-mode)",
       "mode": "xinput",
+      "_hid_prototype": {
+        "_note": "HID X-mode prototipo: triggers separados funcionan, pero solo 10 botones (1-10 correlativos, sin Home/L4/R4/Lp/Rp). Hat: [1,8] donde 1=N...8=NW, center=0. Triggers: hid_z combinado 16-bit, invert:true. Reactivar cambiando mode a hid y copiando axes/buttons/dpad de abajo.",
+        "_buttons": { "1":"a","2":"b","3":"x","4":"y","5":"l1","6":"r1","7":"select","8":"start","9":"l3","10":"r3" },
+        "_axes": { "hid_x":{"target":"left_x","invert":false},"hid_y":{"target":"left_y","invert":true},"hid_rx":{"target":"right_x","invert":false},"hid_ry":{"target":"right_y","invert":true},"hid_z":{"target":"trigger_combined","invert":true} },
+        "_dpad": "hid_hat"
+      },
       "buttons": {
         "1":  "a",
         "2":  "b",

@@ -5,64 +5,48 @@
 
 ---
 
-## V1Pro3 — ~2026/03/03 — Base: WinMM → ViGEm
+## V1–V9 (resumen)
 
-- Primer prototipo: `IInputSource`, `EightBitDoInputSource`, `ViGEmOutputAdapter`. Loop consola.
-
-## V2Pro3 — ~2026/03/04 — Config dinámica por VID/PID
-
-- `ConfigLoader` + JSON. Modos `dinput` / `xinput`. `nlohmann/json`.
-
-## V3Pro3 — ~2026/03/10 — LightningBot (FFX Thunder Plains)
-
-- Bot de esquive de rayos por detección de flash de pantalla. `tools/TriggerCount/` (calibración, no es producto).
-
-## V4Pro3 — ~2026/03/15 — Sistema de macros (consola, pre-GUI)
-
-- DSL de macros: secuencias, combos, holds, analógicos. `LuluMacro`. `tools/lulu_macro_tests.csv`.
-
-## V5Pro3 — ~2026/03/15 — Refactor modular
-
-- Fuentes en `input/`, `output/`, `config/`, `bots/`, `macros/`. Sin cambios funcionales.
-
-## V6Pro3 — ~2026/03/15 — ImGui GUI + PadEngine threaded
-
-- Dear ImGui (Win32 + D3D11). PadEngine en hilo de fondo 8ms. `configs/` → `data/`.
-
-## V7Pro3 — ~2026/03/15 — PadScanner visual
-
-- PadScanner enumera WinMM, lee valores raw. Tab Scanner en ImGui.
-
-## V8 — ~2026/03/17 — data/ + virtualpad.json + prep dual-API
-
-- `data/virtualpad.json`. Preparación interna para HID.
-
-## V9 — ~2026/03/18 — HIDInputSource + HIDScanner
-
-- HID raw input (overlapped). ValCaps para normalización. hid_brake/hid_accel analógicos. DeviceCandidate unifica WinMM+HID en PadEngine.
+- **V1** — WinMM → ViGEm. Loop consola.
+- **V2** — Config JSON por VID/PID. nlohmann/json.
+- **V3** — LightningBot (FFX). tools/TriggerCount (calibración).
+- **V4** — DSL de macros. LuluMacro. tools/lulu_macro_tests.csv.
+- **V5** — Refactor modular (input/, output/, config/, bots/, macros/).
+- **V6** — Dear ImGui + PadEngine threaded. configs/ → data/.
+- **V7** — PadScanner visual (Tab Scanner).
+- **V8** — virtualpad.json. Prep dual-API.
+- **V9** — HIDInputSource + HIDScanner. ValCaps. hid_brake/hid_accel. DeviceCandidate.
 
 ---
 
-## V10 — ~2026/03/19 — Logging (spdlog) + HidHide integration (Fase B)
+## V10 — ~2026/03/19 — spdlog + HidHide (Fase B)
 
-**Qué se hizo:**
+- spdlog (header-only): consola + fichero rotativo. Nivel configurable en virtualpad.json.
+- HidHideClient: whitelist VirtualPad.exe, blacklist mando físico mientras está activo.
+- Cadena completa verificada: Pro 3 D-mode BT → VirtualPad → ViGEm → Steam ✓.
 
-### Logging con spdlog
-- Librería `spdlog` añadida al proyecto (header-only).
-- `Log.h`: dos sinks — consola coloreada + fichero rotativo (`logs/virtualpad.log`, 1MB × 3 ficheros).
-- Nivel de log configurable en `data/virtualpad.json` → `"log_level": "debug"/"info"`.
-- `Log::init()` se llama en `main()` antes de crear PadEngine.
-- Niveles: debug (raw bytes, scan, ValCaps), info (eventos), warn (desconexiones), error (fallos driver).
+---
 
-### HidHideClient (Fase B)
-- `HidHideClient` (`output/`): interfaz programática al driver kernel HidHide de Nefarius.
-- Al arrancar: añade VirtualPad.exe a la whitelist (idempotente).
-- Al tomar un mando: lo añade al blacklist + activa el filtro.
-- Al soltar/cerrar: lo quita del blacklist + desactiva el filtro (solo si nosotros lo activamos).
-- Si HidHide no instalado: `isAvailable()=false`, todo es no-op.
-- **Resultado**: Steam solo ve el mando virtual Xbox 360. El físico queda oculto.
+## Sesión 2026/03/19 — V11: fixes HIDInputSource
+
+### Decisiones de arquitectura
+- **WinMM queda como legacy** para D-mode (no se elimina).
+- **XInput descartado**: no aporta nada que HID no dé.
+- **X-mode vía HID = prototipo**: solo expone 10 botones estándar Xbox. Se mantiene WinMM para X-mode.
+- **D-mode** es el camino para botones extra (Home, L4, R4, Lp, Rp).
+
+### Bug: `normalizeHIDAxis` — ejes unsigned `[0, -1]`
+- **Síntoma**: sticks y triggers devolvían 0.0f siempre en modo HID.
+- **Causa**: descriptor HID reporta `logMax = -1` (LONG) para ejes unsigned → `range = -1` → early return 0.
+- **Fix**: añadido `bitSize` a `ValueRange`. Si `logMax < logMin` (unsigned), usa `uMax = (1 << bitSize) - 1`.
+- **Afecta**: todos los mandos HID con descriptor unsigned (Pro 2 D-mode, F310).
+
+### Bug: Hat switch encoding `[1,8]` vs `[0,8]`
+- **Síntoma**: diagonal NW no funcionaba en Pro 3 X-mode.
+- **Causa**: Pro 3 X-mode usa hat `[1,8]` donde 8=NW y center=0 (fuera de rango).
+- **Fix**: detección por rango — si `hatValue < logMin || hatValue > logMax` → neutral.
+- **Backward compatible**: Pro 2 D-mode usa `[0,8]` — sigue funcionando.
 
 ### Estado al cerrar
-- Cadena completa verificada: Pro 3 D-mode BT → VirtualPad → ViGEm → Steam ✓
-- Pro 3 X-mode ✓, Pro 2 X-mode ✓, Pro 2 D-mode ✓, F310 D-mode ✓ (en scanner).
-- Fases A1–A4 y B completadas.
+- Pro 2 D-mode: HID con normalización de ejes correcta ✓
+- F310 D-mode: ídem ✓

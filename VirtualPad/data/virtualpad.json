@@ -1,4 +1,5 @@
 {
     "virtual_vid": "5650",
-    "virtual_pid": "0001"
+    "virtual_pid": "0001",
+    "log_level": "debug"
 }

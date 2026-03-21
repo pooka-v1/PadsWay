@@ -80,7 +80,7 @@ HIDInputSource::HIDInputSource(const std::string& devicePath, const ControllerCo
     HidP_GetValueCaps(HidP_Input, valueCaps.data(), &numCaps, PREPARSED);
     for (USHORT ci = 0; ci < numCaps; ++ci) {
         if (!valueCaps[ci].IsRange) {
-            ValueRange vr = { valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax };
+            ValueRange vr = { valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax, valueCaps[ci].BitSize };
             m_valueCaps[valueCaps[ci].NotRange.Usage] = vr;
             m_usagePage[valueCaps[ci].NotRange.Usage] = valueCaps[ci].UsagePage;
         }
@@ -174,7 +174,7 @@ bool HIDInputSource::read(GamepadState& state) {
     }
 
     if (m_config.dpad == "hid_hat") {
-        ULONG hatValue = 8; // 8+ = center
+        ULONG hatValue = 0xFFFFFFFF; // default = out of range = neutral
         NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
                                                 &hatValue, PREPARSED, buf, bufLen);
         if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
@@ -184,7 +184,22 @@ bool HIDInputSource::read(GamepadState& state) {
                                &hatValue, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
-        parseHIDDpad(hatValue, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
+        // Hat encodings vary:
+        //   [0..8]: 0=N, 1=NE ... 7=NW, 8=center  (e.g. Pro 2 D-mode)
+        //   [1..8]: 1=N, 2=NE ... 8=NW, center=0  (e.g. Pro 3 X-mode)
+        // Values inside [logMin..logMax] are directions; outside = neutral.
+        auto hatCapIt = m_valueCaps.find(kUsageHat);
+        if (hatCapIt != m_valueCaps.end()) {
+            ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
+            ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
+            if (hatValue < hatMin || hatValue > hatMax) {
+                state.dpadUp = state.dpadDown = state.dpadLeft = state.dpadRight = false;
+            } else {
+                parseHIDDpad(hatValue - hatMin, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
+            }
+        } else {
+            parseHIDDpad(hatValue, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
+        }
     }
 
     return true;
@@ -301,7 +316,17 @@ float HIDInputSource::normalizeHIDAxis(USHORT usage, ULONG rawValue) const {
 
     LONG logMin = it->second.logMin;
     LONG logMax = it->second.logMax;
-    LONG range  = logMax - logMin;
+
+    // Unsigned range: descriptor reports [0, -1] meaning [0, 2^BitSize - 1]
+    if (logMax < logMin) {
+        USHORT bits = it->second.bitSize;
+        ULONG uMax = (bits > 0 && bits < 32) ? (1UL << bits) - 1 : 0xFFFFFFFFUL;
+        if (uMax == 0) return 0.0f;
+        float norm = static_cast<float>(rawValue) / static_cast<float>(uMax) * 2.0f - 1.0f;
+        return std::clamp(norm, -1.0f, 1.0f);
+    }
+
+    LONG range = logMax - logMin;
     if (range <= 0) return 0.0f;
 
     float norm = (static_cast<float>(static_cast<LONG>(rawValue) - logMin) / range) * 2.0f - 1.0f;
