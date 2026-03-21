@@ -22,14 +22,14 @@ Interfaz gráfica con Dear ImGui (Win32 + DirectX 11).
 
 ---
 
-## Configurar un mando — `data/controllers.json`
+## Añadir un mando nuevo — `data/controllers.json`
 
 Cada entrada describe un mando físico identificado por **VID y PID**.
+Usa el **Tab Scanner** de VirtualPad para ver los mandos conectados y sus valores raw.
 
 ```json
 {
-  "vid": "XXXX",
-  "pid": "YYYY",
+  "vid": "XXXX", "pid": "YYYY",
   "source_name": "Nombre descriptivo",
   "mode": "dinput",
   "buttons": { "1": "a", "2": "b" },
@@ -63,8 +63,8 @@ Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
 | Componente | Rol |
 |---|---|
 | `PadEngine` | Hilo de fondo: scan → config → macro/bot → ViGEm (tick 8ms) |
-| `AppWindow` | Hilo principal: ventana Win32 + D3D11 + ImGui |
-| `VirtualPad.cpp` | Entry point: init → engine → window |
+| `AppWindow` | Hilo principal: Win32 + D3D11 + ImGui (tabs Engine / Scanner) |
+| `PadScanner` | Enumera puertos WinMM y lee valores raw para el Tab Scanner |
 
 ---
 

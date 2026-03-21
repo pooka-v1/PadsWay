@@ -52,13 +52,11 @@
 
 **Qué se hizo:**
 - Motor de macros completo integrado en el loop de consola.
-- `MacroParser`: parsea un DSL compacto de texto a pasos compilados. Sintaxis: `"CU, CUR + X"`, `"B=1000"`, `"(A,B,C)*5000"`.
-- `Macro` + `CompiledStep`: cada paso tiene `startMs`, `holdMs`, `endMs`. Se ejecutan contra el `GamepadState` cada tick.
-- `MacroEffect`: qué botones y sticks afecta cada paso (`hasLeftStick`, `hasRightStick`).
+- `MacroParser`: parsea un DSL compacto de texto a pasos compilados.
+- `Macro` + `CompiledStep`: cada paso tiene `startMs`, `holdMs`, `endMs`.
 - `MacroRepeatMode`: Once, TimedMs, UntilRelease, Toggle.
 - `LuluMacro`: macro especializada, rotación continua del stick derecho (~4 RPM) para el hechizo Lulu en FFX.
-- Los macros se asignan a botones del mando físico en la config JSON.
-- `tools/lulu_macro_tests.csv`: datos de prueba de la LuluMacro, registro de iteraciones de calibración del timing de la rotación.
+- `tools/lulu_macro_tests.csv`: datos de calibración del timing de la rotación.
 
 **Estado:** aplicación de consola pura, sin GUI. Versión pre-refactor.
 
@@ -67,15 +65,9 @@
 ## V5Pro3 — ~2026/03/15 — Refactor: modularización en directorios
 
 **Qué se hizo:**
-- Reorganización de todos los archivos fuente en subdirectorios:
-  - `input/` — IInputSource, EightBitDoInputSource, ControllerConfig
-  - `output/` — ViGEmOutputAdapter
-  - `config/` — ConfigLoader
-  - `bots/` — LightningBot
-  - `macros/` — Macro, MacroParser
+- Reorganización en subdirectorios: `input/`, `output/`, `config/`, `bots/`, `macros/`.
 - En root solo quedan: `VirtualPad.cpp`, `GamepadState.h`, `.vcxproj`.
-- Los includes se actualizan a rutas relativas.
-- No se añade funcionalidad nueva: es un refactor puro de estructura.
+- Refactor puro de estructura, sin cambios funcionales.
 
 ---
 
@@ -83,8 +75,20 @@
 
 **Qué se hizo:**
 - Introducción de **Dear ImGui** (v1.92 WIP) con backend Win32 + Direct3D 11.
-- `PadEngine`: el pipeline de lectura/macro/ViGEm se mueve a un hilo de fondo (8ms tick). Expone accessors thread-safe: `isRunning()`, `isConnected()`, `getDevice()`, `getStatus()`.
-- `AppWindow`: hilo principal maneja ventana Win32, D3D11 (device, context, swapchain, render target), contexto ImGui y WndProc estático.
-- `VirtualPad.cpp` queda en tres líneas: `Log::init()` → `PadEngine engine` → `AppWindow window(engine)` → `window.run()`.
-- Renombrado `configs/` → `data/`: los JSON de configuración pasan a `data/controllers.json`, `data/macros.json`.
-- Primera versión con interfaz gráfica visible. Tabs: Engine / Scanner (aún básico).
+- `PadEngine`: pipeline de lectura/macro/ViGEm en hilo de fondo (8ms tick). Accessors thread-safe.
+- `AppWindow`: hilo principal — ventana Win32, D3D11, ImGui.
+- `VirtualPad.cpp` queda en tres líneas.
+- Renombrado `configs/` → `data/`.
+- Primera versión con interfaz gráfica. Tabs: Engine / Scanner (básico).
+
+---
+
+## V7Pro3 — ~2026/03/15 — PadScanner: enumeración visual de mandos WinMM
+
+**Qué se hizo:**
+- `PadScanner`: utilidad estática para enumerar todos los puertos WinMM conectados.
+- `DeviceInfo`: struct con `port`, `axes`, `buttons`, `vid`, `pid`, `name`.
+- `RawInput`: struct con todos los ejes raw (`xpos`, `ypos`, `zpos`, `rpos`, `upos`, `vpos`, `pov`, `buttons`).
+- Métodos: `PadScanner::scan()` y `PadScanner::readRaw(port)`.
+- La tab Scanner de ImGui muestra mandos detectados y sus valores raw en tiempo real.
+- Separación clara: PadScanner lee lo que hay en WinMM; PadEngine gestiona el mando activo.

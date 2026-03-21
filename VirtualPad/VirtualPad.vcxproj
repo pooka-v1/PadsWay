@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{7418B0B5-F59D-470B-9C55-10A11DFBFE1D}</ProjectGuid>
+    <ProjectGuid>{FFC69BF3-F59E-4F13-B448-8826C30D8C7C}</ProjectGuid>
     <RootNamespace>VirtualPad</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
@@ -141,6 +141,7 @@
     <ClCompile Include="macros\MacroParser.cpp" />
     <ClCompile Include="output\ViGEmOutputAdapter.cpp" />
     <ClCompile Include="PadEngine.cpp" />
+    <ClCompile Include="PadScanner.cpp" />
     <ClCompile Include="AppWindow.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
@@ -161,6 +162,7 @@
     <ClInclude Include="macros\MacroParser.h" />
     <ClInclude Include="output\ViGEmOutputAdapter.h" />
     <ClInclude Include="PadEngine.h" />
+    <ClInclude Include="PadScanner.h" />
     <ClInclude Include="AppWindow.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
