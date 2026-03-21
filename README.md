@@ -1,40 +1,42 @@
 # VirtualPad
 
-Lee mandos físicos (WinMM, HID, XInput) y los reenvía como un mando Xbox 360 virtual via ViGEm.
-Soporta macros, bots y configuración por JSON sin tocar el código.
+Reads physical gamepads (WinMM, HID, XInput) and forwards them as a virtual Xbox 360 controller via ViGEm.
+Supports macros, bots, and JSON-based configuration — no code changes needed.
+
+[Leer en español](README.es.md)
 
 ---
 
-## Requisitos
+## Requirements
 
-### Para ejecutar
+### To run
 
-| Dependencia | Motivo |
+| Dependency | Purpose |
 |---|---|
-| Windows 10/11 | API requeridas: WinMM, HID, DirectX 11 |
-| [ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases) | Crea el mando Xbox 360 virtual |
-| [HidHide driver](https://github.com/nefarius/HidHide/releases) | Oculta el mando físico a los juegos para evitar doble input |
+| Windows 10/11 | Required APIs: WinMM, HID, DirectX 11 |
+| [ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases) | Creates the virtual Xbox 360 controller |
+| [HidHide driver](https://github.com/nefarius/HidHide/releases) | Hides the physical gamepad from games to prevent double input |
 
-> **ViGEmBus** y **HidHide** son del mismo autor (Nefarius) e instalan como cualquier driver de Windows.
-> VirtualPad los controlará automáticamente — no hace falta tocar sus interfaces manualmente.
+> **ViGEmBus** and **HidHide** are by the same author (Nefarius) and install like any Windows driver.
+> VirtualPad controls them automatically — no need to touch their interfaces manually.
 
-### Para compilar
+### To build
 
-- Visual Studio 2022 (con soporte C++17 y Windows SDK)
-- El resto de dependencias están incluidas en el repositorio (`imgui/`, `nlohmann/`)
+- Visual Studio 2022 (C++17 + Windows SDK)
+- All other dependencies are included in the repository (`imgui/`, `nlohmann/`)
 
 ---
 
-## Añadir un mando nuevo — `data/controllers.json`
+## Adding a new controller — `data/controllers.json`
 
-Cada entrada del array `"controllers"` describe un mando físico.
-El campo obligatorio es el **VID y PID** del mando (se ven en el Tab Scanner o en el Administrador de dispositivos).
+Each entry in the `"controllers"` array describes a physical gamepad.
+The required fields are the **VID and PID** of the controller (visible in the Scanner tab or in Device Manager).
 
 ```json
 {
   "vid": "XXXX",
   "pid": "YYYY",
-  "source_name": "Nombre descriptivo",
+  "source_name": "Descriptive name",
   "mode": "...",
   "buttons": { },
   "axes": { },
@@ -42,37 +44,37 @@ El campo obligatorio es el **VID y PID** del mando (se ven en el Tab Scanner o e
 }
 ```
 
-El campo `"mode"` determina qué API se usa para leerlo:
+The `"mode"` field determines which API is used to read the device:
 
-| mode | API | Cuándo usarlo |
+| mode | API | When to use |
 |---|---|---|
-| `"dinput"` | WinMM (`joyGetPosEx`) | Mando que aparece en `joy.cpl` y en WinMM |
-| `"hid"` | HID raw (`HidP_*`) | Mando que aparece en `joy.cpl` pero **no** en WinMM |
-| `"xinput"` | WinMM compat layer | Mando XInput (pasa por WinMM en modo compatibilidad) |
+| `"dinput"` | WinMM (`joyGetPosEx`) | Controller that appears in `joy.cpl` and in WinMM |
+| `"hid"` | HID raw (`HidP_*`) | Controller that appears in `joy.cpl` but **not** in WinMM |
+| `"xinput"` | WinMM compat layer | XInput controller (goes through WinMM in compatibility mode) |
 
-> **Tip:** abre el Tab Scanner con el mando conectado. Si aparece en la sección **WinMM**, usa `"dinput"`. Si solo aparece en **HID-only**, usa `"hid"`.
+> **Tip:** open the Scanner tab with the controller connected. If it appears under **WinMM**, use `"dinput"`. If it only appears under **HID-only**, use `"hid"`.
 
 ---
 
-## Modo `"dinput"` — WinMM
+## Mode `"dinput"` — WinMM
 
-Los ejes usan los nombres de `JOYINFOEX`:
+Axes use the field names from `JOYINFOEX`:
 
-| Nombre eje | Campo WinMM | Uso típico |
+| Axis name | WinMM field | Typical use |
 |---|---|---|
-| `"dwXpos"` | `dwXpos` | Stick izquierdo X |
-| `"dwYpos"` | `dwYpos` | Stick izquierdo Y |
-| `"dwZpos"` | `dwZpos` | Stick derecho X (D-mode) o gatillos combinados (X-mode) |
-| `"dwRpos"` | `dwRpos` | Stick derecho Y |
-| `"dwUpos"` | `dwUpos` | Stick derecho X (X-mode en algunos mandos) |
-| `"dwVpos"` | `dwVpos` | Eje auxiliar |
+| `"dwXpos"` | `dwXpos` | Left stick X |
+| `"dwYpos"` | `dwYpos` | Left stick Y |
+| `"dwZpos"` | `dwZpos` | Right stick X (D-mode) or combined triggers (X-mode) |
+| `"dwRpos"` | `dwRpos` | Right stick Y |
+| `"dwUpos"` | `dwUpos` | Right stick X (X-mode on some controllers) |
+| `"dwVpos"` | `dwVpos` | Auxiliary axis |
 
-El D-pad en DInput suele ser un POV hat:
+The D-pad in DInput is usually a POV hat:
 ```json
 "dpad": "pov"
 ```
 
-### Ejemplo — 8BitDo Pro 3 (D-mode, Bluetooth)
+### Example — 8BitDo Pro 3 (D-mode, Bluetooth)
 ```json
 {
   "vid": "2DC8", "pid": "6009",
@@ -81,10 +83,10 @@ El D-pad en DInput suele ser un POV hat:
   "buttons": {
     "1":  "b",
     "2":  "a",
-    "_3": "Rp (paddle derecho) — sin equivalente Xbox, usar en perfil de juego",
+    "_3": "Rp (right paddle) — no Xbox equivalent, use in game profile",
     "4":  "y",
     "5":  "x",
-    "_6": "Lp (paddle izquierdo) — sin equivalente Xbox, usar en perfil de juego",
+    "_6": "Lp (left paddle) — no Xbox equivalent, use in game profile",
     "7":  "l1",
     "8":  "r1",
     "9":  { "type": "trigger", "target": "l2" },
@@ -94,8 +96,8 @@ El D-pad en DInput suele ser un POV hat:
     "13": "home",
     "14": "l3",
     "15": "r3",
-    "_17": "L4 — sin equivalente Xbox, usar en perfil de juego",
-    "_18": "R4 — sin equivalente Xbox, usar en perfil de juego"
+    "_17": "L4 — no Xbox equivalent, use in game profile",
+    "_18": "R4 — no Xbox equivalent, use in game profile"
   },
   "axes": {
     "dwXpos": { "target": "left_x",  "invert": false },
@@ -109,22 +111,22 @@ El D-pad en DInput suele ser un POV hat:
 
 ---
 
-## Modo `"xinput"` — WinMM compat layer
+## Mode `"xinput"` — WinMM compat layer
 
-Los mandos XInput (Pro 3/Pro 2 en X-mode, F310 en X-mode) no exponen ejes separados para
-L2 y R2 — los comparten en un único eje Z: positivo → L2, negativo → R2.
-Esto es una limitación de WinMM; los dos gatillos no se pueden pulsar a la vez.
+XInput controllers (Pro 3/Pro 2 in X-mode, F310 in X-mode) don't expose separate axes for
+L2 and R2 — they share a single Z axis: positive → L2, negative → R2.
+This is a WinMM limitation; both triggers cannot be pressed simultaneously.
 
 ```json
 "dwZpos": { "target": "trigger_combined", "invert": false }
 ```
 
-La cruceta en X-mode también va como POV hat:
+The D-pad in X-mode also goes as a POV hat:
 ```json
 "dpad": "pov"
 ```
 
-### Ejemplo — 8BitDo Pro 3 (X-mode, Bluetooth)
+### Example — 8BitDo Pro 3 (X-mode, Bluetooth)
 ```json
 {
   "vid": "2DC8", "pid": "310B",
@@ -148,52 +150,52 @@ La cruceta en X-mode también va como POV hat:
 
 ---
 
-## Modo `"hid"` — HID raw
+## Mode `"hid"` — HID raw
 
-Para mandos que no aparecen en WinMM pero sí en la sección **HID-only** del scanner.
-Los ejes usan **HID Usage IDs** en vez de nombres WinMM:
+For controllers that don't appear in WinMM but do appear under **HID-only** in the scanner.
+Axes use **HID Usage IDs** instead of WinMM field names:
 
-### Ejes — Generic Desktop (página HID 0x01)
+### Axes — Generic Desktop (HID page 0x01)
 
-| Nombre eje | Usage ID | Uso típico |
+| Axis name | Usage ID | Typical use |
 |---|---|---|
-| `"hid_x"`  | 0x30 | Stick izquierdo X |
-| `"hid_y"`  | 0x31 | Stick izquierdo Y |
-| `"hid_z"`  | 0x32 | Stick derecho X (o gatillo en algunos mandos) |
-| `"hid_rx"` | 0x33 | Stick derecho X / Gatillo L (varía por mando) |
-| `"hid_ry"` | 0x34 | Stick derecho Y / Gatillo R (varía por mando) |
-| `"hid_rz"` | 0x35 | Stick derecho Y (frecuente en D-mode) |
+| `"hid_x"`  | 0x30 | Left stick X |
+| `"hid_y"`  | 0x31 | Left stick Y |
+| `"hid_z"`  | 0x32 | Right stick X (or trigger on some controllers) |
+| `"hid_rx"` | 0x33 | Right stick X / Left trigger (varies by controller) |
+| `"hid_ry"` | 0x34 | Right stick Y / Right trigger (varies by controller) |
+| `"hid_rz"` | 0x35 | Right stick Y (common in D-mode) |
 
-### Ejes — Simulation Controls (página HID 0x02)
+### Axes — Simulation Controls (HID page 0x02)
 
-Algunos mandos exponen los gatillos como controles de simulación (el mismo estándar que los volantes):
+Some controllers expose triggers as simulation controls (same standard as racing wheels):
 
-| Nombre eje | Usage ID | Uso típico |
+| Axis name | Usage ID | Typical use |
 |---|---|---|
-| `"hid_brake"` | 0xC4 | Gatillo L2 (Brake) |
-| `"hid_accel"` | 0xC5 | Gatillo R2 (Accelerator) |
+| `"hid_brake"` | 0xC4 | L2 trigger (Brake) |
+| `"hid_accel"` | 0xC5 | R2 trigger (Accelerator) |
 
-> VirtualPad detecta automáticamente la página HID real del descriptor del dispositivo —
-> no hay que preocuparse por si el mando usa 0x01 o 0x02 internamente.
+> VirtualPad automatically detects the real HID page from the device descriptor —
+> no need to worry about whether the controller uses 0x01 or 0x02 internally.
 
-### Targets de eje disponibles
+### Available axis targets
 
-| Target | Descripción |
+| Target | Description |
 |---|---|
-| `"left_x"` / `"left_y"` | Stick izquierdo |
-| `"right_x"` / `"right_y"` | Stick derecho |
-| `"trigger_l"` | Gatillo L2 analógico **[0.0 .. 1.0]** |
-| `"trigger_r"` | Gatillo R2 analógico **[0.0 .. 1.0]** |
-| `"trigger_combined"` | L2/R2 compartidos en un eje (+ = L2, - = R2) |
+| `"left_x"` / `"left_y"` | Left stick |
+| `"right_x"` / `"right_y"` | Right stick |
+| `"trigger_l"` | L2 trigger analog **[0.0 .. 1.0]** |
+| `"trigger_r"` | R2 trigger analog **[0.0 .. 1.0]** |
+| `"trigger_combined"` | L2/R2 shared on one axis (+ = L2, - = R2) |
 
-### D-pad en modo HID
+### D-pad in HID mode
 
-Los mandos HID suelen tener el D-pad como **hat switch**:
+HID controllers usually have the D-pad as a **hat switch**:
 ```json
 "dpad": "hid_hat"
 ```
 
-### Ejemplo — 8BitDo Pro 2 (D-mode, Bluetooth) con gatillos analógicos
+### Example — 8BitDo Pro 2 (D-mode, Bluetooth) with analog triggers
 ```json
 {
   "vid": "2DC8", "pid": "6006",
@@ -217,60 +219,60 @@ Los mandos HID suelen tener el D-pad como **hat switch**:
 }
 ```
 
-> **Nota:** en este mando concreto, Brake→R2 y Accel→L2 (invertido respecto al nombre).
-> Si los gatillos salen al revés, intercambia `trigger_l` y `trigger_r`.
+> **Note:** on this specific controller, Brake→R2 and Accel→L2 (inverted relative to the name).
+> If the triggers are swapped, exchange `trigger_l` and `trigger_r`.
 
 ---
 
-## Mapeo de botones
+## Button mapping
 
-Los índices son **1-based** y corresponden al bit N-1 de la máscara de botones del dispositivo.
-Usa el **Tab Scanner** de VirtualPad para identificar qué número sale al pulsar cada botón físico.
+Indices are **1-based** and correspond to bit N-1 of the device's button mask.
+Use the **Scanner tab** in VirtualPad to identify which number lights up when pressing each physical button.
 
-### Botones virtuales disponibles
+### Available virtual buttons
 
-| Valor | Botón en el mando virtual |
+| Value | Button on virtual controller |
 |---|---|
 | `"a"` | A |
 | `"b"` | B |
 | `"x"` | X |
 | `"y"` | Y |
-| `"l1"` | LB (bumper izquierdo) |
-| `"r1"` | RB (bumper derecho) |
+| `"l1"` | LB (left bumper) |
+| `"r1"` | RB (right bumper) |
 | `"select"` | Back / Select |
 | `"start"` | Start |
-| `"home"` | Guide (no inyectable en Xbox 360 virtual) |
-| `"l3"` | Click stick izquierdo |
-| `"r3"` | Click stick derecho |
+| `"home"` | Guide (not injectable on virtual Xbox 360) |
+| `"l3"` | Left stick click |
+| `"r3"` | Right stick click |
 
-### Tipos de acción para botones
+### Button action types
 
 ```json
-"N": "a"                                      // botón virtual simple
-"N": { "type": "trigger", "target": "l2" }   // gatillo digital (L2 o R2)
-"N": { "type": "macro",   "name": "NombreMacro" }
+"N": "a"                                      // simple virtual button
+"N": { "type": "trigger", "target": "l2" }   // digital trigger (L2 or R2)
+"N": { "type": "macro",   "name": "MacroName" }
 "N": { "type": "bot",     "name": "LightningBot" }
 "N": { "type": "keyboard",    "keys": ["alt", "tab"] }
 "N": { "type": "mouse_click", "button": "left" }
 ```
 
-#### Acción `keyboard` — combos de teclado
+#### Action `keyboard` — keyboard shortcuts
 
-Envía una combinación de teclas al sistema al pulsar el botón, y la suelta al soltarlo.
-Útil para botones sin equivalente Xbox (Home, Lp, Rp, L4, R4) o para cualquier atajo de sistema.
+Sends a key combination to the system on button press and releases it on button release.
+Useful for buttons with no Xbox equivalent (Home, Lp, Rp, L4, R4) or any system shortcut.
 
-Teclas disponibles: `alt`, `ctrl`, `shift`, `win`, `tab`, `enter`, `esc`, `space`, `backspace`,
+Available keys: `alt`, `ctrl`, `shift`, `win`, `tab`, `enter`, `esc`, `space`, `backspace`,
 `delete`, `insert`, `home_key`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`,
-`f1`–`f12`, letras `a`–`z`, dígitos `0`–`9`.
+`f1`–`f12`, letters `a`–`z`, digits `0`–`9`.
 
 ```json
 "13": { "type": "keyboard", "keys": ["alt", "tab"] }
 ```
 
-> **Nota**: `"home_key"` se refiere a la tecla Inicio del teclado. `"home"` (sin `_key`) es el botón
-> Guide/Home del mando virtual (Xbox).
+> **Note**: `"home_key"` refers to the keyboard Home key. `"home"` (without `_key`) is the
+> Guide/Home button on the virtual (Xbox) controller.
 
-#### Acción `mouse_click` — clicks de ratón
+#### Action `mouse_click` — mouse clicks
 
 ```json
 "14": { "type": "mouse_click", "button": "left" }
@@ -280,9 +282,9 @@ Teclas disponibles: `alt`, `ctrl`, `shift`, `win`, `tab`, `enter`, `esc`, `space
 
 ---
 
-## Movimiento del ratón desde un stick analógico
+## Mouse movement from an analog stick
 
-Mapea un eje del mando al cursor del ratón usando el target especial `mouse_x` / `mouse_y`:
+Maps a controller axis to the mouse cursor using the special targets `mouse_x` / `mouse_y`:
 
 ```json
 "axes": {
@@ -291,71 +293,71 @@ Mapea un eje del mando al cursor del ratón usando el target especial `mouse_x` 
 }
 ```
 
-El parámetro `speed` controla los píxeles por tick (8ms) a deflexión máxima. Con `speed: 15` el
-cursor recorre ~1875 px/segundo a full stick — ajusta según preferencia.
+The `speed` parameter controls pixels per tick (8ms) at full deflection. With `speed: 15` the
+cursor moves ~1875 px/second at full stick — adjust to taste.
 
-> **Inversión de eje Y**: la pantalla tiene Y positivo hacia abajo, el convenio del mando lo tiene
-> hacia arriba. Si el cursor se mueve al revés en vertical, usa `"invert": true` para ese eje.
-> Normalmente es el contrario del valor que tenías para `right_y` con el mismo eje físico.
+> **Y-axis inversion**: the screen has Y positive downward, the controller convention has it
+> upward. If the cursor moves in reverse vertically, use `"invert": true` for that axis.
+> Usually the opposite of the value you had for `right_y` with the same physical axis.
 
-### Ejemplo — Pro 2 D-mode con ratón en stick derecho
+### Example — Pro 2 D-mode with mouse on right stick
 
 ```json
 "hid_z":  { "target": "mouse_x", "invert": false, "speed": 15 },
 "hid_rz": { "target": "mouse_y", "invert": false, "speed": 15 }
 ```
 
-Estos targets se pueden usar en la config base (`controllers.json`) o como override de eje
-en un perfil de juego cuando esté implementado el soporte de axis overrides en perfiles.
+These targets can be used in the base config (`controllers.json`) or as axis overrides
+in a game profile once axis override support is implemented in profiles.
 
 ---
 
-## Inversión de ejes
+## Axis inversion
 
-Añade `"invert": true` en el mapping del eje para invertirlo:
+Add `"invert": true` to the axis mapping to invert it:
 ```json
 "hid_y": { "target": "left_y", "invert": true }
 ```
 
-Muchos mandos reportan el eje Y del stick de forma que "arriba" da valor máximo,
-pero el convenio de VirtualPad es `+1.0 = arriba`. Ajusta según lo que veas en el scanner.
+Many controllers report the stick Y axis so that "up" gives the maximum value,
+but VirtualPad's convention is `+1.0 = up`. Adjust based on what you see in the scanner.
 
 ---
 
-## Cómo descubrir el mapping de un mando nuevo
+## How to discover the mapping for a new controller
 
-1. Conecta el mando
-2. Abre el **Tab Scanner** en VirtualPad
-3. Si aparece en **WinMM**: pulsa cada botón y anota qué número se ilumina → usa `mode: "dinput"` o `"xinput"`
-4. Si aparece en **HID-only**: el log de consola al arrancar muestra todos los `ValCap` (Usage ID y rango) → usa `mode: "hid"` y mapea los usages que veas
-5. Mueve cada stick y observa qué eje cambia y en qué dirección
-6. Para los gatillos: busca en el log `Usage=0xC4` / `Usage=0xC5` (Simulation Controls) o `Usage=0x33`/`0x34` (Rx/Ry en Generic Desktop)
-7. Añade la entrada en `controllers.json` y reinicia VirtualPad
+1. Connect the controller
+2. Open the **Scanner tab** in VirtualPad
+3. If it appears under **WinMM**: press each button and note which number lights up → use `mode: "dinput"` or `"xinput"`
+4. If it appears under **HID-only**: the console log at startup shows all `ValCaps` (Usage ID and range) → use `mode: "hid"` and map the usages you see
+5. Move each stick and observe which axis changes and in which direction
+6. For triggers: look for `Usage=0xC4` / `Usage=0xC5` (Simulation Controls) or `Usage=0x33`/`0x34` (Rx/Ry in Generic Desktop) in the log
+7. Add the entry to `controllers.json` and restart VirtualPad
 
 ---
 
-## Perfiles de juego
+## Game profiles
 
-`controllers.json` es la **config base pura**: cada botón físico mapea a su equivalente Xbox 360 estándar.
-Los macros, bots y asignaciones especiales van en un JSON separado por juego.
+`controllers.json` is the **pure base config**: each physical button maps to its standard Xbox 360 equivalent.
+Macros, bots, and special assignments go in a separate JSON file per game.
 
-### Por qué botones como Lp, Rp, L4, R4 no están en la base
+### Why buttons like Lp, Rp, L4, R4 are not in the base
 
-Algunos mandos tienen botones que no existen en el protocolo Xbox 360 (no hay equivalente virtual).
-En la base quedan sin mapear — no tienen efecto. Se usan exclusivamente desde perfiles de juego, asignándolos a macros o bots.
+Some controllers have buttons that don't exist in the Xbox 360 protocol (no virtual equivalent).
+In the base config they are left unmapped — they have no effect. They are used exclusively from game profiles, assigned to macros or bots.
 
-Ejemplo — Pro 3 D-mode (botones WinMM):
+Example — Pro 3 D-mode (WinMM buttons):
 
-| Botón WinMM | Físico | En base | Motivo |
+| WinMM button | Physical | In base | Reason |
 |---|---|---|---|
-| 3 | Rp (paddle derecho) | — | no tiene equivalente Xbox 360 |
-| 6 | Lp (paddle izquierdo) | — | no tiene equivalente Xbox 360 |
-| 17 | L4 | — | no tiene equivalente Xbox 360 |
-| 18 | R4 | — | no tiene equivalente Xbox 360 |
+| 3 | Rp (right paddle) | — | no Xbox 360 equivalent |
+| 6 | Lp (left paddle) | — | no Xbox 360 equivalent |
+| 17 | L4 | — | no Xbox 360 equivalent |
+| 18 | R4 | — | no Xbox 360 equivalent |
 
-> Para futuro: si se extiende `GamepadState` con campos propios (l4, r4, lp, rp) y `ViGEmOutputAdapter` los mapea, estos botones podrían tener función virtual propia. Por ahora, solo son útiles como disparadores de macros/bots.
+> Future consideration: if `GamepadState` is extended with custom fields (l4, r4, lp, rp) and `ViGEmOutputAdapter` maps them, these buttons could have their own virtual function. For now, they are only useful as macro/bot triggers.
 
-### Formato del perfil de juego
+### Game profile format
 
 ```json
 {
@@ -375,47 +377,47 @@ Ejemplo — Pro 3 D-mode (botones WinMM):
 }
 ```
 
-- Solo se declaran los botones que cambian respecto a la base. El resto se hereda sin tocar.
-- Se puede añadir una entrada `"overrides"` por cada mando que se quiera personalizar (distinto VID/PID).
-- Si en un perfil se reasigna un botón estándar (como el 15 = R3), ese botón deja de funcionar como botón virtual mientras el perfil esté activo. Es una decisión consciente.
-- JSON no admite comentarios nativos. Los campos prefijados con `_` (`_note`, `_button_map`, `_hid_prototype`) son ignorados por el parser y sirven como anotaciones.
+- Only declare the buttons that change from the base. Everything else is inherited unchanged.
+- You can add one `"overrides"` entry per controller you want to customize (different VID/PID).
+- If a profile reassigns a standard button (like 15 = R3), that button stops working as a virtual button while the profile is active. This is an intentional decision.
+- JSON doesn't support native comments. Fields prefixed with `_` (`_note`, `_button_map`, `_hid_prototype`) are ignored by the parser and serve as annotations.
 
-### Añadir un perfil nuevo
+### Adding a new profile
 
-1. Crea `data/NombreJuego.json` con la estructura anterior.
-2. Declara solo los botones que necesitas cambiar; deja el resto en la base.
-3. Selecciona el perfil desde la UI de VirtualPad (pendiente de implementar) o desde `virtualpad.json`.
+1. Create `data/GameName.json` with the structure above.
+2. Declare only the buttons you need to change; leave the rest in the base.
+3. Select the profile from VirtualPad's UI (pending implementation) or from `virtualpad.json`.
 
 ---
 
-## Archivos de datos
+## Data files
 
-| Archivo | Descripción |
+| File | Description |
 |---|---|
-| `data/controllers.json` | Configuración base de mandos físicos |
-| `data/FinalFantasyX.json` | Perfil de juego para FFX (overrides sobre la base) |
-| `data/macros.json` | Biblioteca de macros reutilizables |
-| `data/virtualpad.json` | VID/PID del mando virtual creado por ViGEm + nivel de log |
+| `data/controllers.json` | Base configuration for physical controllers |
+| `data/FinalFantasyX.json` | Game profile for FFX (overrides on top of base) |
+| `data/macros.json` | Reusable macro library |
+| `data/virtualpad.json` | VID/PID of the virtual controller created by ViGEm + log level |
 
-Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
+See [MACROS.md](MACROS.md) for the complete macro syntax.
 
 ---
 
-## Mapa de botones por mando
+## Button map by controller
 
-Las entradas en **negrita** son botones que no tienen equivalente en el protocolo Xbox 360.
-No producen ningún output virtual por defecto — solo son útiles asignándolos a macros o bots en un perfil de juego.
+Entries in **bold** are buttons with no equivalent in the Xbox 360 protocol.
+They produce no virtual output by default — only useful when assigned to macros or bots in a game profile.
 
 ### 8BitDo Pro 3 — D-mode (VID:2DC8 PID:6009)
 
-| Botón WinMM | Físico | Virtual Xbox |
+| WinMM button | Physical | Virtual Xbox |
 |---|---|---|
 | 1 | B | b |
 | 2 | A | a |
-| **3** | **Rp (paddle derecho)** | **— sin equivalente** |
+| **3** | **Rp (right paddle)** | **— no equivalent** |
 | 4 | Y | y |
 | 5 | X | x |
-| **6** | **Lp (paddle izquierdo)** | **— sin equivalente** |
+| **6** | **Lp (left paddle)** | **— no equivalent** |
 | 7 | LB | l1 |
 | 8 | RB | r1 |
 | 9 | L2 | trigger_l2 (digital) |
@@ -425,16 +427,16 @@ No producen ningún output virtual por defecto — solo son útiles asignándolo
 | 13 | Home | home |
 | 14 | L3 | l3 |
 | 15 | R3 | r3 |
-| **17** | **L4** | **— sin equivalente** |
-| **18** | **R4** | **— sin equivalente** |
+| **17** | **L4** | **— no equivalent** |
+| **18** | **R4** | **— no equivalent** |
 
 ---
 
 ### 8BitDo Pro 3 — X-mode (VID:2DC8 PID:310B)
 
-En X-mode el firmware solo expone los 10 botones estándar Xbox. Los botones Home, Lp, Rp, L4 y R4 no están accesibles.
+In X-mode the firmware only exposes the 10 standard Xbox buttons. Home, Lp, Rp, L4 and R4 are not accessible.
 
-| Botón WinMM | Físico | Virtual Xbox |
+| WinMM button | Physical | Virtual Xbox |
 |---|---|---|
 | 1 | A | a |
 | 2 | B | b |
@@ -447,20 +449,20 @@ En X-mode el firmware solo expone los 10 botones estándar Xbox. Los botones Hom
 | 9 | L3 | l3 |
 | 10 | R3 | r3 |
 
-> L2 y R2 son analógicos pero comparten el eje Z (trigger_combined). No se pueden pulsar ambos a la vez.
+> L2 and R2 are analog but share the Z axis (trigger_combined). They cannot both be pressed simultaneously.
 
 ---
 
 ### 8BitDo Pro 2 — D-mode (VID:2DC8 PID:6006)
 
-| Botón HID | Físico | Virtual Xbox |
+| HID button | Physical | Virtual Xbox |
 |---|---|---|
 | 1 | B | b |
 | 2 | A | a |
-| **3** | **Rp (paddle derecho)** | **— sin equivalente** |
+| **3** | **Rp (right paddle)** | **— no equivalent** |
 | 4 | Y | y |
 | 5 | X | x |
-| **6** | **Lp (paddle izquierdo)** | **— sin equivalente** |
+| **6** | **Lp (left paddle)** | **— no equivalent** |
 | 7 | LB | l1 |
 | 8 | RB | r1 |
 | 11 | Select | select |
@@ -469,17 +471,17 @@ En X-mode el firmware solo expone los 10 botones estándar Xbox. Los botones Hom
 | 14 | L3 | l3 |
 | 15 | R3 | r3 |
 
-> L2 y R2 son analógicos independientes vía HID (hid_brake / hid_accel). Se pueden pulsar ambos a la vez.
-> Botones 3 y 6 (Rp/Lp) verificados experimentalmente — coinciden con Pro 3 D-mode.
-> El Pro 2 no tiene L4/R4.
+> L2 and R2 are independent analog triggers via HID (hid_brake / hid_accel). Both can be pressed simultaneously.
+> Buttons 3 and 6 (Rp/Lp) verified experimentally — match Pro 3 D-mode.
+> The Pro 2 does not have L4/R4.
 
 ---
 
 ### 8BitDo Pro 2 — X-mode (VID:045E PID:02E0)
 
-Mismo layout que Pro 3 X-mode. 10 botones estándar Xbox, sin extras.
+Same layout as Pro 3 X-mode. 10 standard Xbox buttons, no extras.
 
-| Botón WinMM | Físico | Virtual Xbox |
+| WinMM button | Physical | Virtual Xbox |
 |---|---|---|
 | 1 | A | a |
 | 2 | B | b |
@@ -492,13 +494,13 @@ Mismo layout que Pro 3 X-mode. 10 botones estándar Xbox, sin extras.
 | 9 | L3 | l3 |
 | 10 | R3 | r3 |
 
-> L2/R2 comparten el eje Z (trigger_combined).
+> L2/R2 share the Z axis (trigger_combined).
 
 ---
 
 ### Logitech F310 — D-mode (VID:046D PID:C216)
 
-| Botón WinMM | Físico | Virtual Xbox |
+| WinMM button | Physical | Virtual Xbox |
 |---|---|---|
 | 1 | X | x |
 | 2 | A | a |
@@ -513,15 +515,15 @@ Mismo layout que Pro 3 X-mode. 10 botones estándar Xbox, sin extras.
 | 11 | L3 | l3 |
 | 12 | R3 | r3 |
 
-> El F310 D-mode no tiene Home físico ni botones extra. Los gatillos son solo digitales.
+> The F310 D-mode has no physical Home button and no extra buttons. Triggers are digital only.
 
 ---
 
 ### Sony DualShock 4 v2 (VID:054C PID:09CC)
 
-Funciona igual en USB y Bluetooth (mismo VID/PID).
+Works the same over USB and Bluetooth (same VID/PID).
 
-| Botón WinMM | Físico | Virtual Xbox |
+| WinMM button | Physical | Virtual Xbox |
 |---|---|---|
 | 1 | Square | x |
 | 2 | Cross | a |
@@ -534,7 +536,7 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 | 11 | L3 | l3 |
 | 12 | R3 | r3 |
 | 13 | PS | home |
-| **14** | **Touchpad click** | **— sin equivalente** |
+| **14** | **Touchpad click** | **— no equivalent** |
 
-> L2 y R2 son analógicos independientes (dwUpos / dwVpos). Se pueden pulsar ambos a la vez.
-> Features DS4 avanzadas (touchpad XY, giroscopio, LEDs, rumble) pendientes para fases futuras.
+> L2 and R2 are independent analog triggers (dwUpos / dwVpos). Both can be pressed simultaneously.
+> Advanced DS4 features (touchpad XY, gyroscope, LEDs, rumble) pending for future phases.
