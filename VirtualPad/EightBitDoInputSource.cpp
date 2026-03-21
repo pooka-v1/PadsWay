@@ -14,59 +14,58 @@ bool EightBitDoInputSource::isConnected() const {
 }
 
 bool EightBitDoInputSource::read(GamepadState& state) {
-    JOYINFOEX info;
+    JOYINFOEX info = {};
     info.dwSize  = sizeof(JOYINFOEX);
     info.dwFlags = JOY_RETURNALL;
 
     if (joyGetPosEx(m_joyId, &info) != JOYERR_NOERROR)
         return false;
 
-    // Reads a button by name; returns false if not mapped.
-    auto btn = [&](const std::string& name) -> bool {
-        auto it = m_config.buttons.find(name);
-        if (it == m_config.buttons.end()) return false;
-        return (info.dwButtons & (1u << (it->second - 1))) != 0;
+    // Apply a virtual button name to the corresponding GamepadState field.
+    auto setVirtualButton = [&](const std::string& name, bool value) {
+        if      (name == "a")      state.btnA     = value;
+        else if (name == "b")      state.btnB     = value;
+        else if (name == "x")      state.btnX     = value;
+        else if (name == "y")      state.btnY     = value;
+        else if (name == "l1")     state.btnLB    = value;
+        else if (name == "r1")     state.btnRB    = value;
+        else if (name == "select") state.btnBack  = value;
+        else if (name == "start")  state.btnStart = value;
+        else if (name == "home")   state.btnHome  = value;
+        else if (name == "l3")     state.btnL3    = value;
+        else if (name == "r3")     state.btnR3    = value;
     };
 
-    // Reads an axis by name; applies inversion if configured.
-    auto axis = [&](const std::string& name) -> float {
-        auto it = m_config.axes.find(name);
-        if (it == m_config.axes.end()) return 0.0f;
-        float v = normalizeAxis(getAxisValue(info, it->second.source));
-        return it->second.invert ? -v : v;
-    };
+    // Process all mapped buttons.
+    for (const auto& [bit, action] : m_config.buttons) {
+        bool pressed = (info.dwButtons & (1u << (bit - 1))) != 0;
+        switch (action.type) {
+        case ButtonActionType::VirtualButton:
+            setVirtualButton(action.name, pressed);
+            break;
+        case ButtonActionType::Trigger: {
+            float v = !action.axis.empty()
+                ? normalizeTrigger(getAxisValue(info, action.axis))
+                : (pressed ? 1.0f : 0.0f);
+            if      (action.target == "l2") state.triggerL = v;
+            else if (action.target == "r2") state.triggerR = v;
+            break;
+        }
+        case ButtonActionType::Bot:
+            // Bot toggle is handled in VirtualPad.cpp — skip here.
+            break;
+        }
+    }
 
-    // Reads a trigger by name; axis takes priority over button fallback.
-    auto trigger = [&](const std::string& name) -> float {
-        auto it = m_config.triggers.find(name);
-        if (it == m_config.triggers.end()) return 0.0f;
-        const auto& t = it->second;
-        if (!t.axis.empty())
-            return normalizeTrigger(getAxisValue(info, t.axis));
-        if (t.button > 0)
-            return (info.dwButtons & (1u << (t.button - 1))) ? 1.0f : 0.0f;
-        return 0.0f;
-    };
-
-    state.btnA     = btn("a");
-    state.btnB     = btn("b");
-    state.btnX     = btn("x");
-    state.btnY     = btn("y");
-    state.btnLB    = btn("l1");
-    state.btnRB    = btn("r1");
-    state.btnBack  = btn("select");
-    state.btnStart = btn("start");
-    state.btnHome  = btn("home");
-    state.btnL3    = btn("l3");
-    state.btnR3    = btn("r3");
-
-    state.leftX  = axis("left_x");
-    state.leftY  = axis("left_y");
-    state.rightX = axis("right_x");
-    state.rightY = axis("right_y");
-
-    state.triggerL = trigger("l2");
-    state.triggerR = trigger("r2");
+    // Process all mapped axes.
+    for (const auto& [source, mapping] : m_config.axes) {
+        float v = normalizeAxis(getAxisValue(info, source));
+        if (mapping.invert) v = -v;
+        if      (mapping.target == "left_x")  state.leftX  = v;
+        else if (mapping.target == "left_y")  state.leftY  = v;
+        else if (mapping.target == "right_x") state.rightX = v;
+        else if (mapping.target == "right_y") state.rightY = v;
+    }
 
     if (m_config.dpad == "pov")
         parsePOV(info.dwPOV, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);

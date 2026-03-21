@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cmath>
 #include <windows.h>
 #include <mmsystem.h>
 #include <vector>
@@ -7,6 +8,10 @@
 #include "ViGEmOutputAdapter.h"
 #include "ConfigLoader.h"
 #include "LightningBot.h"
+#include "Macro.h"
+#include "MacroParser.h"
+#include <unordered_map>
+#include <string>
 
 #pragma comment(lib, "ViGEmClient.lib")
 #pragma comment(lib, "Setupapi.lib")
@@ -20,6 +25,14 @@ struct JoyEntry {
     WORD    wPid;
     wchar_t name[MAXPNAMELEN];
 };
+
+// Returns the physical bit (1-indexed) assigned to a bot by name, or 0 if not found.
+static int findBotBit(const ControllerConfig& cfg, const std::string& botName) {
+    for (const auto& [bit, action] : cfg.buttons)
+        if (action.type == ButtonActionType::Bot && action.name == botName)
+            return bit;
+    return 0;
+}
 
 // Returns all WinMM ports that respond to joyGetPosEx.
 static std::vector<JoyEntry> scanPorts() {
@@ -99,6 +112,15 @@ int main() {
         return 1;
     }
 
+    std::unordered_map<std::string, std::string> macroLibrary;
+    try {
+        macroLibrary = loadMacroLibrary("configs/macros.json");
+        if (!macroLibrary.empty())
+            printf("Macro library loaded: %zu macros.\n", macroLibrary.size());
+    } catch (const std::exception& ex) {
+        fprintf(stderr, "Warning: could not load macro library: %s\n", ex.what());
+    }
+
     const ControllerConfig* cfg = findConfig(configs, selected.wMid, selected.wPid);
     if (!cfg) {
         fprintf(stderr,
@@ -119,12 +141,51 @@ int main() {
         return 1;
     }
 
+    int lightningBotBit = findBotBit(*cfg, "LightningBot");
+    if (lightningBotBit > 0)
+        printf("LightningBot assigned to button %d.\n", lightningBotBit);
+
+    // --- Step 4: Parse and compile all macros from config. ---
+    std::unordered_map<int, Macro>       macros;
+    std::unordered_map<int, bool>        macroPrevBtn;
+    std::unordered_map<int, std::string> macroNames;
+    std::unordered_map<int, int>         macroRotCount;   // rotation counter per macro
+    std::unordered_map<int, float>       macroLastRX;     // last logged right stick X
+    std::unordered_map<int, float>       macroLastRY;     // last logged right stick Y
+
+    for (const auto& [bit, action] : cfg->buttons) {
+        if (action.type != ButtonActionType::Macro) continue;
+        std::string execution = action.execution;
+        if (execution.empty()) {
+            auto it = macroLibrary.find(action.name);
+            if (it == macroLibrary.end()) {
+                fprintf(stderr, "Warning: macro '%s' (button %d) not found in library — skipped.\n",
+                        action.name.c_str(), bit);
+                continue;
+            }
+            execution = it->second;
+        }
+        try {
+            Macro m;
+            MacroParser::parse(execution, m);
+            macros[bit]       = std::move(m);
+            macroPrevBtn[bit] = false;
+            macroNames[bit]   = action.name;
+            macroRotCount[bit] = 0;
+            macroLastRX[bit]   = 0.0f;
+            macroLastRY[bit]   = 0.0f;
+            printf("Macro '%s' assigned to button %d.\n", action.name.c_str(), bit);
+        } catch (const std::exception& ex) {
+            fprintf(stderr, "Error parsing macro '%s': %s\n", action.name.c_str(), ex.what());
+        }
+    }
+
     std::cout << "Forwarding input. Hold ESC for 1 second to exit.\n\n";
 
     GamepadState state;
-    bool         btn6Prev  = false;
-    bool         btnAPrev  = false;
-    ULONGLONG    escSince  = 0;   // timestamp when ESC was first seen held down
+    bool         botBtnPrev = false;
+    bool         btnAPrev   = false;
+    ULONGLONG    escSince   = 0;  // timestamp when ESC was first seen held down
 
     while (true) {
         if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
@@ -140,21 +201,50 @@ int main() {
             continue;
         }
 
-        // --- Detect button 6 rising edge to toggle the lightning bot ---
-        // Button N uses bit (N-1) in dwButtons (WinMM convention).
+        // --- Read raw buttons once for all special actions ---
         {
             JOYINFOEX raw = {};
             raw.dwSize  = sizeof(JOYINFOEX);
             raw.dwFlags = JOY_RETURNBUTTONS;
-            bool btn6 = false;
+            DWORD btns  = 0;
             if (joyGetPosEx(joyPort, &raw) == JOYERR_NOERROR)
-                btn6 = (raw.dwButtons >> 5) & 1u;  // button 6 = bit 5
+                btns = raw.dwButtons;
 
-            if (btn6 && !btn6Prev) {
-                bot.toggle();
-                printf("\n[BOT] Lightning bot %s\n", bot.isActive() ? "ON" : "OFF");
+            if (lightningBotBit > 0) {
+                bool pressed = (btns & (1u << (lightningBotBit - 1))) != 0;
+                if (pressed && !botBtnPrev) {
+                    bot.toggle();
+                    printf("\n[BOT] Lightning bot %s\n", bot.isActive() ? "ON" : "OFF");
+                }
+                botBtnPrev = pressed;
             }
-            btn6Prev = btn6;
+
+            for (auto& [bit, macro] : macros) {
+                bool pressed = (btns & (1u << (bit - 1))) != 0;
+                bool& prev   = macroPrevBtn[bit];
+
+                if (pressed && !prev) {
+                    // Rising edge: start or toggle
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                        macro.start();
+                    else
+                        macro.toggle();
+                    if (macro.isActive()) {
+                        macroRotCount[bit] = 0;
+                        macroLastRX[bit]   = 0.0f;
+                        macroLastRY[bit]   = 0.0f;
+                    }
+                    printf("\n[MACRO][%llu] '%s' %s\n",
+                           GetTickCount64(), macroNames[bit].c_str(),
+                           macro.isActive() ? "ON" : "OFF");
+                }
+                if (!pressed && prev) {
+                    // Falling edge: stop if UntilRelease
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                        macro.stop();
+                }
+                prev = pressed;
+            }
         }
 
         if (input.read(state)) {
@@ -167,6 +257,30 @@ int main() {
             bool botPressed = bot.consumePressA();
             if (botPressed)
                 state.btnA = true;
+
+            // Tick all active macros (they OR/override their effects into state)
+            for (auto& [bit, macro] : macros) {
+                bool wasActive = macro.isActive();
+                macro.tick(state);
+
+                // Count laps by detecting arrival at north position (X≈0, Y≈1)
+                if (macro.isActive()
+                    && (state.rightX != macroLastRX[bit] || state.rightY != macroLastRY[bit])) {
+                    bool atNorth    = (fabsf(state.rightX) < 0.1f && state.rightY > 0.9f);
+                    bool wasAtNorth = (fabsf(macroLastRX[bit]) < 0.1f && macroLastRY[bit] > 0.9f);
+                    if (atNorth && !wasAtNorth) {
+                        macroRotCount[bit]++;
+                        printf("[MACRO][%llu] '%s' lap=%d\n",
+                               GetTickCount64(), macroNames[bit].c_str(), macroRotCount[bit]);
+                    }
+                    macroLastRX[bit] = state.rightX;
+                    macroLastRY[bit] = state.rightY;
+                }
+
+                if (wasActive && !macro.isActive())
+                    printf("\n[MACRO][%llu] '%s' AUTO-OFF (laps: %d)\n",
+                           GetTickCount64(), macroNames[bit].c_str(), macroRotCount[bit]);
+            }
 
             output.update(state);
         }

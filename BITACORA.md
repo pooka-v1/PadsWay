@@ -45,3 +45,19 @@
 - Mide duración de la pulsación manual del botón A y la correlaciona con los flashes detectados.
 - Usada para calibrar los timings del LightningBot antes de automatizarlos.
 - No forma parte del producto final — es un utilitario de desarrollo/investigación.
+
+---
+
+## V4Pro3 — ~2026/03/15 — Sistema de macros (consola pura, pre-GUI)
+
+**Qué se hizo:**
+- Motor de macros completo integrado en el loop de consola.
+- `MacroParser`: parsea un DSL compacto de texto a pasos compilados. Sintaxis: `"CU, CUR + X"`, `"B=1000"`, `"(A,B,C)*5000"`.
+- `Macro` + `CompiledStep`: cada paso tiene `startMs`, `holdMs`, `endMs`. Se ejecutan contra el `GamepadState` cada tick.
+- `MacroEffect`: qué botones y sticks afecta cada paso (`hasLeftStick`, `hasRightStick`).
+- `MacroRepeatMode`: Once, TimedMs, UntilRelease, Toggle.
+- `LuluMacro`: macro especializada, rotación continua del stick derecho (~4 RPM) para el hechizo Lulu en FFX.
+- Los macros se asignan a botones del mando físico en la config JSON.
+- `tools/lulu_macro_tests.csv`: datos de prueba de la LuluMacro, registro de iteraciones de calibración del timing de la rotación.
+
+**Estado:** aplicación de consola pura, sin GUI. Versión pre-refactor.

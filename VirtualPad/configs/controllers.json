@@ -6,27 +6,33 @@
       "source_name": "8BitDo Pro 3",
       "mode": "dinput",
       "buttons": {
-        "a":      2,
-        "b":      1,
-        "x":      5,
-        "y":      4,
-        "l1":     7,
-        "r1":     8,
-        "select": 11,
-        "start":  12,
-        "home":   13,
-        "l3":     14,
-        "r3":     15
+        "1":  "b",
+        "2":  "a",
+		"3": {
+		  "type": "macro",
+		  "name": "BanishingBlade"
+		},
+        "4":  "y",
+        "5":  "x",
+        "6":  { "type": "bot",     "name": "LightningBot" },
+        "7":  "l1",
+        "8":  "r1",
+        "9":  { "type": "trigger", "axis": "dwUpos", "target": "l2" },
+        "10": { "type": "trigger", "axis": "dwVpos", "target": "r2" },
+        "11": "select",
+        "12": "start",
+        "13": "home",
+        "14": "l3",
+        "15": {
+		  "type": "macro",
+		  "name": "LuluOverdrive"
+		  }
       },
       "axes": {
-        "left_x":  { "source": "dwXpos", "invert": false },
-        "left_y":  { "source": "dwYpos", "invert": true  },
-        "right_x": { "source": "dwZpos", "invert": false },
-        "right_y": { "source": "dwRpos", "invert": true  }
-      },
-      "triggers": {
-        "l2": { "axis": "dwUpos", "button": 9  },
-        "r2": { "axis": "dwVpos", "button": 10 }
+        "dwXpos": { "target": "left_x",  "invert": false },
+        "dwYpos": { "target": "left_y",  "invert": true  },
+        "dwZpos": { "target": "right_x", "invert": false },
+        "dwRpos": { "target": "right_y", "invert": true  }
       },
       "dpad": "pov"
     }

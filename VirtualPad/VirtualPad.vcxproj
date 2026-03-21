@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{D90773CE-E112-4A34-9788-608C2FF32749}</ProjectGuid>
-    <RootNamespace>VirtualPadV3Pro3</RootNamespace>
+    <ProjectGuid>{B8F83163-7E9E-4D23-A440-64286D495393}</ProjectGuid>
+    <RootNamespace>VirtualPad</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -137,16 +137,22 @@
     <ClCompile Include="ConfigLoader.cpp" />
     <ClCompile Include="EightBitDoInputSource.cpp" />
     <ClCompile Include="LightningBot.cpp" />
+    <ClCompile Include="LuluMacro.cpp" />
+    <ClCompile Include="Macro.cpp" />
+    <ClCompile Include="MacroParser.cpp" />
     <ClCompile Include="ViGEmOutputAdapter.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ConfigLoader.h" />
     <ClInclude Include="ControllerConfig.h" />
-    <ClInclude Include="EightBitDoInputSource.h" />
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="IInputSource.h" />
+    <ClInclude Include="EightBitDoInputSource.h" />
     <ClInclude Include="LightningBot.h" />
+    <ClInclude Include="LuluMacro.h" />
+    <ClInclude Include="Macro.h" />
+    <ClInclude Include="MacroParser.h" />
     <ClInclude Include="ViGEmOutputAdapter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -3,24 +3,28 @@
 #include <unordered_map>
 #include <cstdint>
 
-struct AxisMapping {
-    std::string source;   // WinMM field name: "dwXpos", "dwYpos", "dwZpos", "dwRpos", "dwUpos", "dwVpos"
-    bool        invert;   // negate the normalized value
+enum class ButtonActionType { VirtualButton, Trigger, Bot, Macro };
+
+struct ButtonAction {
+    ButtonActionType type      = ButtonActionType::VirtualButton;
+    std::string      name;       // virtual button ("a","b",...), bot/macro name
+    std::string      axis;       // trigger only: WinMM source ("dwUpos", "dwVpos")
+    std::string      target;     // trigger only: "l2" or "r2"
+    std::string      execution;  // macro only: compact execution string
 };
 
-struct TriggerMapping {
-    std::string axis;     // analog source (empty if not available)
-    int         button;   // digital fallback, 1-indexed (0 = none)
+struct AxisMapping {
+    std::string target;   // virtual axis name: "left_x", "left_y", "right_x", "right_y"
+    bool        invert;
 };
 
 struct ControllerConfig {
     uint16_t    vid;
     uint16_t    pid;
-    std::string source_name;    // szPname reported by WinMM
-    std::string mode;           // "dinput" or "xinput"
+    std::string source_name;
+    std::string mode;
 
-    std::unordered_map<std::string, int>            buttons;   // button name  -> WinMM button number (1-indexed)
-    std::unordered_map<std::string, AxisMapping>    axes;      // axis name    -> mapping
-    std::unordered_map<std::string, TriggerMapping> triggers;  // trigger name -> mapping
-    std::string dpad;           // "pov" or "" (not mapped)
+    std::unordered_map<int, ButtonAction>        buttons;  // physical bit (1-indexed) -> action
+    std::unordered_map<std::string, AxisMapping> axes;     // WinMM source name -> mapping
+    std::string dpad;
 };

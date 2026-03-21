@@ -1,7 +1,7 @@
 # VirtualPad
 
 Lee mandos físicos (WinMM) y los reenvía como un mando Xbox 360 virtual via ViGEm.
-Soporta bots y configuración por JSON sin tocar el código.
+Soporta macros, bots y configuración por JSON sin tocar el código.
 
 ---
 
@@ -44,31 +44,22 @@ El campo `"mode"` determina qué API se usa:
 
 ---
 
-## Ejes disponibles (modo `dinput`)
-
-| Nombre | Campo WinMM | Uso típico |
-|---|---|---|
-| `"dwXpos"` | `dwXpos` | Stick izquierdo X |
-| `"dwYpos"` | `dwYpos` | Stick izquierdo Y |
-| `"dwZpos"` | `dwZpos` | Stick derecho X |
-| `"dwRpos"` | `dwRpos` | Stick derecho Y |
-
----
-
 ## Tipos de acción para botones
 
 ```json
-"N": "a"                                    // botón virtual simple
-"N": { "type": "trigger", "target": "l2" } // gatillo digital
-"N": { "type": "bot", "name": "LightningBot" }
+"N": "a"                                      // botón virtual simple
+"N": { "type": "trigger", "target": "l2" }   // gatillo digital
+"N": { "type": "macro",   "name": "NombreMacro" }
+"N": { "type": "bot",     "name": "LightningBot" }
 ```
+
+Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
 
 ---
 
 ## Bots incluidos
 
 ### LightningBot (Final Fantasy X — Thunder Plains)
-
 Detecta el flash de pantalla del rayo y pulsa automáticamente el botón asignado para esquivar.
 Se activa/desactiva con un botón físico definido en la config.
 
