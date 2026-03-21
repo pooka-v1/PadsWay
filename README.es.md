@@ -3,6 +3,8 @@
 Lee mandos físicos (WinMM, HID, XInput) y los reenvía como un mando Xbox 360 virtual via ViGEm.
 Soporta macros, bots y configuración por JSON sin tocar el código.
 
+[Read in English](README.md)
+
 ---
 
 ## Requisitos
@@ -538,3 +540,16 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 
 > L2 y R2 son analógicos independientes (dwUpos / dwVpos). Se pueden pulsar ambos a la vez.
 > Features DS4 avanzadas (touchpad XY, giroscopio, LEDs, rumble) pendientes para fases futuras.
+
+---
+
+### 8BitDo Zero 2 — Bluetooth (VID:2DC8 PID:6006)
+
+⚠️ **Limitación conocida:** el Zero 2 comparte VID y PID con el Pro 2 en modo Bluetooth.
+VirtualPad no puede distinguirlos — carga el perfil del Pro 2 para ambos.
+
+Con el Zero 2 conectado, la cruceta se reporta como 4 ejes analógicos en lugar de hat switch,
+por lo que la dirección no funciona correctamente con el perfil del Pro 2.
+
+**Solución pendiente:** conectar el mando, usar el Tab Scanner para ver cómo reporta
+realmente sus ejes y cruceta, y crear un perfil dedicado o añadir un mecanismo de distinción.

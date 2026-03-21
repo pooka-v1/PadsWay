@@ -540,3 +540,17 @@ Works the same over USB and Bluetooth (same VID/PID).
 
 > L2 and R2 are independent analog triggers (dwUpos / dwVpos). Both can be pressed simultaneously.
 > Advanced DS4 features (touchpad XY, gyroscope, LEDs, rumble) pending for future phases.
+
+---
+
+### 8BitDo Zero 2 — Bluetooth (VID:2DC8 PID:6006)
+
+⚠️ **Known limitation:** the Zero 2 shares VID and PID with the Pro 2 in Bluetooth mode.
+VirtualPad cannot distinguish between them — it will load the Pro 2 config for both.
+
+When running with the Zero 2, the D-pad is reported as 4 analog axes instead of a hat switch,
+so directional input does not work correctly with the Pro 2 profile.
+
+**Workaround:** pending investigation. Connect the controller and use the Scanner tab to inspect
+how the Zero 2 actually reports its axes and D-pad, then create a dedicated profile or add a
+distinguishing mechanism.
