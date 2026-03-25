@@ -157,6 +157,8 @@
     <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="ui\PadView.cpp" />
+
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="config\ConfigLoader.h" />
@@ -179,6 +181,7 @@
     <ClInclude Include="imgui\imgui_internal.h" />
     <ClInclude Include="imgui\imgui_impl_win32.h" />
     <ClInclude Include="imgui\imgui_impl_dx11.h" />
+	<ClInclude Include="ui\PadView.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

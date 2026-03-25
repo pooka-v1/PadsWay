@@ -9,6 +9,7 @@
 #include "input/HIDScanner.h"
 #include "config/ConfigLoader.h"
 #include "GamepadState.h"
+#include "ui/PadView.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -34,6 +35,7 @@ private:
     void renderFrame();
     void renderEngineTab();
     void renderScannerTab();
+    void renderPadTab();
 
     // --- Win32 window procedure ---
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -73,4 +75,7 @@ private:
     // --- HID live monitor (scanner right panel for HID devices) ---
     // Uses the engine's last read state — avoids competing with the engine on BT HID.
     GamepadState m_hidScanState = {};
+
+    // --- Pad view (D1) ---
+    PadView m_padView;
 };

@@ -4,6 +4,9 @@ x64/
 VirtualPad/logs/
 VirtualPad/consoleOutput/
 
+# Krita originals and design scraps
+VirtualPad/images/founts/
+
 # Private working documents
 BITACORA.md
 SESSION_CONTEXT.md

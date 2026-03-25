@@ -121,7 +121,7 @@ Cada posición se mantiene 30ms. Dura 10 segundos y para automáticamente.
           "execution": "A, 1500,(RAX0+RAY1=17, RAX0.383+RAY0.924=17, RAX0.71+RAY0.71=17, RAX0.924+RAY0.383=17, RAX1+RAY0=17, RAX0.924+RAY-0.383=17, RAX0.71+RAY-0.71=17, RAX0.383+RAY-0.924=17, RAX0+RAY-1=17, RAX-0.383+RAY-0.924=17, RAX-0.71+RAY-0.71=17, RAX-0.924+RAY-0.383=17, RAX-1+RAY0=17, RAX-0.924+RAY0.383=17, RAX-0.71+RAY0.71=17, RAX-0.383+RAY0.924=17)*7000",
 ```
 
-> Resultado: 7 vueltas conseguidas (máximo manual ~6). ✓
+> Resultado: 10 vueltas conseguidas (máximo manual ~6). ✓
 
 ### Presa Soul Calibur
 Dos botones simultáneos difíciles de pulsar a la vez en mando de PlayStation.
@@ -154,3 +154,11 @@ Pulsa A repetidamente mientras mantengas el botón físico pulsado.
 ```json
 "execution": "A*1000/10"
 ```
+
+### Uso del ratón con un analógico
+Permite mover el ratón con el analógico derecho del Pro 2 (pulsaciones de botón aparte)
+```
+        "hid_z":  { "target": "mouse_x", "invert": false, "speed": 15 },
+        "hid_rz": { "target": "mouse_y", "invert": false, "speed": 15 },
+```
+

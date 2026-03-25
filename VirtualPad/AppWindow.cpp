@@ -84,6 +84,8 @@ int AppWindow::run() {
         }
     }
 
+    m_padView.load(m_device);
+
     m_engine.start();
 
     ShowWindow(m_hwnd, SW_SHOWDEFAULT);
@@ -147,6 +149,7 @@ void AppWindow::renderFrame() {
     if (ImGui::BeginTabBar("MainTabs")) {
         if (ImGui::BeginTabItem("Engine"))  { renderEngineTab();  ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Scanner")) { renderScannerTab(); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Pad"))     { renderPadTab();     ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
 
@@ -773,7 +776,13 @@ void AppWindow::cleanupRenderTarget() {
     if (m_renderTarget) { m_renderTarget->Release(); m_renderTarget = nullptr; }
 }
 
+void AppWindow::renderPadTab() {
+    ImGui::Spacing();
+    m_padView.render(m_engine.getLastState());
+}
+
 void AppWindow::cleanup() {
+    m_padView.unload();
     cleanupRenderTarget();
     if (m_swapChain) { m_swapChain->Release(); m_swapChain = nullptr; }
     if (m_context)   { m_context->Release();   m_context   = nullptr; }
