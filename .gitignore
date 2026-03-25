@@ -6,6 +6,7 @@ VirtualPad/consoleOutput/
 
 # Krita originals and design scraps
 VirtualPad/images/founts/
+*.png~
 
 # Private working documents
 BITACORA.md
