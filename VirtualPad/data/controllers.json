@@ -6,23 +6,23 @@
       "source_name": "8BitDo Pro 3 (D-mode)",
       "mode": "dinput",
       "buttons": {
-        "1":  "b",
-        "2":  "a",
-        "_3": "Rp (paddle derecho) — sin equivalente Xbox, usar en perfil de juego",
-        "4":  "y",
-        "5":  "x",
-        "_6": "Lp (paddle izquierdo) — sin equivalente Xbox, usar en perfil de juego",
-        "7":  "l1",
-        "8":  "r1",
-        "9":  { "type": "trigger", "target": "l2" },
-        "10": { "type": "trigger", "target": "r2" },
-        "11": "select",
-        "12": "start",
-        "13": "home",
-        "14": "l3",
-        "15": "r3",
-        "_17": "L4 — sin equivalente Xbox, usar en perfil de juego",
-        "_18": "R4 — sin equivalente Xbox, usar en perfil de juego"
+        "1":  { "physical": "b",      "virtual": "b"      },
+        "2":  { "physical": "a",      "virtual": "a"      },
+        "3":  { "physical": "rp"                          },
+        "4":  { "physical": "y",      "virtual": "y"      },
+        "5":  { "physical": "x",      "virtual": "x"      },
+        "6":  { "physical": "lp"                          },
+        "7":  { "physical": "l1",     "virtual": "l1"     },
+        "8":  { "physical": "r1",     "virtual": "r1"     },
+        "9":  { "physical": "l2",     "type": "trigger",  "target": "l2" },
+        "10": { "physical": "r2",     "type": "trigger",  "target": "r2" },
+        "11": { "physical": "select", "virtual": "select" },
+        "12": { "physical": "start",  "virtual": "start"  },
+        "13": { "physical": "home",   "virtual": "home"   },
+        "14": { "physical": "l3",     "virtual": "l3"     },
+        "15": { "physical": "r3",     "virtual": "r3"     },
+        "17": { "physical": "l4"                          },
+        "18": { "physical": "r4"                          }
       },
       "axes": {
         "dwXpos": { "target": "left_x",  "invert": false },
@@ -30,7 +30,13 @@
         "dwZpos": { "target": "right_x", "invert": false },
         "dwRpos": { "target": "right_y", "invert": true  }
       },
-      "dpad": "pov"
+      "dpad": "pov",
+      "extra_buttons": {
+        "3":  "rp",
+        "6":  "lp",
+        "17": "l4",
+        "18": "r4"
+      }
     },
     {
       "vid": "2DC8",

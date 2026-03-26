@@ -11,10 +11,24 @@ using json = nlohmann::json;
 
 static ButtonAction parseButtonAction(const json& val) {
     ButtonAction action;
+
     if (val.is_string()) {
+        // Formato corto: "b" → {physical:"b", virtual:"b"}
+        action.type     = ButtonActionType::VirtualButton;
+        action.name     = val.get<std::string>();
+        action.physical = action.name;
+        return action;
+    }
+
+    // Formato objeto — leer physical si está presente
+    if (val.contains("physical"))
+        action.physical = val["physical"].get<std::string>();
+
+    // Determinar la acción
+    if (val.contains("virtual")) {
         action.type = ButtonActionType::VirtualButton;
-        action.name = val.get<std::string>();
-    } else {
+        action.name = val["virtual"].get<std::string>();
+    } else if (val.contains("type")) {
         std::string type = val.at("type").get<std::string>();
         if (type == "bot") {
             action.type = ButtonActionType::Bot;
@@ -38,6 +52,8 @@ static ButtonAction parseButtonAction(const json& val) {
             action.mouseButton = val.value("button", "left");
         }
     }
+    // else: solo physical, sin acción (type queda VirtualButton con name vacío)
+
     return action;
 }
 
@@ -140,8 +156,18 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
     ControllerConfig result = base;
     for (const auto& ov : profile.overrides) {
         if (ov.vid != base.vid || ov.pid != base.pid) continue;
-        for (const auto& [bit, action] : ov.buttons)
-            result.buttons[bit] = action;
+        for (const auto& [bit, override_action] : ov.buttons) {
+            // Preservar el physical del botón base aunque el perfil sobreescriba la acción
+            std::string phys;
+            auto it = result.buttons.find(bit);
+            if (it != result.buttons.end())
+                phys = it->second.physical;
+
+            result.buttons[bit] = override_action;
+
+            if (!phys.empty() && result.buttons[bit].physical.empty())
+                result.buttons[bit].physical = phys;
+        }
     }
     return result;
 }

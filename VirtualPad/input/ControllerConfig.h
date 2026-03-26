@@ -9,6 +9,8 @@ enum class ButtonActionType { VirtualButton, Trigger, Bot, Macro, Keyboard, Mous
 struct ButtonAction {
     ButtonActionType     type      = ButtonActionType::VirtualButton;
     std::string          name;        // virtual button ("a","b",...), bot/macro name
+    std::string          physical;    // nombre del botón en el mando físico ("a","l4","rp"...)
+                                     // independiente de la acción — nunca sobreescrito por perfiles
     std::string          axis;        // trigger only: WinMM source ("dwUpos", "dwVpos")
     std::string          target;      // trigger only: "l2" or "r2"
     std::string          execution;   // macro only: compact execution string

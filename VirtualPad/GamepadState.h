@@ -51,4 +51,10 @@ struct GamepadState {
     // --- Mouse movement [-1.0 .. 1.0] (populated when an axis maps to mouse_x/mouse_y) ---
     float mouseX = 0.0f;
     float mouseY = 0.0f;
+
+    // --- Extra buttons (8BitDo Pro 3 paddles) ---
+    bool btnL4 = false;   // paddle corto izquierdo (al lado del L1)
+    bool btnR4 = false;   // paddle corto derecho   (al lado del R1)
+    bool btnLP = false;   // paddle largo izquierdo (Lp / L5)
+    bool btnRP = false;   // paddle largo derecho   (Rp / R5)
 };

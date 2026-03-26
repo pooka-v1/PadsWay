@@ -19,7 +19,7 @@ struct PadTexture {
 };
 
 // Renders a visual representation of the active gamepad state.
-// D1: top-down read-only view. Buttons light up when pressed.
+// D1: top-down read-only view + D2: front view strip above it. Buttons light up when pressed.
 class PadView {
 public:
     // Load all PNG assets from images/. Non-fatal if individual files are missing.
@@ -34,16 +34,28 @@ public:
 private:
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
 
-    PadTexture m_tpl;         // TemplatePadSolidPS.png
-    PadTexture m_btnCircle;   // Button.png  — face button shape
-    PadTexture m_analog;      // Alalogic.png — analog stick base
-    PadTexture m_crossPS;     // GreyCrossPS.png — d-pad shape
+    // --- Templates ---
+    PadTexture m_tplFront;    // TemplatePadSolidPSFront.png  — front/edge view strip
+    PadTexture m_tpl;         // TemplatePadSolidPSTop.png    — top-down view
+
+    // --- Button shapes ---
+    PadTexture m_btnCircle;   // CircularButton.png  — face button shape
+    PadTexture m_btnSquare;   // SquareButton.png    — paddle L4/R4 shape
+    PadTexture m_analog;      // Alalogic.png        — analog stick base
+    PadTexture m_crossPS;     // GreyCrossPS.png     — d-pad shape
     PadTexture m_btnL1;       // L1Button.png
     PadTexture m_btnR1;       // R1Button.png
-    PadTexture m_btnLR2;      // LR2Button.png — shared L2/R2 shape
+    PadTexture m_btnLR2;      // LR2Button.png       — shared L2/R2 shape
     PadTexture m_btnPill;     // SelectStarButon.png — select/start pill
+
+    // --- Symbols / labels ---
     PadTexture m_symA, m_symB, m_symX, m_symY;
     PadTexture m_symL1, m_symR1, m_symL2, m_symR2;
+    PadTexture m_symL4, m_symR4;
+    PadTexture m_btnL5;       // L5Button.png  — paddle largo izquierdo (Lp)
+    PadTexture m_btnR5;       // R5Button.png  — paddle largo derecho  (Rp)
+    PadTexture m_symL5, m_symR5;
+    PadTexture m_homeIcon;    // 8BitDoHomeBotton.png — home symbol (overlaid on CircularButton)
 
     bool m_loaded = false;
 };

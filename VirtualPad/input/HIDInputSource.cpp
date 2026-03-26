@@ -255,6 +255,10 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
         else if (name == "home")   state.btnHome  = v;
         else if (name == "l3")     state.btnL3    = v;
         else if (name == "r3")     state.btnR3    = v;
+        else if (name == "l4")     state.btnL4    = v;
+        else if (name == "r4")     state.btnR4    = v;
+        else if (name == "lp")     state.btnLP    = v;
+        else if (name == "rp")     state.btnRP    = v;
     };
 
     for (const auto& [bit, action] : m_config.buttons) {
@@ -269,6 +273,13 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
             break;
         default: break;
         }
+    }
+
+    // Estado visual físico — independiente de la acción asignada.
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.physical.empty()) continue;
+        bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
+        setBtn(action.physical, pressed);
     }
 
     if (state.triggerL > 0.0f && state.triggerR > 0.0f) {

@@ -81,23 +81,23 @@ The D-pad in DInput is usually a POV hat:
   "source_name": "8BitDo Pro 3 (D-mode)",
   "mode": "dinput",
   "buttons": {
-    "1":  "b",
-    "2":  "a",
-    "_3": "Rp (right paddle) — no Xbox equivalent, use in game profile",
-    "4":  "y",
-    "5":  "x",
-    "_6": "Lp (left paddle) — no Xbox equivalent, use in game profile",
-    "7":  "l1",
-    "8":  "r1",
-    "9":  { "type": "trigger", "target": "l2" },
-    "10": { "type": "trigger", "target": "r2" },
-    "11": "select",
-    "12": "start",
-    "13": "home",
-    "14": "l3",
-    "15": "r3",
-    "_17": "L4 — no Xbox equivalent, use in game profile",
-    "_18": "R4 — no Xbox equivalent, use in game profile"
+    "1":  { "physical": "b",      "virtual": "b"      },
+    "2":  { "physical": "a",      "virtual": "a"      },
+    "3":  { "physical": "rp"                          },
+    "4":  { "physical": "y",      "virtual": "y"      },
+    "5":  { "physical": "x",      "virtual": "x"      },
+    "6":  { "physical": "lp"                          },
+    "7":  { "physical": "l1",     "virtual": "l1"     },
+    "8":  { "physical": "r1",     "virtual": "r1"     },
+    "9":  { "physical": "l2",     "type": "trigger",  "target": "l2" },
+    "10": { "physical": "r2",     "type": "trigger",  "target": "r2" },
+    "11": { "physical": "select", "virtual": "select" },
+    "12": { "physical": "start",  "virtual": "start"  },
+    "13": { "physical": "home",   "virtual": "home"   },
+    "14": { "physical": "l3",     "virtual": "l3"     },
+    "15": { "physical": "r3",     "virtual": "r3"     },
+    "17": { "physical": "l4"                          },
+    "18": { "physical": "r4"                          }
   },
   "axes": {
     "dwXpos": { "target": "left_x",  "invert": false },
@@ -245,15 +245,34 @@ Use the **Scanner tab** in VirtualPad to identify which number lights up when pr
 | `"l3"` | Left stick click |
 | `"r3"` | Right stick click |
 
+### Button format
+
+Each button entry is an object with two independent concepts:
+
+- **`physical`** — the name of the button on the physical controller body (`"a"`, `"l4"`, `"rp"`...).
+  Used for visual tracking in the UI. Survives profile overrides — a button always knows what it is physically, regardless of what action is assigned to it.
+- **`virtual`** / action — what happens when the button is pressed.
+
+```json
+"7":  { "physical": "l1", "virtual": "l1" }           // normal button: physical l1 → virtual l1
+"3":  { "physical": "rp" }                             // no Xbox equivalent — visual only
+"9":  { "physical": "l2", "type": "trigger", "target": "l2" }
+```
+
+The short string format `"1": "b"` is still supported for controllers without extra buttons
+and is equivalent to `{ "physical": "b", "virtual": "b" }`.
+
 ### Button action types
 
 ```json
-"N": "a"                                      // simple virtual button
-"N": { "type": "trigger", "target": "l2" }   // digital trigger (L2 or R2)
-"N": { "type": "macro",   "name": "MacroName" }
-"N": { "type": "bot",     "name": "LightningBot" }
-"N": { "type": "keyboard",    "keys": ["alt", "tab"] }
-"N": { "type": "mouse_click", "button": "left" }
+"N": "b"                                              // short form (physical = virtual = "b")
+"N": { "physical": "b", "virtual": "b" }             // explicit
+"N": { "physical": "rp" }                             // visual only, no virtual output
+"N": { "physical": "l2", "type": "trigger", "target": "l2" }
+"N": { "physical": "rp", "type": "macro",   "name": "MacroName" }
+"N": { "physical": "lp", "type": "bot",     "name": "LightningBot" }
+"N": { "physical": "home", "type": "keyboard",    "keys": ["alt", "tab"] }
+"N": { "physical": "l3",   "type": "mouse_click", "button": "left" }
 ```
 
 #### Action `keyboard` — keyboard shortcuts
@@ -341,21 +360,28 @@ but VirtualPad's convention is `+1.0 = up`. Adjust based on what you see in the 
 `controllers.json` is the **pure base config**: each physical button maps to its standard Xbox 360 equivalent.
 Macros, bots, and special assignments go in a separate JSON file per game.
 
-### Why buttons like Lp, Rp, L4, R4 are not in the base
+### Buttons with no Xbox equivalent (Lp, Rp, L4, R4)
 
-Some controllers have buttons that don't exist in the Xbox 360 protocol (no virtual equivalent).
-In the base config they are left unmapped — they have no effect. They are used exclusively from game profiles, assigned to macros or bots.
+Some controllers have buttons that don't exist in the Xbox 360 protocol — they cannot produce virtual output.
+They are declared in the base config with only a `physical` field (no `virtual`):
 
-Example — Pro 3 D-mode (WinMM buttons):
+```json
+"3":  { "physical": "rp" },
+"17": { "physical": "l4" }
+```
 
-| WinMM button | Physical | In base | Reason |
+This means:
+- They **light up in the UI** whenever pressed, regardless of what action is assigned.
+- They have **no virtual Xbox output** by default.
+- In a game profile they can be assigned to macros, bots, keyboard combos, etc.
+- Even with a profile active, the UI still reflects that the physical button is pressed.
+
+| WinMM button | Physical | Virtual Xbox | Use |
 |---|---|---|---|
-| 3 | Rp (right paddle) | — | no Xbox 360 equivalent |
-| 6 | Lp (left paddle) | — | no Xbox 360 equivalent |
-| 17 | L4 | — | no Xbox 360 equivalent |
-| 18 | R4 | — | no Xbox 360 equivalent |
-
-> Future consideration: if `GamepadState` is extended with custom fields (l4, r4, lp, rp) and `ViGEmOutputAdapter` maps them, these buttons could have their own virtual function. For now, they are only useful as macro/bot triggers.
+| 3 | Rp (right paddle) | — | macro / bot in game profile |
+| 6 | Lp (left paddle) | — | macro / bot in game profile |
+| 17 | L4 | — | macro / keyboard in game profile |
+| 18 | R4 | — | macro / keyboard in game profile |
 
 ### Game profile format
 
