@@ -4,7 +4,7 @@
       "vid": "2DC8",
       "pid": "6009",
       "source_name": "8BitDo Pro 3 (D-mode)",
-      "mode": "dinput",
+      "mode": "hid",
       "buttons": {
         "1":  { "physical": "b",      "virtual": "b"      },
         "2":  { "physical": "a",      "virtual": "a"      },
@@ -14,8 +14,6 @@
         "6":  { "physical": "lp"                          },
         "7":  { "physical": "l1",     "virtual": "l1"     },
         "8":  { "physical": "r1",     "virtual": "r1"     },
-        "9":  { "physical": "l2",     "type": "trigger",  "target": "l2" },
-        "10": { "physical": "r2",     "type": "trigger",  "target": "r2" },
         "11": { "physical": "select", "virtual": "select" },
         "12": { "physical": "start",  "virtual": "start"  },
         "13": { "physical": "home",   "virtual": "home"   },
@@ -25,18 +23,14 @@
         "18": { "physical": "r4"                          }
       },
       "axes": {
-        "dwXpos": { "target": "left_x",  "invert": false },
-        "dwYpos": { "target": "left_y",  "invert": true  },
-        "dwZpos": { "target": "right_x", "invert": false },
-        "dwRpos": { "target": "right_y", "invert": true  }
+        "hid_x":     { "target": "left_x",   "invert": false },
+        "hid_y":     { "target": "left_y",   "invert": true  },
+        "hid_z":     { "target": "right_x",  "invert": false },
+        "hid_rz":    { "target": "right_y",  "invert": true  },
+        "hid_brake": { "target": "trigger_r", "invert": false },
+        "hid_accel": { "target": "trigger_l", "invert": false }
       },
-      "dpad": "pov",
-      "extra_buttons": {
-        "3":  "rp",
-        "6":  "lp",
-        "17": "l4",
-        "18": "r4"
-      }
+      "dpad": "hid_hat"
     },
     {
       "vid": "2DC8",

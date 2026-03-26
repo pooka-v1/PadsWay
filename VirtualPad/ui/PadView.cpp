@@ -93,6 +93,10 @@ bool PadView::load(ID3D11Device* device) {
     ld("SquareButton.png",            m_btnSquare);
     ld("Alalogic.png",                m_analog);
     ld("GreyCrossPS.png",             m_crossPS);
+    ld("CrossUp.png",                 m_crossUp);
+    ld("CrossDown.png",               m_crossDown);
+    ld("CrossLeft.png",               m_crossLeft);
+    ld("CrossRight.png",              m_crossRight);
     ld("L1Button.png",                m_btnL1);
     ld("R1Button.png",                m_btnR1);
     ld("LR2Button.png",               m_btnLR2);
@@ -124,6 +128,8 @@ void PadView::unload() {
     m_btnSquare.release();
     m_analog.release();
     m_crossPS.release();
+    m_crossUp.release(); m_crossDown.release();
+    m_crossLeft.release(); m_crossRight.release();
     m_btnL1.release();
     m_btnR1.release();
     m_btnLR2.release();
@@ -160,8 +166,8 @@ namespace Layout {
     //   - L2 alineado con L1 por la derecha, R2 con R1 por la izquierda.
     constexpr float FTriggerW = 72.0f, FTriggerH = 44.0f;
     constexpr float FBumperW  = 80.0f, FBumperH  = 28.0f;
-    constexpr float FPaddleW  = 32.0f, FPaddleH  = 24.0f;
-    constexpr float FPaddleLongW = 36.0f, FPaddleLongH = 28.0f;
+    constexpr float FPaddleW  = 37.0f, FPaddleH  = 29.0f;
+    constexpr float FPaddleLongW = 72.0f, FPaddleLongH = 56.0f;
 
     // Bumpers (L1/R1) — bajados 10px respecto a borrador.
     constexpr float FL1Cx = 105.0f, FL1Cy = 128.0f;
@@ -170,9 +176,9 @@ namespace Layout {
     // Triggers (L2/R2) — bajados FTriggerH, alineados con L1/R1 por su borde exterior.
     //   Derecha de L2 = derecha de L1: FL2Cx = FL1Cx + FBumperW/2 - FTriggerW/2
     //   Izquierda de R2 = izquierda de R1: FR2Cx = FR1Cx - FBumperW/2 + FTriggerW/2
-    constexpr float FL2Cx = FL1Cx + FBumperW * 0.5f - FTriggerW * 0.5f;  // = 109
-    constexpr float FL2Cy = 48.0f + FTriggerH;                            // = 92
-    constexpr float FR2Cx = FR1Cx - FBumperW * 0.5f + FTriggerW * 0.5f;  // = 371
+    constexpr float FL2Cx = FL1Cx + FBumperW * 0.5f - FTriggerW * 0.5f + 2.0f;  // = 111
+    constexpr float FL2Cy = 48.0f + FTriggerH;                                  // = 92
+    constexpr float FR2Cx = FR1Cx - FBumperW * 0.5f + FTriggerW * 0.5f - 2.0f; // = 369
     constexpr float FR2Cy = FL2Cy;
 
     // Paddles cortos (L4/R4) — misma altura que L1/R1, L4 a la derecha de L1, R4 a la izquierda de R1.
@@ -181,11 +187,11 @@ namespace Layout {
     constexpr float FR4Cx = FR1Cx - FBumperW * 0.5f - FPaddleW * 0.5f;   // = 319
     constexpr float FR4Cy = FR1Cy;
 
-    // Paddles largos (L5=Lp / R5=Rp) — donde estaban L4/R4 antes (al lado de L2/R2).
-    constexpr float FL5Cx = FL2Cx + FTriggerW * 0.5f + FPaddleLongW * 0.5f;  // = 163
-    constexpr float FL5Cy = FL2Cy;
-    constexpr float FR5Cx = FR2Cx - FTriggerW * 0.5f - FPaddleLongW * 0.5f;  // = 317
-    constexpr float FR5Cy = FR2Cy;
+    // Paddles largos (L5=Lp / R5=Rp) — subidos 30px, L5 a la izquierda 50px, R5 a la derecha 50px.
+    constexpr float FL5Cx = FL2Cx + FTriggerW * 0.5f + FPaddleLongW * 0.5f - 50.0f;
+    constexpr float FL5Cy = FL2Cy - 28.0f;
+    constexpr float FR5Cx = FR2Cx - FTriggerW * 0.5f - FPaddleLongW * 0.5f + 50.0f;
+    constexpr float FR5Cy = FR2Cy - 28.0f;
 
     // -- Top-down view (TemplatePadSolidPSTop.png) -------------------------
     constexpr float TopH = 400.0f;
@@ -193,7 +199,7 @@ namespace Layout {
     constexpr float H    = FrontH + TopH;
 
     // Face buttons — subidos DpadSize (74px) respecto al borrador.
-    constexpr float FaceCx = 356.0f, FaceCy = TopY + 111.0f;
+    constexpr float FaceCx = 356.0f, FaceCy = TopY + 131.0f;
     constexpr float FaceR  = 34.0f;
     constexpr float BtnYx  = FaceCx,          BtnYy = FaceCy - FaceR;
     constexpr float BtnBx  = FaceCx + FaceR,  BtnBy = FaceCy;
@@ -201,38 +207,40 @@ namespace Layout {
     constexpr float BtnXx  = FaceCx - FaceR,  BtnXy = FaceCy;
     constexpr float FaceSize = 34.0f;
 
-    // D-pad — subido DpadSize (74px).
-    constexpr float DpadCx   = 124.0f, DpadCy = TopY + 109.0f;
-    constexpr float DpadSize = 74.0f;
+    // D-pad — bajado 20px, 20% más grande.
+    constexpr float DpadCx   = 124.0f, DpadCy = TopY + 129.0f;
+    constexpr float DpadSize = 89.0f;
     constexpr float DpadArmR = 22.0f;
 
     // Analog sticks — al 60% del alto de la sección superior.
-    constexpr float LStickCx = 180.0f, LStickCy = TopY + TopH * 0.6f;   // = TopY+240
-    constexpr float RStickCx = 290.0f, RStickCy = TopY + TopH * 0.6f;
     constexpr float StickSize      = 66.0f;
     constexpr float StickMaxOffset = 12.0f;
+    constexpr float LStickCx = 180.0f, LStickCy = TopY + TopH * 0.6f - StickSize * 0.25f;
+    constexpr float RStickCx = 290.0f, RStickCy = TopY + TopH * 0.6f - StickSize * 0.25f;
 
-    // Select / Start — subidos con los botones de cara.
-    constexpr float BackCx  = 216.0f, BackCy  = TopY + 111.0f;
-    constexpr float StartCx = 264.0f, StartCy = TopY + 111.0f;
+    // Select / Start — bajados 20px.
+    constexpr float BackCx  = 216.0f, BackCy  = TopY + 131.0f;
+    constexpr float StartCx = 264.0f, StartCy = TopY + 131.0f;
     constexpr float PillW = 36.0f,    PillH   = 14.0f;
 
-    // Home — debajo del botón A, centrado horizontalmente.
-    constexpr float HomeCx   = 240.0f, HomeCy = BtnAy + 16.0f;
+    // Home — debajo del botón A, centrado en A, desplazado su propio alto hacia abajo.
     constexpr float HomeSize = 26.0f;
+    constexpr float HomeCx   = FaceCx;
+    constexpr float HomeCy   = BtnAy + HomeSize + 25.0f;
 }
 
 // ---------------------------------------------------------------------------
 // Colour palette
 // ---------------------------------------------------------------------------
 
-static const ImVec4 kInactive = { 0.38f, 0.38f, 0.38f, 0.82f };
+static const ImVec4 kInactive = { 0.38f, 0.38f, 0.38f, 1.00f };
 static const ImVec4 kColA     = { 0.20f, 0.90f, 0.20f, 1.0f };   // green  ×/A
 static const ImVec4 kColB     = { 0.90f, 0.20f, 0.20f, 1.0f };   // red    ○/B
 static const ImVec4 kColX     = { 0.20f, 0.50f, 1.00f, 1.0f };   // blue   □/X
 static const ImVec4 kColY     = { 1.00f, 0.80f, 0.00f, 1.0f };   // yellow △/Y
 static const ImVec4 kColWhite = { 1.00f, 1.00f, 1.00f, 1.0f };
 static const ImVec4 kSymDim   = { 0.00f, 0.00f, 0.00f, 0.90f };
+static const ImVec4 kTplTint  = { 1.00f, 0.50f, 0.08f, 1.0f };   // orange body
 
 static ImU32 toU32(ImVec4 c) { return ImGui::ColorConvertFloat4ToU32(c); }
 
@@ -280,7 +288,7 @@ void PadView::render(const GamepadState& state) {
     img(m_tplFront,
         Layout::FrontTplCx, Layout::FrontTplCy,
         Layout::W, Layout::FrontH,
-        { 1, 1, 1, 1 });
+        kTplTint);
 
     // ── L2 / R2 (front view) ─────────────────────────────────────────────
     img(m_btnLR2, Layout::FL2Cx, Layout::FL2Cy,
@@ -349,25 +357,22 @@ void PadView::render(const GamepadState& state) {
     img(m_tpl,
         Layout::W * 0.5f, Layout::TopY + Layout::TopH * 0.5f,
         Layout::W, Layout::TopH,
-        { 1, 1, 1, 1 });
+        kTplTint);
 
-    // ── D-pad ─────────────────────────────────────────────────────────────
+    // ── D-pad — 4 brazos independientes ───────────────────────────────────
     {
-        bool anyDir = state.dpadUp || state.dpadDown || state.dpadLeft || state.dpadRight;
-        img(m_crossPS,
-            Layout::DpadCx, Layout::DpadCy,
-            Layout::DpadSize, Layout::DpadSize,
-            anyDir ? kColWhite : kInactive);
-
-        auto armDot = [&](bool pressed, float ax, float ay) {
-            if (!pressed) return;
-            ImVec2 c = { origin.x + ax, origin.y + ay };
-            dl->AddCircleFilled(c, 6.5f, toU32({ 0.45f, 0.35f, 0.0f, 0.90f }));
+        // Punto de unión = (DpadCx, DpadCy). Cada brazo tiene su extremo de unión
+        // en el borde contrario a la dirección, por lo que el centro del asset se
+        // desplaza la mitad del ancho/alto desde el punto central.
+        auto dpadArm = [&](const PadTexture& t, float cx, float cy, bool pressed) {
+            if (!t.valid()) return;
+            img(t, cx, cy, (float)t.w, (float)t.h,
+                pressed ? kColWhite : kInactive);
         };
-        armDot(state.dpadUp,    Layout::DpadCx,                    Layout::DpadCy - Layout::DpadArmR);
-        armDot(state.dpadDown,  Layout::DpadCx,                    Layout::DpadCy + Layout::DpadArmR);
-        armDot(state.dpadLeft,  Layout::DpadCx - Layout::DpadArmR, Layout::DpadCy);
-        armDot(state.dpadRight, Layout::DpadCx + Layout::DpadArmR, Layout::DpadCy);
+        dpadArm(m_crossUp,    Layout::DpadCx,                              Layout::DpadCy - m_crossUp.h    * 0.5f + 2.0f, state.dpadUp);
+        dpadArm(m_crossDown,  Layout::DpadCx,                              Layout::DpadCy + m_crossDown.h  * 0.5f, state.dpadDown);
+        dpadArm(m_crossLeft,  Layout::DpadCx - m_crossLeft.w  * 0.5f,     Layout::DpadCy,                         state.dpadLeft);
+        dpadArm(m_crossRight, Layout::DpadCx + m_crossRight.w * 0.5f,     Layout::DpadCy,                         state.dpadRight);
     }
 
     // ── Face buttons ──────────────────────────────────────────────────────
@@ -405,7 +410,7 @@ void PadView::render(const GamepadState& state) {
     if (m_homeIcon.valid()) {
         float iconSz = Layout::HomeSize * 0.72f;
         img(m_homeIcon, Layout::HomeCx, Layout::HomeCy, iconSz, iconSz,
-            state.btnHome ? kColWhite : kSymDim);
+            kTplTint);
     }
 
     // Advance ImGui layout cursor past the drawn area.

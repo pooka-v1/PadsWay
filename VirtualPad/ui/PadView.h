@@ -42,7 +42,11 @@ private:
     PadTexture m_btnCircle;   // CircularButton.png  — face button shape
     PadTexture m_btnSquare;   // SquareButton.png    — paddle L4/R4 shape
     PadTexture m_analog;      // Alalogic.png        — analog stick base
-    PadTexture m_crossPS;     // GreyCrossPS.png     — d-pad shape
+    PadTexture m_crossPS;     // GreyCrossPS.png     — d-pad shape (fallback)
+    PadTexture m_crossUp;    // CrossUp.png    — brazo cruceta arriba
+    PadTexture m_crossDown;  // CrossDown.png  — brazo cruceta abajo
+    PadTexture m_crossLeft;  // CrossLeft.png  — brazo cruceta izquierda
+    PadTexture m_crossRight; // CrossRight.png — brazo cruceta derecha
     PadTexture m_btnL1;       // L1Button.png
     PadTexture m_btnR1;       // R1Button.png
     PadTexture m_btnLR2;      // LR2Button.png       — shared L2/R2 shape

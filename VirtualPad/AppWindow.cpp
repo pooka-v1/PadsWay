@@ -522,13 +522,17 @@ void AppWindow::renderScannerTab() {
         if (m_hidScanState.btnHome)  btns |= (1u << 12);
         if (m_hidScanState.btnL3)    btns |= (1u << 13);
         if (m_hidScanState.btnR3)    btns |= (1u << 14);
+        if (m_hidScanState.btnLP)    btns |= (1u << 15);
+        if (m_hidScanState.btnRP)    btns |= (1u << 16);
+        if (m_hidScanState.btnL4)    btns |= (1u << 17);
+        if (m_hidScanState.btnR4)    btns |= (1u << 18);
         const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
 
         // ── Buttons ──────────────────────────────────────────────────────
         ImGui::Text("Buttons");
         ImGui::Separator();
         ImGui::Spacing();
-        for (int i = 0; i < 16; ++i) {
+        for (int i = 0; i < 19; ++i) {
             bool pressed = (btns & (1u << i)) != 0;
             ImGui::PushStyleColor(ImGuiCol_Button,
                 pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f) : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
