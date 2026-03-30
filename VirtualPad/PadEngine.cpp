@@ -206,6 +206,25 @@ GamepadState PadEngine::getLastState() const {
     return m_lastState;
 }
 
+GamepadState PadEngine::getLastVirtualState() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lastVirtualState;
+}
+
+std::vector<PadEvent> PadEngine::pollEvents() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<PadEvent> out(m_eventQueue.begin(), m_eventQueue.end());
+    m_eventQueue.clear();
+    return out;
+}
+
+void PadEngine::pushEvent(PadEvent e) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_eventQueue.push_back(std::move(e));
+    if (m_eventQueue.size() > 16)
+        m_eventQueue.pop_front();
+}
+
 void PadEngine::setProfilePath(const std::string& path) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_profilePath = path;
@@ -597,10 +616,11 @@ void PadEngine::threadFunc() {
         spdlog::info("Forwarding input. Close the window to exit.");
 
     GamepadState state;
-    bool         botBtnPrev = false;
-    bool         btnAPrev   = false;
-    float        mouseAccumX = 0.0f;
-    float        mouseAccumY = 0.0f;
+    bool         botBtnPrev    = false;
+    bool         btnAPrev      = false;
+    bool         mouseWasMoving = false;
+    float        mouseAccumX   = 0.0f;
+    float        mouseAccumY   = 0.0f;
 
     while (m_running && !m_switchPending.load()) {
         // Profile hot-swap: detect change and re-apply without reopening the device
@@ -655,6 +675,7 @@ void PadEngine::threadFunc() {
                 if (pressed && !botBtnPrev) {
                     bot.toggle();
                     spdlog::info("[BOT] Lightning bot {}", bot.isActive() ? "ON" : "OFF");
+                    pushEvent({ PadEventType::BotToggle, "LightningBot", bot.isActive() });
                 }
                 botBtnPrev = pressed;
             }
@@ -675,6 +696,7 @@ void PadEngine::threadFunc() {
                     }
                     spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
                            macro.isActive() ? "ON" : "OFF");
+                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
                 }
                 if (!pressed && prev)
                     if (macro.getMode() == MacroRepeatMode::UntilRelease)
@@ -705,16 +727,24 @@ void PadEngine::threadFunc() {
                     macroLastRY[bit] = state.rightY;
                 }
 
-                if (wasActive && !macro.isActive())
+                if (wasActive && !macro.isActive()) {
                     spdlog::info("[MACRO][{}] '{}' AUTO-OFF (laps: {})", GetTickCount64(), macroNames[bit], macroRotCount[bit]);
+                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], false });
+                }
             }
 
             // --- Keyboard actions (edge-triggered) ---
             for (auto& [bit, prev] : kbPrevBtn) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
                 const auto& action = cfg->buttons.at(bit);
-                if (pressed && !prev) { sendKeyCombo(action.keys, true);  spdlog::debug("[KB] button {} down", bit); }
-                if (!pressed && prev) { sendKeyCombo(action.keys, false); spdlog::debug("[KB] button {} up",   bit); }
+                if (pressed && !prev) {
+                    sendKeyCombo(action.keys, true);
+                    spdlog::debug("[KB] button {} down", bit);
+                    std::string combo;
+                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                }
+                if (!pressed && prev) { sendKeyCombo(action.keys, false); spdlog::debug("[KB] button {} up", bit); }
                 prev = pressed;
             }
 
@@ -722,8 +752,11 @@ void PadEngine::threadFunc() {
             for (auto& [bit, prev] : mousePrevBtn) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
                 if (pressed != prev) {
-                    sendMouseButton(cfg->buttons.at(bit).mouseButton, pressed);
+                    const std::string& btn = cfg->buttons.at(bit).mouseButton;
+                    sendMouseButton(btn, pressed);
                     spdlog::debug("[MOUSE] button {} {}", bit, pressed ? "down" : "up");
+                    if (pressed)
+                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
                 }
                 prev = pressed;
             }
@@ -732,7 +765,11 @@ void PadEngine::threadFunc() {
             constexpr float kMouseDeadZone = 0.12f;
             float mx = (fabsf(state.mouseX) > kMouseDeadZone) ? state.mouseX : 0.0f;
             float my = (fabsf(state.mouseY) > kMouseDeadZone) ? state.mouseY : 0.0f;
-            if (mx != 0.0f || my != 0.0f) {
+            bool mouseIsMoving = (mx != 0.0f || my != 0.0f);
+            if (mouseIsMoving && !mouseWasMoving)
+                pushEvent({ PadEventType::MouseAction, "move", true });
+            mouseWasMoving = mouseIsMoving;
+            if (mouseIsMoving) {
                 float speed = getMouseSpeed();
                 mouseAccumX += mx * speed;
                 mouseAccumY += my * speed;
@@ -750,6 +787,7 @@ void PadEngine::threadFunc() {
                 }
             }
 
+            { std::lock_guard<std::mutex> lock(m_mutex); m_lastVirtualState = state; }
             output->update(state);
         }
 

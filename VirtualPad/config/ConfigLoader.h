@@ -28,14 +28,14 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path);
 
 // ── Game profiles ──────────────────────────────────────────────────────────
 
-// A game profile declares button overrides for one or more controllers.
-// Axes and dpad are always inherited from controllers.json unchanged.
+// A game profile declares button and axis overrides for one or more controllers.
 struct GameProfile {
     std::string profile_name;
 
     struct Override {
         uint16_t vid = 0, pid = 0;
-        std::unordered_map<int, ButtonAction> buttons;  // physical bit -> action
+        std::unordered_map<int, ButtonAction>     buttons;  // physical bit -> action
+        std::unordered_map<std::string, AxisMapping> axes;  // source -> mapping
     };
     std::vector<Override> overrides;
 };

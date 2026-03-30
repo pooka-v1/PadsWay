@@ -89,6 +89,7 @@ int AppWindow::run() {
     }
 
     m_padView.load(m_device);
+    m_virtualPadView.load(m_device);
 
     m_engine.start();
 
@@ -773,7 +774,7 @@ bool AppWindow::initWindow() {
     m_hwnd = CreateWindowExW(
         0, L"VirtualPadWindow", L"VirtualPad",
         WS_OVERLAPPEDWINDOW,
-        100, 100, 1000, 650,
+        100, 100, 1150, 780,
         nullptr, nullptr, wc.hInstance, this);
 
     return m_hwnd != nullptr;
@@ -826,7 +827,7 @@ void AppWindow::cleanupRenderTarget() {
 }
 
 void AppWindow::renderPadsTab() {
-    // Apply layout when the active controller changes
+    // Physical pad: update layout when the active controller changes
     std::string layoutId = m_engine.getActiveLayoutId();
     if (layoutId != m_currentLayoutId) {
         m_currentLayoutId = layoutId;
@@ -835,11 +836,92 @@ void AppWindow::renderPadsTab() {
             m_padView.setLayout(*layout);
     }
 
+    // Virtual pad: always xbox_one, loaded once
+    if (!m_virtualPadInitialized) {
+        const PadLayout* vLayout = findLayout(m_padLayouts, "xbox_one");
+        if (vLayout) {
+            m_virtualPadView.setLayout(*vLayout);
+            m_virtualPadInitialized = true;
+        }
+    }
+
     ImGui::Spacing();
+
+    // Render physical and virtual pads side by side using the standard
+    // BeginGroup/SameLine/EndGroup pattern so ImGui tracks content bounds correctly.
+    ImGui::BeginGroup();
     m_padView.render(m_engine.getLastState());
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0.0f, 30.0f);
+
+    ImGui::BeginGroup();
+    m_virtualPadView.render(m_engine.getLastVirtualState());
+    ImGui::EndGroup();
+
+    // ── Marquee ───────────────────────────────────────────────────────────────
+
+    for (const auto& ev : m_engine.pollEvents()) {
+        MarqueeEntry entry;
+        switch (ev.type) {
+            case PadEventType::BotToggle:
+                entry.type = ev.active ? MarqueeEntryType::BotOn : MarqueeEntryType::BotOff;
+                entry.text = std::string("[BOT]   ") + ev.name + (ev.active ? "  ON" : "  OFF");
+                break;
+            case PadEventType::MacroToggle:
+                entry.type = MarqueeEntryType::Macro;
+                entry.text = std::string("[MACRO] ") + ev.name + (ev.active ? "  ON" : "  OFF");
+                break;
+            case PadEventType::KeyboardAction:
+                entry.type = MarqueeEntryType::Keyboard;
+                entry.text = std::string("[KB]    ") + ev.name;
+                break;
+            case PadEventType::MouseAction:
+                entry.type = MarqueeEntryType::Mouse;
+                entry.text = std::string("[MOUSE] ") + ev.name;
+                break;
+        }
+        m_marqueeLines.push_back(entry);
+        if (m_marqueeLines.size() > 4) m_marqueeLines.pop_front();
+    }
+
+    // 3. Render — always 4 slots so the area height is constant from the first entry
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Colors: Macro=yellow, BotOn=blue, BotOff=naranja, KB=cyan, Mouse=verde claro
+    static const ImVec4 kColMacro    = { 1.00f, 0.85f, 0.00f, 1.0f };
+    static const ImVec4 kColBotOn    = { 0.30f, 0.60f, 1.00f, 1.0f };
+    static const ImVec4 kColBotOff   = { 1.00f, 0.55f, 0.10f, 1.0f };
+    static const ImVec4 kColKeyboard = { 0.40f, 0.95f, 0.95f, 1.0f };
+    static const ImVec4 kColMouse    = { 0.60f, 0.95f, 0.60f, 1.0f };
+
+    const int n = (int)m_marqueeLines.size();
+    for (int slot = 0; slot < 4; ++slot) {
+        if (slot < n) {
+            const auto& entry = m_marqueeLines[slot];
+            ImVec4 col;
+            switch (entry.type) {
+                case MarqueeEntryType::Macro:    col = kColMacro;    break;
+                case MarqueeEntryType::BotOn:    col = kColBotOn;    break;
+                case MarqueeEntryType::BotOff:   col = kColBotOff;   break;
+                case MarqueeEntryType::Keyboard: col = kColKeyboard; break;
+                case MarqueeEntryType::Mouse:    col = kColMouse;    break;
+                default:                         col = kColMacro;    break;
+            }
+            // Fade: slot 0 (oldest) = 0.25 alpha, slot 3 (newest) = 1.0 — fixed scale of 4
+            col.w = 0.25f + 0.75f * ((float)(slot + 1) / 4.0f);
+            ImGui::TextColored(col, "%s", entry.text.c_str());
+        } else {
+            // Empty slot — reserve the line height so the layout doesn't jump
+            ImGui::Dummy({ 1.0f, ImGui::GetTextLineHeight() });
+        }
+    }
 }
 
 void AppWindow::cleanup() {
+    m_virtualPadView.unload();
     m_padView.unload();
     cleanupRenderTarget();
     if (m_swapChain) { m_swapChain->Release(); m_swapChain = nullptr; }

@@ -2,6 +2,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <deque>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -10,6 +11,19 @@
 #include "input/ControllerConfig.h"
 #include "output/HidHideClient.h"
 
+// ---------------------------------------------------------------------------
+// Engine events — domain facts emitted by the engine, interpreted by the UI.
+// ---------------------------------------------------------------------------
+
+enum class PadEventType { BotToggle, MacroToggle, KeyboardAction, MouseAction };
+
+struct PadEvent {
+    PadEventType type;
+    std::string  name;    // bot or macro name
+    bool         active;  // true = ON / started, false = OFF / stopped
+};
+
+// ---------------------------------------------------------------------------
 // Unified description of a physical input device, regardless of API.
 // Built during the scan phase; used to create the right IInputSource.
 struct DeviceCandidate {
@@ -60,7 +74,9 @@ public:
     void        selectDevice(int index);    // call from UI during WaitingSelection
     void        requestSwitch(int index);   // switch to available device[index] while Running
     DeviceCandidate getActiveDevice() const;
-    GamepadState getLastState() const;
+    GamepadState          getLastState()        const;
+    GamepadState          getLastVirtualState() const;  // state actually sent to ViGEm (post-bot/macro)
+    std::vector<PadEvent> pollEvents();                 // drain the event queue (UI calls each frame)
 
     // Game profile — set from UI thread; applied at next Configuring phase
     void        setProfilePath(const std::string& path);
@@ -93,7 +109,9 @@ private:
     std::vector<DeviceCandidate>  m_availableDevices; // live list from monitor; protected by m_mutex
     std::vector<ControllerConfig> m_configs;          // shared with monitor thread; protected by m_mutex
     DeviceCandidate               m_activeDevice;     // currently active physical device; protected by m_mutex
-    GamepadState                  m_lastState;        // protected by m_mutex
+    GamepadState                  m_lastState;         // protected by m_mutex
+    GamepadState                  m_lastVirtualState;  // post-bot/macro, sent to ViGEm; protected by m_mutex
+    std::deque<PadEvent>          m_eventQueue;        // max 16 entries; protected by m_mutex
     std::string                   m_profilePath;      // protected by m_mutex
     std::string                   m_activeProfileName; // protected by m_mutex
     std::string                   m_activeLayoutId;    // protected by m_mutex
@@ -106,4 +124,5 @@ private:
 
     void setDevice(const std::string& s);
     void setStatus(const std::string& s);
+    void pushEvent(PadEvent e);              // called from threadFunc (acquires m_mutex)
 };

@@ -71,7 +71,8 @@
       "pid": "6006",
       "source_name": "8BitDo Pro 2 (D-mode)",
       "mode": "hid",
-      "layout_id": "pro2_ps",
+      "_layout_id": "pro2_ps",
+	  "layout_id": "pro2_ps",
       "buttons": {
         "1":  { "physical": "b",      "virtual": "a"      },
         "2":  { "physical": "a",      "virtual": "b"      },

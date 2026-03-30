@@ -148,6 +148,15 @@ GameProfile loadGameProfile(const std::string& path) {
         o.pid = static_cast<uint16_t>(std::stoul(ov.at("pid").get<std::string>(), nullptr, 16));
         if (ov.contains("buttons"))
             o.buttons = parseButtonsJson(ov.at("buttons"));
+        if (ov.contains("axes")) {
+            for (const auto& [source, axisJson] : ov.at("axes").items()) {
+                AxisMapping m;
+                m.target = axisJson.at("target").get<std::string>();
+                m.invert = axisJson.value("invert", false);
+                m.speed  = axisJson.value("speed",  15.0f);
+                o.axes[source] = m;
+            }
+        }
         profile.overrides.push_back(std::move(o));
     }
     return profile;
@@ -169,6 +178,8 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
             if (!phys.empty() && result.buttons[bit].physical.empty())
                 result.buttons[bit].physical = phys;
         }
+        for (const auto& [source, mapping] : ov.axes)
+            result.axes[source] = mapping;
     }
     return result;
 }

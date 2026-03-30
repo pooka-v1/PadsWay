@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <d3d11.h>
+#include <deque>
 #include <vector>
 #include <future>
 #include <atomic>
@@ -80,6 +81,14 @@ private:
     std::vector<PadLayout> m_padLayouts;
     std::string            m_currentLayoutId;   // last layout applied to m_padView
 
-    // --- Pad view (D1) ---
-    PadView m_padView;
+    // --- Marquee ---
+    enum class MarqueeEntryType { Macro, BotOn, BotOff, Keyboard, Mouse };
+    struct MarqueeEntry { MarqueeEntryType type; std::string text; };
+
+    std::deque<MarqueeEntry> m_marqueeLines;  // max 4 visible entries (oldest first)
+
+    // --- Pad views ---
+    PadView m_padView;                          // physical controller
+    PadView m_virtualPadView;                   // virtual Xbox One output
+    bool    m_virtualPadInitialized = false;    // xbox_one layout loaded once
 };
