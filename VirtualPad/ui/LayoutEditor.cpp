@@ -19,6 +19,7 @@ static const char* kStateGroups[][16] = {
                         "btnBack","btnStart","btnHome", nullptr },
     { "── D-pad ──",    "dpadUp","dpadDown","dpadLeft","dpadRight", nullptr },
     { "── Ejes ──",     "leftX","leftY","rightX","rightY", nullptr },
+    { "── Giroscopio ──", "gyroX","gyroY","gyroZ", nullptr },
 };
 static const int kGroupCount = (int)(sizeof(kStateGroups) / sizeof(kStateGroups[0]));
 
@@ -90,18 +91,26 @@ void LayoutEditor::render() {
 void LayoutEditor::renderLeftPanel(float w) {
     ImGui::BeginChild("##LELeft", { w, 0.0f }, true);
 
-    // ── Layout list ──────────────────────────────────────────────────────────
+    // ── Layout list (scrollable) ─────────────────────────────────────────────
     ImGui::SeparatorText("Layouts");
 
+    float lineH = ImGui::GetFrameHeightWithSpacing();
+    int   nLayouts = m_layouts ? (int)m_layouts->size() : 0;
+    float layoutListH = (nLayouts > 0)
+        ? std::clamp((float)nLayouts * lineH, lineH, lineH * 4.0f)
+        : lineH;
+
+    bool wantConfirmPopup = false;
+    ImGui::BeginChild("##LayoutList", { -1.0f, layoutListH }, true);
     if (m_layouts) {
-        for (int i = 0; i < (int)m_layouts->size(); ++i) {
+        for (int i = 0; i < nLayouts; ++i) {
             const auto& L = (*m_layouts)[i];
             bool sel = (m_selectedLayout == i);
             if (ImGui::Selectable(L.id.c_str(), sel)) {
                 if (i != m_selectedLayout) {
                     if (m_dirty) {
                         m_pendingSwitchIdx = i;
-                        ImGui::OpenPopup("##confirm_switch");
+                        wantConfirmPopup   = true;
                     } else {
                         startEditing(i);
                     }
@@ -109,6 +118,10 @@ void LayoutEditor::renderLeftPanel(float w) {
             }
         }
     }
+    ImGui::EndChild();
+
+    // OpenPopup must be called from the same window context as BeginPopupModal
+    if (wantConfirmPopup) ImGui::OpenPopup("##confirm_switch");
 
     // Confirm switch popup
     if (ImGui::BeginPopupModal("##confirm_switch", nullptr,
@@ -130,8 +143,46 @@ void LayoutEditor::renderLeftPanel(float w) {
     }
 
     ImGui::Spacing();
-    if (ImGui::Button("Nuevo layout", { -1.0f, 0.0f }))
+    float hw2 = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    if (ImGui::Button("Nuevo##newlayout", { hw2, 0.0f }))
         startNew();
+    ImGui::SameLine();
+    bool canCopy = (m_selectedLayout >= 0 && m_layouts &&
+                    m_selectedLayout < (int)m_layouts->size());
+    if (!canCopy) ImGui::BeginDisabled();
+    if (ImGui::Button("Copiar##copylayout", { hw2, 0.0f }))
+        startCopy(m_selectedLayout);
+    if (!canCopy) ImGui::EndDisabled();
+
+    // Delete layout popup
+    if (ImGui::BeginPopupModal("##confirm_delete", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("¿Borrar el layout \"%s\"?", m_editLayout.id.c_str());
+        ImGui::Text("Esta acción no se puede deshacer.");
+        ImGui::Spacing();
+        if (ImGui::Button("Cancelar", { 120.0f, 0.0f }))
+            ImGui::CloseCurrentPopup();
+        ImGui::SameLine();
+        if (ImGui::Button("Borrar", { 120.0f, 0.0f })) {
+            if (m_layouts && m_selectedLayout >= 0 &&
+                m_selectedLayout < (int)m_layouts->size()) {
+                m_layouts->erase(m_layouts->begin() + m_selectedLayout);
+                try {
+                    savePadLayouts(m_layoutsPath, *m_layouts);
+                    showToast("Layout borrado.");
+                } catch (const std::exception& e) {
+                    showToast(std::string("Error al borrar: ") + e.what(), true);
+                }
+                m_selectedLayout = -1;
+                m_isEditing      = false;
+                m_isNew          = false;
+                m_selectedComp   = -1;
+                m_dirty          = false;
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
 
     // ── Element list (only while editing) ────────────────────────────────────
     if (!m_isEditing) {
@@ -141,6 +192,14 @@ void LayoutEditor::renderLeftPanel(float w) {
 
     ImGui::SeparatorText("Elementos");
 
+    // Reserve space for the fixed buttons at the bottom:
+    // 2 half-width rows + 1 full-width row + separator + Guardar + Descartar cambios + Borrar layout + separator + Emparejar
+    float bottomH = lineH * 8.0f + ImGui::GetStyle().ItemSpacing.y * 4.0f
+                  + ImGui::GetStyle().SeparatorTextBorderSize * 2.0f + 6.0f;
+    float elemListH = ImGui::GetContentRegionAvail().y - bottomH;
+    if (elemListH < lineH * 2.0f) elemListH = lineH * 2.0f;
+
+    ImGui::BeginChild("##ElemList", { -1.0f, elemListH }, false);
     for (int i = 0; i < (int)m_editLayout.components.size(); ++i) {
         const auto& c = m_editLayout.components[i];
         char label[128];
@@ -150,10 +209,11 @@ void LayoutEditor::renderLeftPanel(float w) {
         if (ImGui::Selectable(label, sel))
             m_selectedComp = i;
     }
+    ImGui::EndChild();
 
     ImGui::Separator();
 
-    // Add-component buttons — 2×2 grid
+    // Add-component buttons — always visible
     float hw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
     if (ImGui::Button("+ Botón",     { hw, 0.0f })) addComponent("button");
     ImGui::SameLine();
@@ -161,11 +221,14 @@ void LayoutEditor::renderLeftPanel(float w) {
     if (ImGui::Button("+ Analógico", { hw, 0.0f })) addComponent("stick");
     ImGui::SameLine();
     if (ImGui::Button("+ Deco",      { hw, 0.0f })) addComponent("decoration");
+    if (ImGui::Button("+ Giroscopio", { -1.0f, 0.0f })) addComponent("gyro");
 
     ImGui::Separator();
 
-    if (ImGui::Button("Guardar##left", { -1.0f, 0.0f }))   trySave();
-    if (ImGui::Button("Descartar##left", { -1.0f, 0.0f })) discardChanges();
+    if (ImGui::Button("Guardar##left", { -1.0f, 0.0f }))          trySave();
+    if (ImGui::Button("Descartar cambios##left", { -1.0f, 0.0f })) discardChanges();
+    if (ImGui::Button("Borrar layout##left", { -1.0f, 0.0f }))
+        ImGui::OpenPopup("##confirm_delete");
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -357,7 +420,7 @@ void LayoutEditor::renderRightPanel(float w) {
     ImGui::DragFloat("cx", &c.cx, 0.5f, 0.0f, 0.0f, "%.1f");
     ImGui::DragFloat("cy", &c.cy, 0.5f, 0.0f, 0.0f, "%.1f");
 
-    if (c.type == "stick") {
+    if (c.type == "stick" || c.type == "gyro") {
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::DragFloat("size",       &c.size,      0.5f, 1.0f, 500.0f, "size: %.1f");
         ImGui::SetNextItemWidth(-1.0f);
@@ -377,9 +440,10 @@ void LayoutEditor::renderRightPanel(float w) {
         }
     }
 
-    // Images
+    // Images (gyro has none)
+    if (c.type != "gyro") {
     ImGui::Spacing();
-    ImGui::Text("Imágenes");
+    ImGui::Text("Imagenes");
 
     bool imageChanged = false;
     if (c.type == "dpad") {
@@ -421,6 +485,7 @@ void LayoutEditor::renderRightPanel(float w) {
         }
     }
     if (imageChanged) reloadCanvasTextures();
+    } // end if (c.type != "gyro") for images block
 
     // State bindings
     if (c.type == "button") {
@@ -440,9 +505,36 @@ void LayoutEditor::renderRightPanel(float w) {
         stateCombo("state_down##sd",  c.stateDown);
         stateCombo("state_left##sl",  c.stateLeft);
         stateCombo("state_right##sr", c.stateRight);
+    } else if (c.type == "gyro") {
+        ImGui::Spacing();
+        ImGui::Text("Ejes giroscopio");
+        ImGui::TextDisabled("Horizontal (X):");
+        stateCombo("state_x##gx", c.stateX);
+        ImGui::TextDisabled("Vertical (Y):");
+        stateCombo("state_y##gy", c.stateY);
     }
 
-    // Colors — compact row: one square per color with short label
+    // Colors (gyro renders with fixed colors, nothing to edit)
+    if (c.type == "gyro") {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::PushStyleColor(ImGuiCol_Button,        { 0.55f, 0.08f, 0.08f, 1.0f });
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.75f, 0.15f, 0.15f, 1.0f });
+        if (ImGui::Button("Eliminar elemento", { -1.0f, 0.0f })) {
+            m_editLayout.components.erase(
+                m_editLayout.components.begin() + m_selectedComp);
+            m_selectedComp = -1;
+            m_dirty = true;
+            reloadCanvasTextures();
+        }
+        ImGui::PopStyleColor(2);
+        m_canvasView.updateLayout(m_editLayout);
+        if (ImGui::IsAnyItemActive()) m_dirty = true;
+        ImGui::EndChild();
+        return;
+    }
+
+    // Colors -- compact row: one square per color with short label
     ImGui::Spacing();
     ImGui::Text("Colores");
     ImGui::Separator();
@@ -544,6 +636,7 @@ void LayoutEditor::renderSavePopup() {
             }
             try {
                 savePadLayouts(m_layoutsPath, *m_layouts);
+                m_layoutSaved = true;
                 showToast("Nuevo layout guardado: " + newId);
             } catch (const std::exception& e) {
                 showToast(std::string("Error al guardar: ") + e.what(), true);
@@ -615,6 +708,20 @@ void LayoutEditor::startNew() {
     reloadCanvasTextures();
 }
 
+void LayoutEditor::startCopy(int index) {
+    if (!m_layouts || index < 0 || index >= (int)m_layouts->size()) return;
+    m_editLayout     = (*m_layouts)[index];
+    m_editLayout.id  = "__new__";
+    m_selectedComp   = -1;
+    m_dragging       = false;
+    m_isEditing      = true;
+    m_isNew          = true;
+    m_dirty          = false;
+    m_newIdBuf[0]    = '\0';
+    m_showIdPopup    = true;
+    reloadCanvasTextures();
+}
+
 void LayoutEditor::addComponent(const char* type) {
     PadComponent c;
     c.type = type;
@@ -626,9 +733,13 @@ void LayoutEditor::addComponent(const char* type) {
     if (strcmp(type, "template") == 0) {
         c.w  = m_editLayout.W;
         c.h  = m_editLayout.TopH;
-    } else if (strcmp(type, "stick") == 0) {
+    } else if (strcmp(type, "stick") == 0 || strcmp(type, "gyro") == 0) {
         c.size      = 60.0f;
         c.maxOffset = 20.0f;
+        if (strcmp(type, "gyro") == 0) {
+            c.stateX = "gyroZ";
+            c.stateY = "gyroX";
+        }
     } else {
         c.w = 50.0f;
         c.h = 50.0f;
@@ -658,7 +769,8 @@ void LayoutEditor::trySave() {
     try {
         savePadLayouts(m_layoutsPath, *m_layouts);
         showToast("Guardado correctamente.");
-        m_dirty = false;
+        m_dirty       = false;
+        m_layoutSaved = true;
     } catch (const std::exception& e) {
         showToast(std::string("Error al guardar: ") + e.what(), true);
     }

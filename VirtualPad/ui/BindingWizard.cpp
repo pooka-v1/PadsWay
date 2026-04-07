@@ -55,11 +55,23 @@ void BindingWizard::init(ID3D11Device* device,
     m_stateMapPath    = stateMapPath;
     m_canvasView.load(device);
     loadStateMap();
+    loadArrows();
 }
 
 void BindingWizard::unload() {
     closeReader();
     m_canvasView.unload();
+    m_arrowLeft.release();
+    m_arrowRight.release();
+    m_arrowUp.release();
+    m_arrowDown.release();
+}
+
+void BindingWizard::loadArrows() {
+    PadView::loadPng(m_device, "images/decorations/ArrowLeft.png",  m_arrowLeft);
+    PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRight);
+    PadView::loadPng(m_device, "images/decorations/ArrowUp.png",    m_arrowUp);
+    PadView::loadPng(m_device, "images/decorations/ArrowDown.png",  m_arrowDown);
 }
 
 // ---------------------------------------------------------------------------
@@ -238,9 +250,13 @@ void BindingWizard::renderWarnNoState() {
 // ---------------------------------------------------------------------------
 
 void BindingWizard::renderBinding() {
-    // ── Layout: canvas left, controls right ──────────────────────────────────
-    float rightW = 300.0f;
-    float canvasW = ImGui::GetContentRegionAvail().x - rightW - ImGui::GetStyle().ItemSpacing.x;
+    // ── Layout: canvas sized to pad width, controls panel right next to it ──
+    float rightW  = 350.0f;
+    float avail   = ImGui::GetContentRegionAvail().x;
+    float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float canvasW = m_layout.W;
+    if (canvasW + spacing + rightW > avail)
+        canvasW = avail - spacing - rightW;
 
     // Canvas
     ImGui::BeginChild("##wizCanvas", { canvasW, 0.0f }, false);
@@ -269,15 +285,27 @@ void BindingWizard::renderBinding() {
 
         ImGui::Spacing();
 
-        // Prompt
-        if (t == "button" || t == "physical_only") {
-            ImGui::TextWrapped("Pulsa el botón  [ %s ]",
-                step.compIndex >= 0 ? m_layout.components[step.compIndex].id.c_str()
-                                    : step.state.c_str());
-        } else if (t == "axis" || t == "trigger") {
-            ImGui::TextWrapped("%s", step.mapping.prompt.c_str());
-        } else if (t == "dpad") {
-            ImGui::TextWrapped("Pulsa cualquier dirección del D-pad");
+        // Prompt — yellow, larger font
+        {
+            const char* promptText = "";
+            char promptBuf[128];
+            if (t == "button" || t == "physical_only") {
+                const char* id = (step.compIndex >= 0)
+                    ? m_layout.components[step.compIndex].id.c_str()
+                    : step.state.c_str();
+                snprintf(promptBuf, sizeof(promptBuf), "Pulsa el boton  [ %s ]", id);
+                promptText = promptBuf;
+            } else if (t == "axis" || t == "trigger") {
+                promptText = step.mapping.prompt.c_str();
+            } else if (t == "dpad") {
+                promptText = "Pulsa cualquier direccion del D-pad";
+            }
+
+            ImGui::SetWindowFontScale(1.35f);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.95f, 0.2f, 1.0f));
+            ImGui::TextWrapped("%s", promptText);
+            ImGui::PopStyleColor();
+            ImGui::SetWindowFontScale(1.0f);
         }
 
         ImGui::Spacing();
@@ -298,11 +326,11 @@ void BindingWizard::renderBinding() {
         }
 
         // ── Manual controls ──────────────────────────────────────────────────
-        if (m_currentStep > 0)
-            if (ImGui::Button("← Atrás##bind", { 90.0f, 0.0f })) goBack();
-
+        if (m_currentStep == 0) ImGui::BeginDisabled();
+        if (ImGui::Button("Atras##bind", { 90.0f, 0.0f })) goBack();
+        if (m_currentStep == 0) ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("Saltar##bind", { 80.0f, 0.0f })) skipStep();
+        if (ImGui::Button("Saltar##bind",   { 80.0f, 0.0f })) skipStep();
         ImGui::SameLine();
         if (ImGui::Button("Cancelar##bind", { 90.0f, 0.0f })) cancel();
     }
@@ -315,8 +343,12 @@ void BindingWizard::renderBinding() {
 // ---------------------------------------------------------------------------
 
 void BindingWizard::renderReview() {
-    float rightW = 300.0f;
-    float canvasW = ImGui::GetContentRegionAvail().x - rightW - ImGui::GetStyle().ItemSpacing.x;
+    float rightW  = 350.0f;
+    float avail   = ImGui::GetContentRegionAvail().x;
+    float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float canvasW = m_layout.W;
+    if (canvasW + spacing + rightW > avail)
+        canvasW = avail - spacing - rightW;
 
     ImGui::BeginChild("##revCanvas", { canvasW, 0.0f }, false);
     renderCanvas(-1); // no highlight, all overlays visible
@@ -353,13 +385,17 @@ void BindingWizard::renderReview() {
     ImGui::SameLine();
     if (ImGui::Button("Repetir##rev", { 100.0f, 0.0f })) {
         closeReader();
-        m_state = State::NameController; // skip selection, keep name and controller
         m_boundButtons.clear();
         m_boundAxes.clear();
         m_overlayLabels.clear();
-        m_hasDpad = false;
+        m_hasDpad    = false;
         m_dpadType.clear();
+        m_currentStep  = 0;
         m_stepCooldown = 0;
+        buildSteps();
+        openReader();
+        beginStep();
+        m_state = State::Binding;
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancelar##rev", { 100.0f, 0.0f })) cancel();
@@ -372,24 +408,71 @@ void BindingWizard::renderReview() {
 // ---------------------------------------------------------------------------
 
 void BindingWizard::renderCanvas(int highlightComp) {
-    GamepadState empty{};
-    m_canvasOrigin = ImGui::GetCursorScreenPos();
-    m_canvasView.render(empty, highlightComp);
+    bool inBinding = (m_state == State::Binding);
 
-    // Draw number/axis overlays via ImGui DrawList
+    // In binding mode: show current component as pressed (active color), no yellow box.
+    // In review mode: all inactive, no highlight.
+    GamepadState displayState = inBinding ? buildFakeState() : GamepadState{};
+    m_canvasOrigin = ImGui::GetCursorScreenPos();
+    m_canvasView.render(displayState, inBinding ? -1 : highlightComp);
+
     ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Draw number/axis label pills (always)
     for (const auto& [compIdx, label] : m_overlayLabels) {
         if (compIdx < 0 || compIdx >= (int)m_layout.components.size()) continue;
         const auto& comp = m_layout.components[compIdx];
         ImVec2 pos = { m_canvasOrigin.x + comp.cx, m_canvasOrigin.y + comp.cy };
 
-        // Background pill
         ImVec2 textSize = ImGui::CalcTextSize(label.c_str());
         float pad = 3.0f;
         ImVec2 tl = { pos.x - textSize.x * 0.5f - pad, pos.y - textSize.y * 0.5f - pad };
         ImVec2 br = { pos.x + textSize.x * 0.5f + pad, pos.y + textSize.y * 0.5f + pad };
         dl->AddRectFilled(tl, br, IM_COL32(20, 20, 20, 200), 4.0f);
         dl->AddText({ tl.x + pad, tl.y + pad }, IM_COL32(255, 220, 60, 255), label.c_str());
+    }
+
+    // Draw directional arrows for the current axis step
+    if (inBinding && m_currentStep >= 0 && m_currentStep < (int)m_steps.size()) {
+        const BindStep& step = m_steps[m_currentStep];
+        const std::string& type = step.mapping.type;
+        if ((type == "axis" || type == "trigger") && step.compIndex >= 0 &&
+            step.compIndex < (int)m_layout.components.size()) {
+
+            const PadComponent& comp = m_layout.components[step.compIndex];
+            ImVec2 center = { m_canvasOrigin.x + comp.cx, m_canvasOrigin.y + comp.cy };
+
+            // Component radius: use size for sticks, otherwise half of w/h
+            float radius = comp.size > 0.0f ? comp.size * 0.5f
+                         : (comp.w > comp.h ? comp.w : comp.h) * 0.5f;
+            if (radius < 8.0f) radius = 8.0f;
+
+            const std::string& target = step.mapping.axis_target;
+            bool isTrigger    = (target.find("trigger") != std::string::npos);
+            bool isHorizontal = (target.find("_x") != std::string::npos ||
+                                 target == "mouse_x");
+
+            constexpr float kArrowSize = 28.0f;
+            constexpr float kGap       = 10.0f;
+            float offset = radius + kGap;
+
+            auto drawArrow = [&](const PadTexture& tex, ImVec2 topLeft) {
+                if (!tex.valid()) return;
+                ImVec2 br = { topLeft.x + kArrowSize, topLeft.y + kArrowSize };
+                dl->AddImage((ImTextureID)(intptr_t)tex.srv, topLeft, br,
+                             {0,0}, {1,1}, IM_COL32(255,255,255,220));
+            };
+
+            if (isTrigger) {
+                // No arrow for triggers
+            } else if (isHorizontal) {
+                drawArrow(m_arrowRight, { center.x + offset,
+                                          center.y - kArrowSize * 0.5f });
+            } else {
+                drawArrow(m_arrowDown, { center.x - kArrowSize * 0.5f,
+                                         center.y + offset });
+            }
+        }
     }
 }
 
@@ -490,7 +573,7 @@ void BindingWizard::buildSteps() {
 
     for (int i = 0; i < (int)m_layout.components.size(); ++i) {
         const auto& comp = m_layout.components[i];
-        if (comp.type == "template" || comp.type == "decoration") continue;
+        if (comp.type == "template" || comp.type == "decoration" || comp.type == "gyro") continue;
 
         // Stick: add click button (L3/R3); axes are added separately below.
         if (comp.type == "stick") {
@@ -639,7 +722,12 @@ void BindingWizard::commitAxis(const std::string& source, bool invert) {
     AxisResult r;
     r.source = source;
     r.target = step.mapping.axis_target;
-    r.invert = invert;
+    // Triggers always go from rest (min) to pressed (max) — invert is never correct.
+    // applyAxes already remaps [-1,1] to [0,1] for trigger targets.
+    if (r.target == "trigger_l" || r.target == "trigger_r")
+        r.invert = false;
+    else
+        r.invert = invert;
     m_boundAxes.push_back(r);
 
     if (step.compIndex >= 0)
@@ -811,6 +899,51 @@ void BindingWizard::openReader() {
 
 void BindingWizard::closeReader() {
     m_hidReader.reset();
+}
+
+GamepadState BindingWizard::buildFakeState() const {
+    GamepadState s{};
+    if (m_currentStep < 0 || m_currentStep >= (int)m_steps.size()) return s;
+    const BindStep& step = m_steps[m_currentStep];
+    if (step.compIndex < 0 || step.compIndex >= (int)m_layout.components.size()) return s;
+    const PadComponent& c = m_layout.components[step.compIndex];
+
+    // For button/dpad steps: set the matching bool in GamepadState so the
+    // component renders in its active (pressed) color.
+    auto activate = [&](const std::string& name) {
+        if      (name == "btnA")      s.btnA      = true;
+        else if (name == "btnB")      s.btnB      = true;
+        else if (name == "btnX")      s.btnX      = true;
+        else if (name == "btnY")      s.btnY      = true;
+        else if (name == "btnLB")     s.btnLB     = true;
+        else if (name == "btnRB")     s.btnRB     = true;
+        else if (name == "btnL3")     s.btnL3     = true;
+        else if (name == "btnR3")     s.btnR3     = true;
+        else if (name == "btnBack")   s.btnBack   = true;
+        else if (name == "btnStart")  s.btnStart  = true;
+        else if (name == "btnHome")   s.btnHome   = true;
+        else if (name == "btnTouch")  s.btnTouch  = true;
+        else if (name == "dpadUp")    s.dpadUp    = true;
+        else if (name == "dpadDown")  s.dpadDown  = true;
+        else if (name == "dpadLeft")  s.dpadLeft  = true;
+        else if (name == "dpadRight") s.dpadRight = true;
+        else if (name == "triggerL")  s.triggerL  = 1.0f;
+        else if (name == "triggerR")  s.triggerR  = 1.0f;
+    };
+
+    const std::string& t = step.mapping.type;
+    if (t == "button" || t == "physical_only" || t == "stick") {
+        // Use step.state (= comp.state for buttons, comp.stateClick for L3/R3 stick steps)
+        activate(step.state);
+    } else if (t == "trigger") {
+        activate(step.mapping.axis_target == "trigger_l" ? "triggerL" : "triggerR");
+    } else if (t == "dpad") {
+        // Prompt says "any direction" — light up all arms
+        s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = true;
+    }
+    // axis steps: no fake state — arrows convey the direction instead
+
+    return s;
 }
 
 void BindingWizard::snapshotBaseline() {
