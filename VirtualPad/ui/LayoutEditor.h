@@ -25,6 +25,9 @@ public:
     // Returns true (once) after the binding wizard has saved a new controller entry.
     bool pollControllersSaved() { return m_wizard.pollSaved(); }
 
+    // Returns true (once) after the layout editor has saved changes to pad_layouts.json.
+    bool pollLayoutSaved() { bool v = m_layoutSaved; m_layoutSaved = false; return v; }
+
     // Release D3D resources held by the internal canvas view.
     void unload();
 
@@ -38,6 +41,7 @@ private:
     // ── Editor actions ───────────────────────────────────────────────────────
     void startEditing(int layoutIndex);
     void startNew();
+    void startCopy(int layoutIndex);
     void addComponent(const char* type);
     void trySave();
     void discardChanges();
@@ -80,6 +84,7 @@ private:
     bool        m_lockOverlayAspect  = false;
     float       m_lockedOverlayRatio = 1.0f;   // ov_x/ov_y captured when lock is enabled
     bool        m_dirty              = false;   // unsaved changes in m_editLayout
+    bool        m_layoutSaved        = false;   // set to true after a successful save; polled by AppWindow
     int         m_pendingSwitchIdx   = -1;      // layout index awaiting confirm-switch popup
     char        m_newIdBuf[64]{};
     bool        m_showIdPopup = false;

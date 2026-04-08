@@ -258,8 +258,11 @@ float PadEngine::getMouseSpeed() const {
 void PadEngine::reloadConfigs() {
     try {
         auto configs = loadControllerConfigs("data/controllers.json");
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_configs = std::move(configs);
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_configs = std::move(configs);
+        }
+        m_configsDirty.store(true);
     } catch (const std::exception& ex) {
         spdlog::warn("reloadConfigs failed: {}", ex.what());
     }
@@ -665,6 +668,24 @@ void PadEngine::threadFunc() {
             initMacros();
         }
 
+        // Button-mapping hot-reload: pick up controllers.json changes saved by the mapping editor.
+        if (m_configsDirty.exchange(false)) {
+            { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
+            // cfgBase pointed into the old configs — re-find it in the refreshed copy.
+            cfgBase = findConfig(configs, selected.vid, selected.pid, selected.connectionType);
+            if (cfgBase) {
+                effectiveCfg = *cfgBase;
+                if (!currentProfilePath.empty()) {
+                    try {
+                        GameProfile profile = loadGameProfile(currentProfilePath);
+                        effectiveCfg = applyProfile(*cfgBase, profile);
+                    } catch (...) {}
+                }
+                input->setConfig(*cfg);  // push updated button map to active input source
+            }
+        }
+
+
         if (!input->isConnected()) {
             if (m_connected) {
                 spdlog::warn("[{}] disconnected. Waiting...", cfg->source_name);
@@ -681,7 +702,7 @@ void PadEngine::threadFunc() {
         }
 
         if (input->read(state)) {
-            { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = state; }
+            { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = input->getPhysicalState(); }
             // Bot and macro toggle detection uses the button mask from the read just performed
             DWORD btns = input->getLastButtonMask();
 

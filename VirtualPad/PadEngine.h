@@ -98,8 +98,9 @@ private:
 
     std::thread        m_thread;
     std::thread        m_monitorThread;
-    std::atomic<bool>  m_running   { false };
-    std::atomic<bool>  m_connected { false };
+    std::atomic<bool>  m_running       { false };
+    std::atomic<bool>  m_connected     { false };
+    std::atomic<bool>  m_configsDirty  { false };  // set by reloadConfigs(); picked up by run loop
 
     mutable std::mutex m_mutex;
     std::string        m_device;   // name of the active input device

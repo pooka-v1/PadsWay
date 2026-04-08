@@ -68,4 +68,10 @@ struct GamepadState {
     float touch2Y      = 0.0f;   // finger 2 absolute Y position [0..1]
     float touchDeltaX  = 0.0f;   // finger 1 delta for mouse routing (derived each frame)
     float touchDeltaY  = 0.0f;
+
+    // --- IMU (gyroscope) [-1.0 .. 1.0] ---
+    bool  gyroActive = false;  // true when the device is reporting IMU data this frame
+    float gyroX      = 0.0f;  // pitch  (tilt forward/back)
+    float gyroY      = 0.0f;  // yaw    (rotate left/right)
+    float gyroZ      = 0.0f;  // roll   (tilt left/right)
 };

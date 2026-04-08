@@ -1,6 +1,9 @@
 #include "AppWindow.h"
 
 #include <algorithm>
+#include <fstream>
+#include "nlohmann/json.hpp"
+using json = nlohmann::json;
 #include <chrono>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -657,6 +660,30 @@ void AppWindow::renderScannerTab() {
         else if ( m_hidScanState.dpadUp   &&  m_hidScanState.dpadLeft)                               pov = 31500;
         drawPOVCompass(pov);
 
+        // Gyroscope (only shown when the device reports IMU data)
+        if (m_hidScanState.gyroActive) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::Text("Gyroscope");
+            ImGui::Separator();
+            ImGui::Spacing();
+            struct { const char* name; float v; } axes[] = {
+                { "X", m_hidScanState.gyroX },
+                { "Y", m_hidScanState.gyroY },
+                { "Z", m_hidScanState.gyroZ },
+            };
+            for (auto& a : axes) {
+                float dev_f = fabsf(a.v);
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                    ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.60f, 1.0f));
+                ImGui::Text("%-2s", a.name);
+                ImGui::SameLine();
+                char ov[12]; snprintf(ov, sizeof(ov), "%+.4f", a.v);
+                ImGui::ProgressBar((a.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
+                ImGui::PopStyleColor();
+            }
+        }
+
         ImGui::EndChild();
         return;
     }
@@ -833,13 +860,15 @@ void AppWindow::cleanupRenderTarget() {
 }
 
 void AppWindow::renderPadsTab() {
-    // Physical pad: update layout when the active controller changes
+    // Physical pad: update layout when the active controller changes, or when
+    // the editor has just saved (forceSetLayout bypasses the id-cache guard).
     std::string layoutId = m_engine.getActiveLayoutId();
-    if (layoutId != m_currentLayoutId) {
-        m_currentLayoutId = layoutId;
+    if (m_forceLayoutReload || layoutId != m_currentLayoutId) {
+        m_currentLayoutId   = layoutId;
+        m_forceLayoutReload = false;
         const PadLayout* layout = findLayout(m_padLayouts, layoutId);
         if (layout)
-            m_padView.setLayout(*layout);
+            m_padView.forceSetLayout(*layout);
     }
 
     // Virtual pad: always xbox_one, loaded once
@@ -851,21 +880,35 @@ void AppWindow::renderPadsTab() {
         }
     }
 
-    ImGui::Spacing();
+    if (ImGui::BeginTabBar("##PadsSubTabs")) {
 
-    // Render physical and virtual pads side by side using the standard
-    // BeginGroup/SameLine/EndGroup pattern so ImGui tracks content bounds correctly.
-    ImGui::BeginGroup();
-    m_padView.render(m_engine.getLastState());
-    ImGui::EndGroup();
+        if (ImGui::BeginTabItem("Ver")) {
+            ImGui::Spacing();
 
-    ImGui::SameLine(0.0f, 30.0f);
+            ImGui::BeginGroup();
+            m_padView.render(m_engine.getLastState());
+            ImGui::EndGroup();
 
-    ImGui::BeginGroup();
-    m_virtualPadView.render(m_engine.getLastVirtualState());
-    ImGui::EndGroup();
+            ImGui::SameLine(0.0f, 10.0f);
+            ImGui::BeginGroup();
+            {
+                if (!m_arrowRightTex.valid())
+                    PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
+                const auto& L = m_padView.getLayout();
+                constexpr float kArrowSize = 40.0f;
+                float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
+                if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
+                if (m_arrowRightTex.valid())
+                    ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
+            }
+            ImGui::EndGroup();
+            ImGui::SameLine(0.0f, 10.0f);
 
-    // ── Marquee ───────────────────────────────────────────────────────────────
+            ImGui::BeginGroup();
+            m_virtualPadView.render(m_engine.getLastVirtualState());
+            ImGui::EndGroup();
+
+            // ── Marquee ───────────────────────────────────────────────────────────────
 
     for (const auto& ev : m_engine.pollEvents()) {
         MarqueeEntry entry;
@@ -924,6 +967,264 @@ void AppWindow::renderPadsTab() {
             ImGui::Dummy({ 1.0f, ImGui::GetTextLineHeight() });
         }
     }
+
+            ImGui::EndTabItem(); // Ver
+        }
+
+        if (ImGui::BeginTabItem("Mapear")) {
+            renderMappingSubtab();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar(); // ##PadsSubTabs
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mapping subtab — helpers
+// ---------------------------------------------------------------------------
+
+// Tabla de traducción: nombre corto de controllers.json ↔ nombre de campo en GamepadState/layout
+static const std::pair<const char*, const char*> kBtnNames[] = {
+    {"a",         "btnA"},    {"b",         "btnB"},
+    {"x",         "btnX"},    {"y",         "btnY"},
+    {"l1",        "btnLB"},   {"r1",        "btnRB"},
+    {"select",    "btnBack"}, {"start",     "btnStart"},
+    {"home",      "btnHome"}, {"l3",        "btnL3"},
+    {"r3",        "btnR3"},   {"l4",        "btnL4"},
+    {"r4",        "btnR4"},   {"lp",        "btnLP"},
+    {"rp",        "btnRP"},   {"touch_btn", "btnTouch"},
+};
+static std::string shortToState(const std::string& s) {
+    for (auto& [k, v] : kBtnNames) if (k == s) return v;
+    return s;
+}
+static std::string stateToShort(const std::string& s) {
+    for (auto& [k, v] : kBtnNames) if (v == s) return k;
+    return s;
+}
+static int findCompByState(const PadLayout& layout, const std::string& stateName) {
+    for (int i = 0; i < (int)layout.components.size(); ++i)
+        if (layout.components[i].state == stateName) return i;
+    return -1;
+}
+static void activateState(GamepadState& s, const std::string& name) {
+    if      (name == "btnA")      s.btnA      = true;
+    else if (name == "btnB")      s.btnB      = true;
+    else if (name == "btnX")      s.btnX      = true;
+    else if (name == "btnY")      s.btnY      = true;
+    else if (name == "btnLB")     s.btnLB     = true;
+    else if (name == "btnRB")     s.btnRB     = true;
+    else if (name == "btnL3")     s.btnL3     = true;
+    else if (name == "btnR3")     s.btnR3     = true;
+    else if (name == "btnBack")   s.btnBack   = true;
+    else if (name == "btnStart")  s.btnStart  = true;
+    else if (name == "btnHome")   s.btnHome   = true;
+    else if (name == "btnTouch")  s.btnTouch  = true;
+    else if (name == "btnL4")     s.btnL4     = true;
+    else if (name == "btnR4")     s.btnR4     = true;
+    else if (name == "btnLP")     s.btnLP     = true;
+    else if (name == "btnRP")     s.btnRP     = true;
+    else if (name == "triggerL")  s.triggerL  = 1.0f;
+    else if (name == "triggerR")  s.triggerR  = 1.0f;
+    else if (name == "dpadUp")    s.dpadUp    = true;
+    else if (name == "dpadDown")  s.dpadDown  = true;
+    else if (name == "dpadLeft")  s.dpadLeft  = true;
+    else if (name == "dpadRight") s.dpadRight = true;
+}
+
+// ---------------------------------------------------------------------------
+// Mapping subtab
+// ---------------------------------------------------------------------------
+
+void AppWindow::renderMappingSubtab() {
+    // ── Pre-populate edits cuando cambia el mando activo ─────────────────────
+    DeviceCandidate dev = m_engine.getActiveDevice();
+    if (dev.vid != m_mappingActiveVid || dev.pid != m_mappingActivePid) {
+        m_mappingActiveVid   = dev.vid;
+        m_mappingActivePid   = dev.pid;
+        m_mappingSelPhysComp = -1;
+        m_mappingEdits.clear();
+        for (const auto& cfg : m_controllerConfigs) {
+            if (cfg.vid == dev.vid && cfg.pid == dev.pid) {
+                for (const auto& [idx, action] : cfg.buttons) {
+                    if (action.type == ButtonActionType::VirtualButton &&
+                        !action.physical.empty() && !action.name.empty() &&
+                        action.physical != action.name)
+                        m_mappingEdits[action.physical] = action.name;
+                }
+                break;
+            }
+        }
+    }
+
+    ImGui::Spacing();
+    ImVec2 mouse       = ImGui::GetIO().MousePos;
+    bool   mouseClicked = ImGui::IsMouseClicked(0);
+
+    // ── Construir estados de display ──────────────────────────────────────────
+    m_mappingFlashTimer -= ImGui::GetIO().DeltaTime;
+    if (m_mappingFlashTimer <= 0.0f) m_mappingFlashComp = -1;
+
+    GamepadState physDisplay{};
+    GamepadState virtDisplay{};
+    if (m_mappingSelPhysComp >= 0) {
+        const auto& physComps = m_padView.getLayout().components;
+        if (m_mappingSelPhysComp < (int)physComps.size()) {
+            const std::string& physState = physComps[m_mappingSelPhysComp].state;
+            activateState(physDisplay, physState);
+            std::string physShort = stateToShort(physState);
+            auto it = m_mappingEdits.find(physShort);
+            std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
+            activateState(virtDisplay, shortToState(virtShort));
+        }
+    }
+    // Flash de confirmación: ilumina el botón virtual recién asignado
+    if (m_mappingFlashComp >= 0) {
+        const auto& virtComps = m_virtualPadView.getLayout().components;
+        if (m_mappingFlashComp < (int)virtComps.size())
+            activateState(virtDisplay, virtComps[m_mappingFlashComp].state);
+    }
+
+    // ── Pad físico ────────────────────────────────────────────────────────────
+    ImGui::BeginGroup();
+    m_mappingPhysOrigin = ImGui::GetCursorScreenPos();
+    m_padView.render(physDisplay);
+    ImGui::Spacing();
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextDisabled("Físico");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::BeginGroup();
+    {
+        if (!m_arrowRightTex.valid())
+            PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
+        const auto& L = m_padView.getLayout();
+        constexpr float kArrowSize = 40.0f;
+        float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
+        if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
+        if (m_arrowRightTex.valid())
+            ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
+    }
+    ImGui::EndGroup();
+    ImGui::SameLine(0.0f, 10.0f);
+
+    ImGui::BeginGroup();
+    m_mappingVirtOrigin = ImGui::GetCursorScreenPos();
+    m_virtualPadView.render(virtDisplay);
+    ImGui::Spacing();
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextDisabled("Virtual (Xbox One)");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::EndGroup();
+
+    // ── Gestión de clicks ─────────────────────────────────────────────────────
+    if (mouseClicked) {
+        int physHit = m_padView.hitTest(mouse, m_mappingPhysOrigin);
+        if (physHit >= 0 && m_padView.getLayout().components[physHit].type == "button") {
+            m_mappingSelPhysComp = (physHit == m_mappingSelPhysComp) ? -1 : physHit;
+        } else if (m_mappingSelPhysComp >= 0) {
+            int virtHit = m_virtualPadView.hitTest(mouse, m_mappingVirtOrigin);
+            if (virtHit >= 0 && m_virtualPadView.getLayout().components[virtHit].type == "button") {
+                const auto& physComps = m_padView.getLayout().components;
+                std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
+                std::string virtShort = stateToShort(m_virtualPadView.getLayout().components[virtHit].state);
+                if (!physShort.empty() && !virtShort.empty()) {
+                    // Si el virtual pulsado ya es el asignado → desasignar; si no → asignar
+                    auto it = m_mappingEdits.find(physShort);
+                    bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
+                    m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
+                    m_mappingFlashComp  = alreadyAssigned ? -1 : virtHit;
+                    m_mappingFlashTimer = alreadyAssigned ?  0.0f : 0.5f;
+                }
+                m_mappingSelPhysComp = -1;
+            }
+        }
+    }
+
+    // ── Guardar ───────────────────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (ImGui::Button("Guardar mapping##mapSave", { 160.0f, 0.0f }))
+        saveMappingEdits();
+}
+
+// ---------------------------------------------------------------------------
+// saveMappingEdits — escribe m_mappingEdits en controllers.json
+// ---------------------------------------------------------------------------
+
+void AppWindow::saveMappingEdits() {
+    try {
+        const std::string path = "data/controllers.json";
+        json root;
+        {
+            std::ifstream f(path);
+            if (f.is_open()) root = json::parse(f);
+        }
+        if (!root.contains("controllers") || !root["controllers"].is_array()) return;
+
+        char vidStr[8], pidStr[8];
+        snprintf(vidStr, sizeof(vidStr), "%04X", m_mappingActiveVid);
+        snprintf(pidStr, sizeof(pidStr), "%04X", m_mappingActivePid);
+
+        for (auto& ctrl : root["controllers"]) {
+            if (ctrl.value("vid","") != std::string(vidStr) ||
+                ctrl.value("pid","") != std::string(pidStr)) continue;
+            if (!ctrl.contains("buttons")) continue;
+
+            // Recoger cambios primero para no modificar mientras iteramos
+            std::vector<std::pair<std::string, json>> changes;
+            for (auto& [key, btn] : ctrl["buttons"].items()) {
+                std::string physShort;
+                if (btn.is_string())
+                    physShort = btn.get<std::string>();
+                else if (btn.is_object() && btn.contains("physical"))
+                    physShort = btn["physical"].get<std::string>();
+                else continue;
+
+                auto it = m_mappingEdits.find(physShort);
+                if (it == m_mappingEdits.end()) continue;
+
+                json newBtn;
+                if (btn.is_object()) {
+                    newBtn = btn;
+                    if (it->second.empty())
+                        newBtn.erase("virtual");
+                    else
+                        newBtn["virtual"] = it->second;
+                } else {
+                    newBtn["physical"] = physShort;
+                    if (!it->second.empty())
+                        newBtn["virtual"] = it->second;
+                }
+                changes.push_back({ key, std::move(newBtn) });
+            }
+            for (auto& [key, val] : changes)
+                ctrl["buttons"][key] = val;
+
+            break;
+        }
+
+        // Validar antes de escribir
+        std::string dumped = root.dump(2);
+        json::parse(dumped);  // lanza si el JSON generado es inválido
+
+        // Escribir a fichero temporal y hacer rename atómico
+        std::string tmpPath = path + ".tmp";
+        {
+            std::ofstream tmp(tmpPath);
+            if (!tmp.is_open()) return;
+            tmp << dumped;
+        }  // destructor flushes + close
+
+        MoveFileExA(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+
+        m_controllerConfigs = loadControllerConfigs(path);
+        m_engine.reloadConfigs();
+    } catch (const std::exception&) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -947,6 +1248,11 @@ void AppWindow::renderLayoutTab() {
         m_controllerConfigs = loadControllerConfigs("data/controllers.json");
         m_engine.reloadConfigs();
     }
+
+    if (m_layoutEditor.pollLayoutSaved()) {
+        m_forceLayoutReload     = true;
+        m_virtualPadInitialized = false;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -955,6 +1261,7 @@ void AppWindow::cleanup() {
     m_layoutEditor.unload();
     m_virtualPadView.unload();
     m_padView.unload();
+    m_arrowRightTex.release();
     cleanupRenderTarget();
     if (m_swapChain) { m_swapChain->Release(); m_swapChain = nullptr; }
     if (m_context)   { m_context->Release();   m_context   = nullptr; }

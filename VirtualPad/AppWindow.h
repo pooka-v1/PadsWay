@@ -5,6 +5,7 @@
 #include <vector>
 #include <future>
 #include <atomic>
+#include <unordered_map>
 #include "PadEngine.h"
 #include "PadScanner.h"
 #include "input/HIDScanner.h"
@@ -38,6 +39,7 @@ private:
     void renderEngineTab();
     void renderScannerTab();
     void renderPadsTab();
+    void renderMappingSubtab();
     void renderLayoutTab();
 
     // --- Win32 window procedure ---
@@ -93,9 +95,22 @@ private:
     PadView m_padView;                          // physical controller
     PadView m_virtualPadView;                   // virtual Xbox One output
     bool    m_virtualPadInitialized = false;    // xbox_one layout loaded once
+    bool    m_forceLayoutReload     = false;    // set after editor saves; triggers forceSetLayout
 
     // --- Layout editor ---
     LayoutEditor m_layoutEditor;
     bool         m_layoutEditorInitialized = false;
     bool         m_layoutsFromBackup       = false;  // true when .bak was the fallback
+
+    // --- Mapping editor (subtab [Mapear] en Pads) ---
+    int      m_mappingSelPhysComp  = -1;  // componente físico seleccionado (-1 = ninguno)
+    ImVec2   m_mappingPhysOrigin   = {};  // canvas origin del pad físico (capturado cada frame)
+    ImVec2   m_mappingVirtOrigin   = {};  // canvas origin del pad virtual
+    uint16_t m_mappingActiveVid    = 0;   // VID del mando activo al cargar edits
+    uint16_t m_mappingActivePid    = 0;   // PID del mando activo al cargar edits
+    int      m_mappingFlashComp    = -1;  // componente virtual en flash de confirmación (-1 = ninguno)
+    float    m_mappingFlashTimer   = 0.0f; // segundos restantes del flash
+    std::unordered_map<std::string, std::string> m_mappingEdits;  // physShort → virtShort
+    PadTexture m_arrowRightTex;
+    void saveMappingEdits();
 };

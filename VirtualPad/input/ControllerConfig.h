@@ -32,6 +32,12 @@ struct TouchpadConfig {
     bool mouseEnabled = false; // route surface movement → mouse (delta-based)
 };
 
+struct ImuConfig {
+    bool  enabled     = false;
+    int   gyroOffset  = 13;    // byte index of gyro X in raw HID report (DS4 USB: 13)
+    float gyroScale   = 1.0f / 32768.0f;  // int16 raw → normalized [-1..1]
+};
+
 struct ControllerConfig {
     uint16_t    vid = 0;
     uint16_t    pid = 0;
@@ -44,4 +50,5 @@ struct ControllerConfig {
     std::string    dpad;
     std::string    layout_id;  // references an entry in data/pad_layouts.json; empty = use defaults
     TouchpadConfig touchpad;
+    ImuConfig      imu;
 };

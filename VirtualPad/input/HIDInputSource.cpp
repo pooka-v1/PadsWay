@@ -198,6 +198,7 @@ bool HIDInputSource::read(GamepadState& state) {
     applyButtons (buf, bufLen,    state);
     applyAxes    (buf, bufLen,    state);
     applyTouchpad(buf, bytesRead, state);
+    applyIMU     (buf, bytesRead, state);
 
     // Diagnostic: log state + raw bytes every ~2 seconds (240 reads * 8ms = ~2s)
     if (++m_readCount % 240 == 0) {
@@ -205,7 +206,7 @@ bool HIDInputSource::read(GamepadState& state) {
                m_name,
                state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
-        ULONG dumpLen = (m_inputReportLen < 16) ? m_inputReportLen : 16;
+        ULONG dumpLen = (m_inputReportLen < 20) ? m_inputReportLen : 20;
         std::string raw;
         raw.reserve(dumpLen * 3);
         for (ULONG i = 0; i < dumpLen; ++i) {
@@ -299,6 +300,35 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
         else if (name == "touch_btn") state.btnTouch = v;
     };
 
+    // Physical display state: build separately using action.physical names.
+    // Must run BEFORE virtual loop so display and ViGEm output stay independent.
+    GamepadState physDisplay = state;  // inherit axes already applied
+    auto setPhys = [&](const std::string& name, bool v) {
+        if      (name == "a")         physDisplay.btnA     = v;
+        else if (name == "b")         physDisplay.btnB     = v;
+        else if (name == "x")         physDisplay.btnX     = v;
+        else if (name == "y")         physDisplay.btnY     = v;
+        else if (name == "l1")        physDisplay.btnLB    = v;
+        else if (name == "r1")        physDisplay.btnRB    = v;
+        else if (name == "select")    physDisplay.btnBack  = v;
+        else if (name == "start")     physDisplay.btnStart = v;
+        else if (name == "home")      physDisplay.btnHome  = v;
+        else if (name == "l3")        physDisplay.btnL3    = v;
+        else if (name == "r3")        physDisplay.btnR3    = v;
+        else if (name == "l4")        physDisplay.btnL4    = v;
+        else if (name == "r4")        physDisplay.btnR4    = v;
+        else if (name == "lp")        physDisplay.btnLP    = v;
+        else if (name == "rp")        physDisplay.btnRP    = v;
+        else if (name == "touch_btn") physDisplay.btnTouch = v;
+    };
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.physical.empty()) continue;
+        bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
+        setPhys(action.physical, pressed);
+    }
+    m_physicalState = physDisplay;
+
+    // Virtual remapping: use action.name so ViGEm receives the mapped output.
     for (const auto& [bit, action] : m_config.buttons) {
         bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
         switch (action.type) {
@@ -311,13 +341,6 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
             break;
         default: break;
         }
-    }
-
-    // Estado visual físico — independiente de la acción asignada.
-    for (const auto& [bit, action] : m_config.buttons) {
-        if (action.physical.empty()) continue;
-        bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
-        setBtn(action.physical, pressed);
     }
 
     if (state.triggerL > 0.0f && state.triggerR > 0.0f) {
@@ -487,6 +510,31 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         state.touch2Active = false;
         state.touch2X = state.touch2Y = 0.0f;
     }
+}
+
+void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
+    state.gyroActive = false;
+
+    if (!m_config.imu.enabled) return;
+
+    // Need 6 bytes starting at gyroOffset (3 × int16 for X, Y, Z)
+    int off = m_config.imu.gyroOffset;
+    if (off + 6 > static_cast<int>(bytesRead)) return;
+
+    auto readI16 = [&](int o) -> int16_t {
+        return static_cast<int16_t>(
+            static_cast<uint8_t>(buf[o]) |
+            (static_cast<uint16_t>(static_cast<uint8_t>(buf[o + 1])) << 8));
+    };
+
+    int16_t rawX = readI16(off);
+    int16_t rawY = readI16(off + 2);
+    int16_t rawZ = readI16(off + 4);
+
+    state.gyroX     = std::clamp(rawX * m_config.imu.gyroScale, -1.0f, 1.0f);
+    state.gyroY     = std::clamp(rawY * m_config.imu.gyroScale, -1.0f, 1.0f);
+    state.gyroZ     = std::clamp(rawZ * m_config.imu.gyroScale, -1.0f, 1.0f);
+    state.gyroActive = true;
 }
 
 void HIDInputSource::parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right) {

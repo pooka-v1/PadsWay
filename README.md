@@ -435,11 +435,15 @@ If there are unsaved changes, a confirmation dialog appears before switching.
 
 ### Three panels
 
-**Left panel** — layout list, element list, and add/delete controls:
+**Left panel** — layout list and element list, each with its own independent scroll:
 - `[+ Button]` `[+ Dpad]` `[+ Analog]` `[+ Decoration]` — add a component of that type.
 - `[Delete element]` — removes the selected component.
+- `[Copy layout]` — duplicates the current layout as a starting point for a new one.
 - `[Save]` / `[Discard]` — save to `pad_layouts.json` (creates a `.bak` backup on first save if none exists) or discard all changes.
 - `[Pair controller]` — launches the Controller Binding Wizard (see below).
+
+Supported component types: `button`, `stick`, `dpad`, `touchpad`, `gyroscope`, `decoration`, `template`.
+The `gyroscope` component is visible in the Pads tab when the connected controller reports IMU data (e.g. DualShock 4 over USB). It requires no calibration — data is read automatically from fixed HID offsets.
 
 **Center panel** — canvas showing the pad layout at scale. Zones FRONT (bottom strip) and TOP (main area) are displayed with their components rendered live.
 
@@ -465,12 +469,13 @@ The wizard guides you through five stages:
 
 1. **Select controller** — lists all detected physical devices (WinMM and HID). The ViGEm virtual controller is automatically filtered out.
 2. **Name controller** — enter a friendly name. For WinMM controllers, toggle DInput ↔ XInput mode.
-3. **Bind buttons** — for each button/trigger/stick-click in the layout, the wizard prompts you to press the corresponding physical button. A number overlay appears on the layout canvas as each button is bound.
-4. **Bind axes and triggers** — for each analog axis (left stick X/Y, right stick X/Y) and trigger (L2, R2), the wizard prompts you to move the physical control. Axis direction and inversion are detected automatically.
+3. **Bind buttons** — for each button/trigger/stick-click in the layout, the wizard shows the active image of that button as a visual reference and prompts you to press the corresponding physical button. A number overlay appears on the layout canvas as each button is bound.
+4. **Bind axes and triggers** — for each analog axis (left stick X/Y, right stick X/Y) and trigger (L2, R2), the wizard shows the active image of the component plus directional arrows indicating the expected movement direction.
    - For **left stick X**: push fully to the **right**.
    - For **left stick Y**: push fully **down**.
    - For **right stick X/Y**: same convention.
    - For **triggers**: press fully.
+   - **Gyroscope components are skipped** — gyroscope data is read automatically from fixed HID byte offsets and does not require any calibration step.
 5. **Review** — shows all bound buttons, axes, and D-pad. Confirm to save or restart from the name step.
 
 ### Result
@@ -508,6 +513,7 @@ The wizard uses `state_map.json` to know which physical button name (`physical`)
 |---|---|
 | `data/controllers.json` | Base configuration for physical controllers |
 | `data/FinalFantasyX.json` | Game profile for FFX (overrides on top of base) |
+| `data/MonsterHunterStories2.json` | Game profile for MHS2 (overrides on top of base) |
 | `data/macros.json` | Reusable macro library |
 | `data/virtualpad.json` | VID/PID of the virtual controller created by ViGEm + log level |
 
@@ -650,8 +656,9 @@ Works the same over USB and Bluetooth (same VID/PID).
 | 13 | PS | home |
 | **14** | **Touchpad click** | **— no equivalent** |
 
-> L2 and R2 are independent analog triggers (dwUpos / dwVpos). Both can be pressed simultaneously.
-> Advanced DS4 features (touchpad XY, gyroscope, LEDs, rumble) pending for future phases.
+> L2 and R2 are independent analog triggers via HID (`hid_rx` / `hid_ry`). Both can be pressed simultaneously.
+> **USB fully supported**: buttons, analog sticks, analog triggers, touchpad (XY tracking + click, mouse emulation), gyroscope (X/Y/Z axes visible in the Pads tab).
+> **Bluetooth**: simplified report only (sticks + face buttons). Full BT support pending.
 
 ---
 

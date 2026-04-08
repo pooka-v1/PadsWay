@@ -193,6 +193,9 @@ static float resolveFloat(const GamepadState& s, const std::string& name) {
     if (name == "touch1Y")  return s.touch1Y;
     if (name == "touch2X")  return s.touch2X;
     if (name == "touch2Y")  return s.touch2Y;
+    if (name == "gyroX")    return s.gyroX;
+    if (name == "gyroY")    return s.gyroY;
+    if (name == "gyroZ")    return s.gyroZ;
     return 0.0f;
 }
 
@@ -224,7 +227,7 @@ int PadView::hitTest(ImVec2 mousePos, ImVec2 origin) const {
     for (int i = (int)L.components.size() - 1; i >= 0; --i) {
         const PadComponent& c = L.components[i];
         float hw, hh;
-        if (c.type == "stick") {
+        if (c.type == "stick" || c.type == "gyro") {
             hw = hh = c.size > 0.0f ? c.size * 0.5f : 20.0f;
         } else if (c.type == "dpad") {
             hw = hh = 40.0f;
@@ -327,6 +330,59 @@ void PadView::render(const GamepadState& state, int selectedComp) {
             if (state.touch2Active)
                 drawFinger(state.touch2X, state.touch2Y, IM_COL32(255, 140, 60, 220));  // naranja
         }
+        else if (c.type == "gyro") {
+            // Gyroscope visualisation: bubble-level ball inside a circular cage.
+            // stateX maps to horizontal axis (gyroZ = roll), stateY to vertical (gyroX = pitch).
+            float dx = resolveFloat(state, c.stateX);
+            float dy = resolveFloat(state, c.stateY);
+            float r   = c.size > 0.0f ? c.size * 0.5f : 35.0f;
+            float off = c.maxOffset > 0.0f ? c.maxOffset : r * 0.65f;
+
+            ImVec2 center = { origin.x + c.cx, origin.y + c.cy };
+
+            // Cage background
+            ImU32 bgCol  = state.gyroActive ? IM_COL32(30, 30, 40, 210) : IM_COL32(20, 20, 25, 130);
+            ImU32 rimCol = state.gyroActive ? IM_COL32(110, 130, 160, 200) : IM_COL32(70, 70, 80, 140);
+            dl->AddCircleFilled(center, r, bgCol, 48);
+            dl->AddCircle(center, r, rimCol, 48, 2.0f);
+
+            // Reference cross and inner ring
+            ImU32 crossCol = IM_COL32(60, 70, 90, 160);
+            dl->AddLine({ center.x - r * 0.88f, center.y }, { center.x + r * 0.88f, center.y }, crossCol, 1.0f);
+            dl->AddLine({ center.x, center.y - r * 0.88f }, { center.x, center.y + r * 0.88f }, crossCol, 1.0f);
+            dl->AddCircle(center, r * 0.45f, IM_COL32(55, 65, 85, 120), 32, 1.0f);
+
+            if (state.gyroActive) {
+                float bx = center.x + dx * off;
+                float by = center.y - dy * off;  // screen Y is down; positive pitch moves ball up
+
+                // Clamp ball inside cage
+                float distSq = (bx - center.x) * (bx - center.x) + (by - center.y) * (by - center.y);
+                float maxR   = r - 9.0f;
+                if (distSq > maxR * maxR) {
+                    float dist = sqrtf(distSq);
+                    bx = center.x + (bx - center.x) / dist * maxR;
+                    by = center.y + (by - center.y) / dist * maxR;
+                }
+
+                // Ball color: blue at rest, orange at strong tilt
+                float intensity = sqrtf(dx * dx + dy * dy);
+                float blend = intensity * 1.4f < 1.0f ? intensity * 1.4f : 1.0f;
+                ImU32 ballFill = IM_COL32(
+                    (uint8_t)(80  + (int)(blend * 175)),
+                    (uint8_t)(160 - (int)(blend * 100)),
+                    (uint8_t)(255 - (int)(blend * 175)),
+                    230);
+
+                dl->AddCircleFilled({ bx + 1.5f, by + 2.5f }, 9.0f, IM_COL32(0, 0, 0, 90));   // shadow
+                dl->AddCircleFilled({ bx, by }, 9.0f, ballFill, 24);                            // ball
+                dl->AddCircleFilled({ bx - 3.0f, by - 3.0f }, 3.0f, IM_COL32(255, 255, 255, 100), 12); // specular
+                dl->AddCircle({ bx, by }, 9.0f, IM_COL32(200, 210, 230, 160), 24, 1.0f);       // rim
+                dl->AddCircleFilled(center, 2.5f, IM_COL32(90, 100, 120, 180));                 // center pip
+            } else {
+                dl->AddCircleFilled(center, 3.0f, IM_COL32(70, 70, 80, 180));
+            }
+        }
         else if (c.type == "dpad") {
             // Each arm is sized to its texture's natural dimensions, offset from the dpad center.
             auto drawArm = [&](const std::string& imgName, const std::string& stName,
@@ -351,7 +407,7 @@ void PadView::render(const GamepadState& state, int selectedComp) {
     if (selectedComp >= 0 && selectedComp < (int)L.components.size()) {
         const PadComponent& c = L.components[selectedComp];
         float hw, hh;
-        if (c.type == "stick") {
+        if (c.type == "stick" || c.type == "gyro") {
             hw = hh = c.size > 0.0f ? c.size * 0.5f : 20.0f;
         } else if (c.type == "dpad") {
             hw = hh = 40.0f;

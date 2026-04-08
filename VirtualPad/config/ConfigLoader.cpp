@@ -106,6 +106,13 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.touchpad.mouseEnabled = tp.value("mouse_enabled", false);
         }
 
+        if (c.contains("imu")) {
+            const auto& im     = c["imu"];
+            cfg.imu.enabled    = im.value("enabled",     false);
+            cfg.imu.gyroOffset = im.value("gyro_offset", 13);
+            cfg.imu.gyroScale  = im.value("gyro_scale",  1.0f / 32768.0f);
+        }
+
         result.push_back(std::move(cfg));
     }
 

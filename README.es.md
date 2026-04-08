@@ -435,11 +435,15 @@ Si hay cambios sin guardar, aparece un diálogo de confirmación antes de cambia
 
 ### Tres paneles
 
-**Panel izquierdo** — lista de layouts, lista de elementos y controles de añadir/borrar:
+**Panel izquierdo** — lista de layouts y lista de elementos, cada una con su propio scroll independiente:
 - `[+ Botón]` `[+ Cruceta]` `[+ Analógico]` `[+ Decoración]` — añade un componente de ese tipo.
 - `[Eliminar elemento]` — borra el componente seleccionado.
+- `[Copiar layout]` — duplica el layout actual como punto de partida para uno nuevo.
 - `[Guardar]` / `[Descartar]` — guarda en `pad_layouts.json` (crea un `.bak` automático en el primer guardado si no existe) o descarta todos los cambios.
 - `[Emparejar mando]` — lanza el Asistente de emparejamiento (ver más abajo).
+
+Tipos de componente soportados: `button`, `stick`, `dpad`, `touchpad`, `gyroscope`, `decoration`, `template`.
+El componente `gyroscope` es visible en la pestaña Pads cuando el mando conectado reporta datos IMU (p. ej. DualShock 4 por USB). No requiere calibración — los datos se leen automáticamente desde offsets HID fijos.
 
 **Panel central** — canvas con el layout a escala. Se muestran las zonas FRONT (franja inferior) y TOP (área principal) con sus componentes renderizados en vivo.
 
@@ -465,12 +469,13 @@ El asistente guía a través de cinco etapas:
 
 1. **Seleccionar mando** — lista todos los dispositivos físicos detectados (WinMM y HID). El mando virtual de ViGEm se filtra automáticamente.
 2. **Nombrar mando** — introduce un nombre descriptivo. Para mandos WinMM, alterna entre modo DInput y XInput.
-3. **Asignar botones** — para cada botón, gatillo y clic de stick del layout, el asistente pide que pulses el botón físico correspondiente. A medida que se asigna cada botón, aparece su número superpuesto en el canvas.
-4. **Asignar ejes y gatillos** — para cada eje analógico (stick izquierdo X/Y, stick derecho X/Y) y gatillo (L2, R2), el asistente pide que muevas el control físico. La dirección e inversión del eje se detectan automáticamente.
+3. **Asignar botones** — para cada botón, gatillo y clic de stick del layout, el asistente muestra la imagen activa de ese botón como referencia visual y pide que pulses el botón físico correspondiente. A medida que se asigna cada botón, aparece su número superpuesto en el canvas.
+4. **Asignar ejes y gatillos** — para cada eje analógico (stick izquierdo X/Y, stick derecho X/Y) y gatillo (L2, R2), el asistente muestra la imagen activa del componente junto con flechas que indican la dirección de movimiento esperada.
    - **Stick izquierdo X**: empuja totalmente hacia la **derecha**.
    - **Stick izquierdo Y**: empuja totalmente hacia **abajo**.
    - **Stick derecho X/Y**: mismo convenio.
    - **Gatillos**: aprieta completamente.
+   - **Los componentes de giroscopio se omiten** — los datos del giroscopio se leen automáticamente desde offsets HID fijos y no requieren ningún paso de calibración.
 5. **Revisión** — muestra todos los botones, ejes y cruceta asignados. Confirma para guardar o reinicia desde el paso de nombre.
 
 ### Resultado
@@ -508,6 +513,7 @@ El asistente usa `state_map.json` para saber el nombre físico del botón (`phys
 |---|---|
 | `data/controllers.json` | Configuración base de mandos físicos |
 | `data/FinalFantasyX.json` | Perfil de juego para FFX (overrides sobre la base) |
+| `data/MonsterHunterStories2.json` | Perfil de juego para MHS2 (overrides sobre la base) |
 | `data/macros.json` | Biblioteca de macros reutilizables |
 | `data/virtualpad.json` | VID/PID del mando virtual creado por ViGEm + nivel de log |
 
@@ -650,8 +656,9 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 | 13 | PS | home |
 | **14** | **Touchpad click** | **— sin equivalente** |
 
-> L2 y R2 son analógicos independientes (dwUpos / dwVpos). Se pueden pulsar ambos a la vez.
-> Features DS4 avanzadas (touchpad XY, giroscopio, LEDs, rumble) pendientes para fases futuras.
+> L2 y R2 son analógicos independientes vía HID (`hid_rx` / `hid_ry`). Se pueden pulsar ambos a la vez.
+> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, touchpad (seguimiento XY + clic, emulación de ratón), giroscopio (ejes X/Y/Z visibles en la pestaña Pads).
+> **Bluetooth**: report simplificado (sticks + botones de cara). Soporte BT completo pendiente.
 
 ---
 

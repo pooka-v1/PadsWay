@@ -17,11 +17,12 @@ public:
     HIDInputSource(const std::string& devicePath, const ControllerConfig& config);
     ~HIDInputSource() override;
 
-    bool        isConnected()       const override;
+    bool        isConnected()         const override;
     bool        read(GamepadState& state) override;
-    const char* getName()           const override { return m_name.c_str(); }
-    DWORD       getLastButtonMask() const override { return m_lastButtonMask; }
+    const char* getName()             const override { return m_name.c_str(); }
+    DWORD       getLastButtonMask()   const override { return m_lastButtonMask; }
     void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
+    GamepadState getPhysicalState()   const override { return m_physicalState; }
 
 private:
     HANDLE           m_device         = INVALID_HANDLE_VALUE;
@@ -36,9 +37,10 @@ private:
     int              m_readCount      = 0;
     int              m_btnErrCount    = 0;
     BYTE             m_buttonReportId = 0xFF; // report ID in descriptor for buttons (0xFF = unknown)
-    float            m_lastTouchX     = 0.0f;
-    float            m_lastTouchY     = 0.0f;
+    float            m_lastTouchX      = 0.0f;
+    float            m_lastTouchY      = 0.0f;
     bool             m_lastTouchActive = false;
+    GamepadState     m_physicalState;   // estado físico (action.physical), capturado antes del remapping virtual
 
     struct ValueRange { LONG logMin; LONG logMax; USHORT bitSize; };
     std::unordered_map<USHORT, ValueRange> m_valueCaps; // HID usage → logical range
@@ -51,4 +53,5 @@ private:
     void          applyButtons (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);
+    void          applyIMU     (PCHAR buf, ULONG bytesRead, GamepadState& state);
 };

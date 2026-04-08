@@ -173,7 +173,6 @@
       "vid": "2DC8"
     },
     {
-      "_layout_id": "pro2_ps",
       "axes": {
         "hid_accel": {
           "invert": false,
@@ -202,28 +201,54 @@
       },
       "buttons": {
         "1": {
-          "physical": "b",
-          "virtual": "a"
-        },
-        "11": "select",
-        "12": "start",
-        "13": "home",
-        "14": "l3",
-        "15": "r3",
-        "2": {
           "physical": "a",
           "virtual": "b"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "13": {
+          "physical": "home"
+        },
+        "14": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "15": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "a"
         },
         "3": {
           "physical": "rp"
         },
-        "4": "y",
-        "5": "x",
+        "4": {
+          "physical": "x",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "x"
+        },
         "6": {
           "physical": "lp"
         },
-        "7": "l1",
-        "8": "r1"
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
       },
       "dpad": "hid_hat",
       "layout_id": "pro2_ps",
@@ -369,11 +394,11 @@
     {
       "axes": {
         "hid_rx": {
-          "invert": true,
+          "invert": false,
           "target": "trigger_l"
         },
         "hid_ry": {
-          "invert": true,
+          "invert": false,
           "target": "trigger_r"
         },
         "hid_rz": {

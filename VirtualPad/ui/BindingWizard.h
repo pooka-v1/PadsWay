@@ -118,6 +118,12 @@ private:
     void closeReader();
     void snapshotBaseline();
 
+    // Returns a GamepadState with the current step's component shown as active.
+    GamepadState buildFakeState() const;
+
+    // Loads the 4 directional arrow textures from images/decorations/.
+    void loadArrows();
+
     // ── State ────────────────────────────────────────────────────────────────
     State         m_state  = State::Idle;
     ID3D11Device* m_device = nullptr;
@@ -157,6 +163,12 @@ private:
 
     int  m_stepCooldown = 0;  // frames to wait after an axis/trigger commit before detecting again
     bool m_savedFlag    = false;
+
+    // Directional arrow textures for axis step feedback
+    PadTexture m_arrowLeft;
+    PadTexture m_arrowRight;
+    PadTexture m_arrowUp;
+    PadTexture m_arrowDown;
 
     static constexpr float kAxisThreshold  = 0.45f;  // normalized [-1,1]
     static constexpr DWORD kWinmmThreshold = 12000;  // out of 65535

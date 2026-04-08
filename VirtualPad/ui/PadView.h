@@ -56,11 +56,15 @@ public:
     // as returned by ImGui::GetCursorScreenPos() before calling render().
     int hitTest(ImVec2 mousePos, ImVec2 canvasOrigin) const;
 
+    // Returns the current layout (for component introspection after hitTest).
+    const PadLayout& getLayout() const { return m_layout; }
+
     // Release all D3D11 resources. Call before releasing the D3D device.
     void unload();
 
-private:
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
+
+private:
     const PadTexture* getTex(const std::string& name) const;
 
     ID3D11Device* m_device = nullptr;

@@ -43,8 +43,8 @@
                         1.0
                     ],
                     "cx": 102.0,
-                    "cy": 70.0,
-                    "h": 50.0,
+                    "cy": 69.0,
+                    "h": 44.0,
                     "id": "l2",
                     "image": "buttons/L2Button8BitsDoPro.png",
                     "overlay": "decorations/CharactersL2.png",
@@ -81,7 +81,7 @@
                     ],
                     "cx": 378.0,
                     "cy": 70.0,
-                    "h": 50.0,
+                    "h": 44.0,
                     "id": "r2",
                     "image": "buttons/R2Button8BitsDoPro.png",
                     "overlay": "decorations/CharactersR2.png",
@@ -266,7 +266,7 @@
                     ],
                     "cx": 173.0,
                     "cy": 54.0,
-                    "h": 75.0,
+                    "h": 56.0,
                     "id": "l5",
                     "image": "buttons/L5Button8BitsDo.png",
                     "overlay": "decorations/CharactersL58BitDoPro.png",
@@ -280,7 +280,7 @@
                     "state": "btnLP",
                     "type": "button",
                     "view": "front",
-                    "w": 75.0
+                    "w": 72.0
                 },
                 {
                     "active_color": [
@@ -303,7 +303,7 @@
                     ],
                     "cx": 307.0,
                     "cy": 54.0,
-                    "h": 75.0,
+                    "h": 56.0,
                     "id": "r5",
                     "image": "buttons/R5Button8BitsDo.png",
                     "overlay": "decorations/CharactersR58BitDoPro.png",
@@ -317,7 +317,7 @@
                     "state": "btnRP",
                     "type": "button",
                     "view": "front",
-                    "w": 75.0
+                    "w": 72.0
                 },
                 {
                     "color": [
@@ -849,9 +849,9 @@
                         1.0
                     ],
                     "active_overlay_color": [
-                        0.0,
-                        0.0,
-                        0.0,
+                        0.4000000059604645,
+                        0.4000000059604645,
+                        0.4000000059604645,
                         0.8999999761581421
                     ],
                     "color": [
@@ -886,9 +886,9 @@
                         1.0
                     ],
                     "active_overlay_color": [
-                        0.0,
-                        0.0,
-                        0.0,
+                        0.4000000059604645,
+                        0.4000000059604645,
+                        0.4000000059604645,
                         0.8999999761581421
                     ],
                     "color": [
@@ -980,7 +980,7 @@
                     "cx": 365.0,
                     "cy": 236.0,
                     "h": 34.0,
-                    "id": "face_top",
+                    "id": "btnX",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterX.png",
                     "overlay_color": [
@@ -990,7 +990,7 @@
                         1.0
                     ],
                     "overlay_scale": 0.6800000071525574,
-                    "state": "btnY",
+                    "state": "btnX",
                     "type": "button",
                     "view": "top",
                     "w": 34.0
@@ -1017,7 +1017,7 @@
                     "cx": 399.0,
                     "cy": 265.0,
                     "h": 34.0,
-                    "id": "face_right",
+                    "id": "btnA",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterA.png",
                     "overlay_color": [
@@ -1027,7 +1027,7 @@
                         1.0
                     ],
                     "overlay_scale": 0.6800000071525574,
-                    "state": "btnB",
+                    "state": "btnA",
                     "type": "button",
                     "view": "top",
                     "w": 34.0
@@ -1054,7 +1054,7 @@
                     "cx": 365.0,
                     "cy": 294.0,
                     "h": 34.0,
-                    "id": "face_bottom",
+                    "id": "btnB",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterB.png",
                     "overlay_color": [
@@ -1064,7 +1064,7 @@
                         1.0
                     ],
                     "overlay_scale": 0.6800000071525574,
-                    "state": "btnA",
+                    "state": "btnB",
                     "type": "button",
                     "view": "top",
                     "w": 34.0
@@ -1091,7 +1091,7 @@
                     "cx": 331.0,
                     "cy": 265.0,
                     "h": 34.0,
-                    "id": "face_left",
+                    "id": "btnY",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterY.png",
                     "overlay_color": [
@@ -1101,7 +1101,7 @@
                         1.0
                     ],
                     "overlay_scale": 0.6800000071525574,
-                    "state": "btnX",
+                    "state": "btnY",
                     "type": "button",
                     "view": "top",
                     "w": 34.0
@@ -1502,7 +1502,7 @@
                     "cx": 331.0,
                     "cy": 265.0,
                     "h": 34.0,
-                    "id": "face_top",
+                    "id": "btnX",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterX.png",
                     "overlay_color": [
@@ -1539,7 +1539,7 @@
                     "cx": 365.0,
                     "cy": 294.0,
                     "h": 34.0,
-                    "id": "face_right",
+                    "id": "btnA",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterA.png",
                     "overlay_color": [
@@ -1576,7 +1576,7 @@
                     "cx": 399.0,
                     "cy": 265.0,
                     "h": 34.0,
-                    "id": "face_bottom",
+                    "id": "btnB",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterB.png",
                     "overlay_color": [
@@ -1613,7 +1613,7 @@
                     "cx": 365.0,
                     "cy": 236.0,
                     "h": 34.0,
-                    "id": "face_left",
+                    "id": "btnY",
                     "image": "buttons/CircularButton.png",
                     "overlay": "decorations/CharacterY.png",
                     "overlay_color": [
@@ -1799,8 +1799,8 @@
                 {
                     "color": [
                         1.0,
-                        1.0,
-                        1.0,
+                        0.0,
+                        0.0,
                         1.0
                     ],
                     "cx": 240.0,
@@ -1815,8 +1815,8 @@
                 {
                     "color": [
                         1.0,
-                        1.0,
-                        1.0,
+                        0.0,
+                        0.0,
                         1.0
                     ],
                     "cx": 240.0,
@@ -2179,30 +2179,6 @@
                     "w": 18.0
                 },
                 {
-                    "active_color": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "active_overlay_color": [
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "color": [
-                        0.13716816902160645,
-                        0.13716816902160645,
-                        0.13716816902160645,
-                        1.0
-                    ],
-                    "active_color": [
-                        0.35,
-                        0.35,
-                        0.4,
-                        1.0
-                    ],
                     "color": [
                         0.13716816902160645,
                         0.13716816902160645,
@@ -2227,9 +2203,9 @@
                         1.0
                     ],
                     "active_overlay_color": [
-                        1.0,
-                        1.0,
-                        1.0,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
                         1.0
                     ],
                     "color": [
@@ -2245,9 +2221,9 @@
                     "image": "buttons/L1ButtonDS4.png",
                     "overlay": "decorations/CharactersL1.png",
                     "overlay_color": [
-                        0.0,
-                        0.0,
-                        0.0,
+                        1.0,
+                        1.0,
+                        1.0,
                         0.8999999761581421
                     ],
                     "overlay_scale": [
@@ -2267,9 +2243,9 @@
                         1.0
                     ],
                     "active_overlay_color": [
-                        1.0,
-                        1.0,
-                        1.0,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
                         1.0
                     ],
                     "color": [
@@ -2279,15 +2255,15 @@
                         1.0
                     ],
                     "cx": 366.0,
-                    "cy": 114.0,
+                    "cy": 113.0,
                     "h": 35.0,
                     "id": "btnRB",
                     "image": "buttons/R1ButtonDS4.png",
                     "overlay": "decorations/CharactersR1.png",
                     "overlay_color": [
-                        0.0,
-                        0.0,
-                        0.0,
+                        1.0,
+                        1.0,
+                        1.0,
                         0.8999999761581421
                     ],
                     "overlay_scale": [
@@ -2307,9 +2283,9 @@
                         1.0
                     ],
                     "active_overlay_color": [
-                        1.0,
-                        1.0,
-                        1.0,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
                         1.0
                     ],
                     "color": [
@@ -2325,9 +2301,9 @@
                     "image": "buttons/L2ButtonDS4.png",
                     "overlay": "decorations/CharactersL2.png",
                     "overlay_color": [
-                        0.0,
-                        0.0,
-                        0.0,
+                        0.9867256879806519,
+                        0.9823596477508545,
+                        0.9823596477508545,
                         0.8999999761581421
                     ],
                     "overlay_scale": [
@@ -2347,9 +2323,9 @@
                         1.0
                     ],
                     "active_overlay_color": [
-                        1.0,
-                        1.0,
-                        1.0,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
                         1.0
                     ],
                     "color": [
@@ -2365,9 +2341,9 @@
                     "image": "buttons/R2ButtonDS4.png",
                     "overlay": "decorations/CharactersR2.png",
                     "overlay_color": [
-                        0.0,
-                        0.0,
-                        0.0,
+                        1.0,
+                        1.0,
+                        1.0,
                         0.8999999761581421
                     ],
                     "overlay_scale": [
@@ -2378,6 +2354,23 @@
                     "type": "button",
                     "view": "front",
                     "w": 55.0
+                },
+                {
+                    "color": [
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        1.0
+                    ],
+                    "cx": 240.0,
+                    "cy": 428.0,
+                    "id": "gyro_new",
+                    "max_offset": 20.0,
+                    "size": 60.0,
+                    "state_x": "gyroZ",
+                    "state_y": "gyroX",
+                    "type": "gyro",
+                    "view": "top"
                 }
             ],
             "id": "dualshock4"

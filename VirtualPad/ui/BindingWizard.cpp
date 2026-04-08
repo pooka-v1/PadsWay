@@ -922,6 +922,10 @@ GamepadState BindingWizard::buildFakeState() const {
         else if (name == "btnBack")   s.btnBack   = true;
         else if (name == "btnStart")  s.btnStart  = true;
         else if (name == "btnHome")   s.btnHome   = true;
+        else if (name == "btnL4")     s.btnL4     = true;
+        else if (name == "btnR4")     s.btnR4     = true;
+        else if (name == "btnLP")     s.btnLP     = true;
+        else if (name == "btnRP")     s.btnRP     = true;
         else if (name == "btnTouch")  s.btnTouch  = true;
         else if (name == "dpadUp")    s.dpadUp    = true;
         else if (name == "dpadDown")  s.dpadDown  = true;
