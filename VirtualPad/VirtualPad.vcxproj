@@ -143,6 +143,7 @@
     <ClCompile Include="input\HIDScanner.cpp" />
     <ClCompile Include="input\HIDInputSource.cpp" />
     <ClCompile Include="bots\LightningBot.cpp" />
+    <ClCompile Include="input\RawHIDReader.cpp" />
     <ClCompile Include="macros\Macro.cpp" />
     <ClCompile Include="macros\MacroParser.cpp" />
     <ClCompile Include="output\ViGEmOutputAdapter.cpp" />
@@ -150,6 +151,7 @@
     <ClCompile Include="PadEngine.cpp" />
     <ClCompile Include="PadScanner.cpp" />
     <ClCompile Include="AppWindow.cpp" />
+    <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -157,6 +159,8 @@
     <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="ui\PadView.cpp" />
+    <ClCompile Include="ui\LayoutEditor.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="config\ConfigLoader.h" />
@@ -167,6 +171,7 @@
     <ClInclude Include="input\HIDScanner.h" />
     <ClInclude Include="input\HIDInputSource.h" />
     <ClInclude Include="bots\LightningBot.h" />
+    <ClInclude Include="input\RawHIDReader.h" />
     <ClInclude Include="macros\Macro.h" />
     <ClInclude Include="macros\MacroParser.h" />
     <ClInclude Include="output\ViGEmOutputAdapter.h" />
@@ -179,6 +184,9 @@
     <ClInclude Include="imgui\imgui_internal.h" />
     <ClInclude Include="imgui\imgui_impl_win32.h" />
     <ClInclude Include="imgui\imgui_impl_dx11.h" />
+    <ClInclude Include="ui\BindingWizard.h" />
+    <ClInclude Include="ui\PadView.h" />
+    <ClInclude Include="ui\LayoutEditor.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -153,13 +153,14 @@ PadEngine::~PadEngine() { stop(); }
 
 void PadEngine::start() {
     if (m_running.exchange(true)) return;  // already running
-    m_thread = std::thread(&PadEngine::threadFunc, this);
+    m_thread        = std::thread(&PadEngine::threadFunc,  this);
+    m_monitorThread = std::thread(&PadEngine::monitorFunc, this);
 }
 
 void PadEngine::stop() {
     m_running = false;
-    if (m_thread.joinable())
-        m_thread.join();
+    if (m_thread.joinable())        m_thread.join();
+    if (m_monitorThread.joinable()) m_monitorThread.join();
     m_connected = false;
 }
 
@@ -182,9 +183,46 @@ void PadEngine::selectDevice(int index) {
     m_selectedIndex.store(index);
 }
 
+std::vector<DeviceCandidate> PadEngine::getAvailableDevices() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_availableDevices;
+}
+
+void PadEngine::requestSwitch(int index) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (index >= 0 && index < (int)m_availableDevices.size()) {
+        m_switchTarget  = m_availableDevices[index];
+        m_switchPending.store(true);
+    }
+}
+
+DeviceCandidate PadEngine::getActiveDevice() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_activeDevice;
+}
+
 GamepadState PadEngine::getLastState() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_lastState;
+}
+
+GamepadState PadEngine::getLastVirtualState() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lastVirtualState;
+}
+
+std::vector<PadEvent> PadEngine::pollEvents() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::vector<PadEvent> out(m_eventQueue.begin(), m_eventQueue.end());
+    m_eventQueue.clear();
+    return out;
+}
+
+void PadEngine::pushEvent(PadEvent e) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_eventQueue.push_back(std::move(e));
+    if (m_eventQueue.size() > 16)
+        m_eventQueue.pop_front();
 }
 
 void PadEngine::setProfilePath(const std::string& path) {
@@ -202,6 +240,11 @@ std::string PadEngine::getActiveProfileName() const {
     return m_activeProfileName;
 }
 
+std::string PadEngine::getActiveLayoutId() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_activeLayoutId;
+}
+
 void PadEngine::setMouseSpeed(float s) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_mouseSpeed = s;
@@ -210,6 +253,19 @@ void PadEngine::setMouseSpeed(float s) {
 float PadEngine::getMouseSpeed() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_mouseSpeed;
+}
+
+void PadEngine::reloadConfigs() {
+    try {
+        auto configs = loadControllerConfigs("data/controllers.json");
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_configs = std::move(configs);
+        }
+        m_configsDirty.store(true);
+    } catch (const std::exception& ex) {
+        spdlog::warn("reloadConfigs failed: {}", ex.what());
+    }
 }
 
 void PadEngine::setDevice(const std::string& s) {
@@ -223,42 +279,28 @@ void PadEngine::setStatus(const std::string& s) {
 }
 
 // ---------------------------------------------------------------------------
-// Background thread: mirrors the original VirtualPad.cpp main() logic.
+// Monitor thread: scans devices every ~2 s and keeps m_availableDevices fresh.
+// Runs in parallel with threadFunc. Uses the same scan helpers.
 // ---------------------------------------------------------------------------
 
-void PadEngine::threadFunc() {
-    m_phase.store(EnginePhase::Scanning);
-    setStatus("Scanning for devices...");
-    spdlog::info("=== VirtualPad — device init ===");
-
-    m_hidHide.addSelfToWhitelist();
-
-    // --- Step 1: Load configs early so the scan can route devices correctly ---
-    // (Devices with mode="hid" must use HIDInputSource even if they appear in WinMM,
-    //  because joyGetPosEx returns no data for them.)
-    std::vector<ControllerConfig> configs;
-    try {
-        configs = loadControllerConfigs("data/controllers.json");
-    } catch (const std::exception& ex) {
-        spdlog::error("Error loading config: {}", ex.what());
-        setStatus(std::string("Config error: ") + ex.what());
-        m_running = false;
-        return;
-    }
-
-    // --- Step 2: Find the real controller BEFORE creating the virtual one ---
-    DeviceCandidate selected;
-
-    while (m_running && selected.vid == 0) {
-        // Scan both WinMM and HID
+void PadEngine::monitorFunc() {
+    while (m_running) {
         auto winmmEntries = scanPorts();
         auto hidEntries   = HIDScanner::scan();
 
-        std::vector<DeviceCandidate> allCandidates;
+        std::vector<ControllerConfig> configs;
+        uint16_t vVid = 0, vPid = 0;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            configs = m_configs;
+            vVid    = m_virtualVid.load();
+            vPid    = m_virtualPid.load();
+        }
 
-        // WinMM entries: skip devices that have a "hid" mode config
-        // (those need HIDInputSource even if they appear in WinMM)
+        std::vector<DeviceCandidate> candidates;
+
         for (auto& e : winmmEntries) {
+            if (vVid && e.wMid == vVid && e.wPid == vPid) continue;  // skip virtual pad
             const ControllerConfig* cfg = findConfig(configs, e.wMid, e.wPid);
             if (cfg && cfg->mode == "hid") continue;
 
@@ -272,86 +314,65 @@ void PadEngine::threadFunc() {
             char narrow[MAXPNAMELEN];
             WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
             c.name = narrow;
-            allCandidates.push_back(c);
+            candidates.push_back(c);
         }
 
-        // HID entries: include if has "hid" config, or if not covered by WinMM (for discovery)
         for (auto& h : hidEntries) {
-            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid);
+            if (vVid && h.vid == vVid && h.pid == vPid) continue;  // skip virtual pad
+            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType);
             bool inWinMM = false;
             for (auto& e : winmmEntries)
                 if (e.wMid == h.vid && e.wPid == h.pid) { inWinMM = true; break; }
-
-            if (!cfg && inWinMM) continue; // unknown device already in WinMM — skip duplicate
-            if (cfg && cfg->mode != "hid" && inWinMM) continue; // WinMM handles it
+            if (!cfg && inWinMM) continue;
+            if (cfg && cfg->mode != "hid" && inWinMM) continue;
 
             DeviceCandidate c;
-            c.source  = DeviceCandidate::Source::HID;
-            c.hidPath = h.path;
-            c.vid     = h.vid;
-            c.pid     = h.pid;
-            c.name    = h.productName.empty()
+            c.source         = DeviceCandidate::Source::HID;
+            c.hidPath        = h.path;
+            c.vid            = h.vid;
+            c.pid            = h.pid;
+            c.connectionType = h.connectionType;
+            c.name           = h.productName.empty()
                 ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
                 : h.productName;
-            allCandidates.push_back(c);
+            candidates.push_back(c);
         }
 
-        spdlog::debug("[Scan] WinMM: {} entries, HID: {} entries, Candidates: {}",
-               winmmEntries.size(), hidEntries.size(), allCandidates.size());
-        for (auto& h : hidEntries)
-            spdlog::debug("[HID found] VID:{:04X} PID:{:04X} '{}' path={}",
-                   h.vid, h.pid, h.productName, h.path);
-        for (auto& c : allCandidates)
-            spdlog::debug("[Candidate] [{}] VID:{:04X} PID:{:04X} '{}'",
-                   c.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
-                   c.vid, c.pid, c.name);
-
-        if (allCandidates.empty()) {
-            setStatus("No device found — connect controller");
-            Sleep(500);
-            continue;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_availableDevices = candidates;
         }
 
-        if (allCandidates.size() == 1) {
-            selected = allCandidates[0];
-            spdlog::info("Auto-selected [{}]: {} [VID={:04X} PID={:04X}]",
-                selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
-                selected.name, selected.vid, selected.pid);
-            setStatus(std::string("Auto-selected: ") + selected.name);
-        } else {
-            // Multiple devices — ask the user
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                m_candidates = allCandidates;
-            }
-            m_selectedIndex.store(-1);
-            m_phase.store(EnginePhase::WaitingSelection);
-            setStatus("Multiple controllers detected — select one in the Engine tab");
+        // Sleep 2 s in short increments so stop() is responsive
+        for (int i = 0; i < 20 && m_running; ++i)
+            Sleep(100);
+    }
+}
 
-            while (m_running && m_selectedIndex.load() < 0)
-                Sleep(50);
+// ---------------------------------------------------------------------------
+// Background thread: mirrors the original VirtualPad.cpp main() logic.
+// ---------------------------------------------------------------------------
 
-            if (!m_running) return;
+void PadEngine::threadFunc() {
+    m_phase.store(EnginePhase::Scanning);
+    setStatus("Scanning for devices...");
+    spdlog::info("=== VirtualPad — device init ===");
 
-            int idx = m_selectedIndex.load();
-            if (idx < 0 || idx >= (int)allCandidates.size()) {
-                m_phase.store(EnginePhase::Scanning);
-                setStatus("Invalid selection — rescanning...");
-                continue;
-            }
-            selected = allCandidates[idx];
-            spdlog::info("User selected [{}]: {} [VID={:04X} PID={:04X}]",
-                selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
-                selected.name, selected.vid, selected.pid);
-        }
+    m_hidHide.addSelfToWhitelist();
+
+    // --- One-time init: configs (shared with monitor thread) ---
+    std::vector<ControllerConfig> configs;
+    try {
+        configs = loadControllerConfigs("data/controllers.json");
+        { std::lock_guard<std::mutex> lock(m_mutex); m_configs = configs; }
+    } catch (const std::exception& ex) {
+        spdlog::error("Error loading config: {}", ex.what());
+        setStatus(std::string("Config error: ") + ex.what());
+        m_running = false;
+        return;
     }
 
-    if (!m_running) return;
-
-    m_phase.store(EnginePhase::Configuring);
-
-    // --- Step 3: Load macros and find config for selected device ---
-    setStatus("Loading config...");
+    // --- One-time init: macro library ---
     std::unordered_map<std::string, std::string> macroLibrary;
     try {
         macroLibrary = loadMacroLibrary("data/macros.json");
@@ -361,56 +382,7 @@ void PadEngine::threadFunc() {
         spdlog::warn("Could not load macro library: {}", ex.what());
     }
 
-    const ControllerConfig* cfgBase = findConfig(configs, selected.vid, selected.pid);
-    if (!cfgBase) {
-        spdlog::error("No config found for VID={:04X} PID={:04X} ({}). Add an entry to data/controllers.json and restart.",
-            selected.vid, selected.pid, selected.name);
-        setStatus("No config for this device");
-        m_running = false;
-        return;
-    }
-    spdlog::info("Config loaded: {}", cfgBase->source_name);
-    setDevice(cfgBase->source_name);
-
-    // Apply game profile (if any) on top of the base config.
-    // Profile is applied here, before creating IInputSource, so button mappings are correct.
-    ControllerConfig effectiveCfg = *cfgBase;
-    {
-        std::string profilePath = getProfilePath();
-        if (!profilePath.empty()) {
-            try {
-                GameProfile profile = loadGameProfile(profilePath);
-                effectiveCfg = applyProfile(*cfgBase, profile);
-                { std::lock_guard<std::mutex> lock(m_mutex); m_activeProfileName = profile.profile_name; }
-                spdlog::info("Game profile '{}' applied.", profile.profile_name);
-            } catch (const std::exception& ex) {
-                spdlog::warn("Could not load game profile: {}", ex.what());
-            }
-        } else {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_activeProfileName.clear();
-        }
-    }
-    const ControllerConfig* cfg = &effectiveCfg;
-
-    // --- Factory: pick the right IInputSource based on the config mode ---
-    std::unique_ptr<IInputSource> input;
-    if (selected.source == DeviceCandidate::Source::HID) {
-        input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
-    } else {
-        input = std::make_unique<EightBitDoInputSource>(selected.port, *cfg);
-    }
-    if (!input->isConnected()) {
-        spdlog::error("Failed to open input device.");
-        setStatus("Failed to open input device");
-        m_running = false;
-        return;
-    }
-
-    m_hidHide.hideDevice(selected.vid, selected.pid);
-
-    // --- Step 3: Initialize ViGEm after the real port is secured ---
-    // Load virtual pad identity (VID/PID) from config so the scanner can filter it out
+    // --- One-time init: ViGEm (persists through device switches) ---
     VirtualPadConfig vpCfg;
     try {
         vpCfg = loadVirtualPadConfig("data/virtualpad.json");
@@ -422,88 +394,253 @@ void PadEngine::threadFunc() {
     spdlog::debug("[PadEngine] Virtual pad identity: VID:{:04X} PID:{:04X}", vpCfg.vid, vpCfg.pid);
 
     setStatus("Connecting to ViGEm...");
-    ViGEmOutputAdapter output(vpCfg.vid, vpCfg.pid);
-    LightningBot       bot;
-    if (!output.isReady()) {
+    auto output = std::make_unique<ViGEmOutputAdapter>(vpCfg.vid, vpCfg.pid);
+    if (!output->isReady()) {
         spdlog::error("Aborting: could not create virtual pad.");
         setStatus("ViGEm error — is the driver installed?");
         m_running = false;
         return;
     }
 
-    // Track which profile is currently applied so we can detect changes
-    std::string currentProfilePath = getProfilePath();
+    // preSelected: set when a hot-switch is requested; skips the scan loop on next iteration.
+    DeviceCandidate preSelected;
 
-    // --- Step 4: Parse macros (wrapped in lambda for hot-swap reuse) ---
-    int lightningBotBit = 0;
+    // =========================================================================
+    // Outer loop — re-entered on each device switch
+    // =========================================================================
+    while (m_running) {
+        m_switchPending.store(false);
 
-    std::unordered_map<int, Macro>       macros;
-    std::unordered_map<int, bool>        macroPrevBtn;
-    std::unordered_map<int, std::string> macroNames;
-    std::unordered_map<int, int>         macroRotCount;
-    std::unordered_map<int, float>       macroLastRX;
-    std::unordered_map<int, float>       macroLastRY;
-    std::unordered_map<int, bool>        kbPrevBtn;
-    std::unordered_map<int, bool>        mousePrevBtn;
+        // ── Device selection ─────────────────────────────────────────────────
+        DeviceCandidate selected;
 
-    auto initMacros = [&]() {
-        macros.clear();
-        macroPrevBtn.clear();
-        macroNames.clear();
-        macroRotCount.clear();
-        macroLastRX.clear();
-        macroLastRY.clear();
-        kbPrevBtn.clear();
-        mousePrevBtn.clear();
-        for (const auto& [bit, action] : cfg->buttons) {
-            if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
-            if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
-        }
+        if (preSelected.vid != 0) {
+            // Hot-switch: bypass scan and go straight to configure
+            selected    = preSelected;
+            preSelected = {};
+            spdlog::info("[Switch] Using pre-selected device: {} [VID={:04X} PID={:04X}]",
+                selected.name, selected.vid, selected.pid);
+        } else {
+            // Normal startup scan loop
+            m_phase.store(EnginePhase::Scanning);
+            while (m_running && selected.vid == 0) {
+                // Pick up any config updates written by the BindingWizard
+                { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
+                auto winmmEntries = scanPorts();
+                auto hidEntries   = HIDScanner::scan();
 
-        lightningBotBit = findBotBit(*cfg, "LightningBot");
-        if (lightningBotBit > 0)
-            spdlog::info("LightningBot assigned to button {}.", lightningBotBit);
+                std::vector<DeviceCandidate> allCandidates;
 
-        for (const auto& [bit, action] : cfg->buttons) {
-            if (action.type != ButtonActionType::Macro) continue;
-            std::string execution = action.execution;
-            if (execution.empty()) {
-                auto it = macroLibrary.find(action.name);
-                if (it == macroLibrary.end()) {
-                    spdlog::warn("Macro '{}' (button {}) not found in library — skipped.", action.name, bit);
+                for (auto& e : winmmEntries) {
+                    if (vpCfg.vid && e.wMid == vpCfg.vid && e.wPid == vpCfg.pid) continue;
+                    const ControllerConfig* c = findConfig(configs, e.wMid, e.wPid);
+                    if (c && c->mode == "hid") continue;
+                    DeviceCandidate dc;
+                    dc.source  = DeviceCandidate::Source::WinMM;
+                    dc.port    = e.id;
+                    dc.vid     = e.wMid;
+                    dc.pid     = e.wPid;
+                    dc.axes    = e.axes;
+                    dc.buttons = e.buttons;
+                    char narrow[MAXPNAMELEN];
+                    WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
+                    dc.name = narrow;
+                    allCandidates.push_back(dc);
+                }
+
+                for (auto& h : hidEntries) {
+                    if (vpCfg.vid && h.vid == vpCfg.vid && h.pid == vpCfg.pid) continue;
+                    const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType);
+                    bool inWinMM = false;
+                    for (auto& e : winmmEntries)
+                        if (e.wMid == h.vid && e.wPid == h.pid) { inWinMM = true; break; }
+                    if (!c && inWinMM) continue;
+                    if (c && c->mode != "hid" && inWinMM) continue;
+                    DeviceCandidate dc;
+                    dc.source         = DeviceCandidate::Source::HID;
+                    dc.hidPath        = h.path;
+                    dc.vid            = h.vid;
+                    dc.pid            = h.pid;
+                    dc.connectionType = h.connectionType;
+                    dc.name           = h.productName.empty()
+                        ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
+                        : h.productName;
+                    allCandidates.push_back(dc);
+                }
+
+                spdlog::debug("[Scan] WinMM: {} HID: {} Candidates: {}",
+                    winmmEntries.size(), hidEntries.size(), allCandidates.size());
+                for (auto& h : hidEntries)
+                    spdlog::debug("[HID found] VID:{:04X} PID:{:04X} '{}' path={}",
+                        h.vid, h.pid, h.productName, h.path);
+                for (auto& dc : allCandidates)
+                    spdlog::debug("[Candidate] [{}] VID:{:04X} PID:{:04X} '{}'",
+                        dc.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                        dc.vid, dc.pid, dc.name);
+
+                if (allCandidates.empty()) {
+                    setStatus("No device found — connect controller");
+                    Sleep(500);
                     continue;
                 }
-                execution = it->second;
-            }
-            try {
-                Macro m;
-                MacroParser::parse(execution, m);
-                macros[bit]        = std::move(m);
-                macroPrevBtn[bit]  = false;
-                macroNames[bit]    = action.name;
-                macroRotCount[bit] = 0;
-                macroLastRX[bit]   = 0.0f;
-                macroLastRY[bit]   = 0.0f;
-                spdlog::info("Macro '{}' assigned to button {}.", action.name, bit);
-            } catch (const std::exception& ex) {
-                spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+
+                if (allCandidates.size() == 1) {
+                    selected = allCandidates[0];
+                    spdlog::info("Auto-selected [{}]: {} [VID={:04X} PID={:04X}]",
+                        selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                        selected.name, selected.vid, selected.pid);
+                    setStatus(std::string("Auto-selected: ") + selected.name);
+                } else {
+                    { std::lock_guard<std::mutex> lock(m_mutex); m_candidates = allCandidates; }
+                    m_selectedIndex.store(-1);
+                    m_phase.store(EnginePhase::WaitingSelection);
+                    setStatus("Multiple controllers detected — select one in the Engine tab");
+
+                    while (m_running && m_selectedIndex.load() < 0)
+                        Sleep(50);
+
+                    if (!m_running) return;
+
+                    int idx = m_selectedIndex.load();
+                    if (idx < 0 || idx >= (int)allCandidates.size()) {
+                        m_phase.store(EnginePhase::Scanning);
+                        setStatus("Invalid selection — rescanning...");
+                        continue;
+                    }
+                    selected = allCandidates[idx];
+                    spdlog::info("User selected [{}]: {} [VID={:04X} PID={:04X}]",
+                        selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                        selected.name, selected.vid, selected.pid);
+                }
             }
         }
-    };
-    initMacros();
 
-    // --- Main loop ---
-    setStatus("Running");
-    m_connected = true;
-    spdlog::info("Forwarding input. Close the window to exit.");
+        if (!m_running) break;
+        m_phase.store(EnginePhase::Configuring);
+
+        // ── Configure ────────────────────────────────────────────────────────
+        { std::lock_guard<std::mutex> lock(m_mutex); m_activeDevice = selected; }
+
+        const ControllerConfig* cfgBase = findConfig(configs, selected.vid, selected.pid,
+                                                     selected.connectionType);
+        if (!cfgBase) {
+            spdlog::error("No config for VID={:04X} PID={:04X} ({}) — add to controllers.json.",
+                selected.vid, selected.pid, selected.name);
+            setStatus("No config for this device — rescanning");
+            preSelected = {};
+            m_phase.store(EnginePhase::Scanning);
+            Sleep(2000);
+            continue;  // back to scan
+        }
+        spdlog::info("Config loaded: {}", cfgBase->source_name);
+        setDevice(cfgBase->source_name);
+        { std::lock_guard<std::mutex> lock(m_mutex); m_activeLayoutId = cfgBase->layout_id; }
+
+        ControllerConfig effectiveCfg = *cfgBase;
+        {
+            std::string profilePath = getProfilePath();
+            if (!profilePath.empty()) {
+                try {
+                    GameProfile profile = loadGameProfile(profilePath);
+                    effectiveCfg = applyProfile(*cfgBase, profile);
+                    { std::lock_guard<std::mutex> lock(m_mutex); m_activeProfileName = profile.profile_name; }
+                    spdlog::info("Game profile '{}' applied.", profile.profile_name);
+                } catch (const std::exception& ex) {
+                    spdlog::warn("Could not load game profile: {}", ex.what());
+                }
+            } else {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_activeProfileName.clear();
+            }
+        }
+        const ControllerConfig* cfg = &effectiveCfg;
+
+        std::unique_ptr<IInputSource> input;
+        if (selected.source == DeviceCandidate::Source::HID)
+            input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
+        else
+            input = std::make_unique<EightBitDoInputSource>(selected.port, *cfg);
+
+        if (!input->isConnected()) {
+            spdlog::error("Failed to open input device — rescanning.");
+            setStatus("Failed to open input device — rescanning");
+            preSelected = {};
+            m_phase.store(EnginePhase::Scanning);
+            Sleep(1000);
+            continue;
+        }
+
+        // Release the previous device from HidHide, then hide the new one
+        m_hidHide.unhideDevice();
+        m_hidHide.hideDevice(selected.vid, selected.pid);
+
+        // ── Macros (re-initialised per device / profile) ─────────────────────
+        int lightningBotBit = 0;
+        std::unordered_map<int, Macro>       macros;
+        std::unordered_map<int, bool>        macroPrevBtn;
+        std::unordered_map<int, std::string> macroNames;
+        std::unordered_map<int, int>         macroRotCount;
+        std::unordered_map<int, float>       macroLastRX;
+        std::unordered_map<int, float>       macroLastRY;
+        std::unordered_map<int, bool>        kbPrevBtn;
+        std::unordered_map<int, bool>        mousePrevBtn;
+
+        auto initMacros = [&]() {
+            macros.clear();      macroPrevBtn.clear(); macroNames.clear();
+            macroRotCount.clear(); macroLastRX.clear(); macroLastRY.clear();
+            kbPrevBtn.clear();   mousePrevBtn.clear();
+            for (const auto& [bit, action] : cfg->buttons) {
+                if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
+                if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
+            }
+            lightningBotBit = findBotBit(*cfg, "LightningBot");
+            if (lightningBotBit > 0)
+                spdlog::info("LightningBot assigned to button {}.", lightningBotBit);
+            for (const auto& [bit, action] : cfg->buttons) {
+                if (action.type != ButtonActionType::Macro) continue;
+                std::string execution = action.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(action.name);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (button {}) not found in library.", action.name, bit);
+                        continue;
+                    }
+                    execution = it->second;
+                }
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    macros[bit]        = std::move(m);
+                    macroPrevBtn[bit]  = false;
+                    macroNames[bit]    = action.name;
+                    macroRotCount[bit] = 0;
+                    macroLastRX[bit]   = 0.0f;
+                    macroLastRY[bit]   = 0.0f;
+                    spdlog::info("Macro '{}' assigned to button {}.", action.name, bit);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+                }
+            }
+        };
+        initMacros();
+
+        LightningBot bot;
+        std::string currentProfilePath = getProfilePath();
+
+        // ── Main run loop ─────────────────────────────────────────────────────
+        setStatus("Running");
+        m_connected = true;
+        m_phase.store(EnginePhase::Running);
+        spdlog::info("Forwarding input. Close the window to exit.");
 
     GamepadState state;
-    bool         botBtnPrev = false;
-    bool         btnAPrev   = false;
-    float        mouseAccumX = 0.0f;
-    float        mouseAccumY = 0.0f;
+    bool         botBtnPrev    = false;
+    bool         btnAPrev      = false;
+    bool         mouseWasMoving = false;
+    float        mouseAccumX   = 0.0f;
+    float        mouseAccumY   = 0.0f;
 
-    while (m_running) {
+    while (m_running && !m_switchPending.load()) {
         // Profile hot-swap: detect change and re-apply without reopening the device
         std::string newProfile = getProfilePath();
         if (newProfile != currentProfilePath) {
@@ -531,6 +668,24 @@ void PadEngine::threadFunc() {
             initMacros();
         }
 
+        // Button-mapping hot-reload: pick up controllers.json changes saved by the mapping editor.
+        if (m_configsDirty.exchange(false)) {
+            { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
+            // cfgBase pointed into the old configs — re-find it in the refreshed copy.
+            cfgBase = findConfig(configs, selected.vid, selected.pid, selected.connectionType);
+            if (cfgBase) {
+                effectiveCfg = *cfgBase;
+                if (!currentProfilePath.empty()) {
+                    try {
+                        GameProfile profile = loadGameProfile(currentProfilePath);
+                        effectiveCfg = applyProfile(*cfgBase, profile);
+                    } catch (...) {}
+                }
+                input->setConfig(*cfg);  // push updated button map to active input source
+            }
+        }
+
+
         if (!input->isConnected()) {
             if (m_connected) {
                 spdlog::warn("[{}] disconnected. Waiting...", cfg->source_name);
@@ -547,7 +702,7 @@ void PadEngine::threadFunc() {
         }
 
         if (input->read(state)) {
-            { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = state; }
+            { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = input->getPhysicalState(); }
             // Bot and macro toggle detection uses the button mask from the read just performed
             DWORD btns = input->getLastButtonMask();
 
@@ -556,6 +711,7 @@ void PadEngine::threadFunc() {
                 if (pressed && !botBtnPrev) {
                     bot.toggle();
                     spdlog::info("[BOT] Lightning bot {}", bot.isActive() ? "ON" : "OFF");
+                    pushEvent({ PadEventType::BotToggle, "LightningBot", bot.isActive() });
                 }
                 botBtnPrev = pressed;
             }
@@ -576,6 +732,7 @@ void PadEngine::threadFunc() {
                     }
                     spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
                            macro.isActive() ? "ON" : "OFF");
+                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
                 }
                 if (!pressed && prev)
                     if (macro.getMode() == MacroRepeatMode::UntilRelease)
@@ -606,16 +763,24 @@ void PadEngine::threadFunc() {
                     macroLastRY[bit] = state.rightY;
                 }
 
-                if (wasActive && !macro.isActive())
+                if (wasActive && !macro.isActive()) {
                     spdlog::info("[MACRO][{}] '{}' AUTO-OFF (laps: {})", GetTickCount64(), macroNames[bit], macroRotCount[bit]);
+                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], false });
+                }
             }
 
             // --- Keyboard actions (edge-triggered) ---
             for (auto& [bit, prev] : kbPrevBtn) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
                 const auto& action = cfg->buttons.at(bit);
-                if (pressed && !prev) { sendKeyCombo(action.keys, true);  spdlog::debug("[KB] button {} down", bit); }
-                if (!pressed && prev) { sendKeyCombo(action.keys, false); spdlog::debug("[KB] button {} up",   bit); }
+                if (pressed && !prev) {
+                    sendKeyCombo(action.keys, true);
+                    spdlog::debug("[KB] button {} down", bit);
+                    std::string combo;
+                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                }
+                if (!pressed && prev) { sendKeyCombo(action.keys, false); spdlog::debug("[KB] button {} up", bit); }
                 prev = pressed;
             }
 
@@ -623,8 +788,11 @@ void PadEngine::threadFunc() {
             for (auto& [bit, prev] : mousePrevBtn) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
                 if (pressed != prev) {
-                    sendMouseButton(cfg->buttons.at(bit).mouseButton, pressed);
+                    const std::string& btn = cfg->buttons.at(bit).mouseButton;
+                    sendMouseButton(btn, pressed);
                     spdlog::debug("[MOUSE] button {} {}", bit, pressed ? "down" : "up");
+                    if (pressed)
+                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
                 }
                 prev = pressed;
             }
@@ -633,7 +801,11 @@ void PadEngine::threadFunc() {
             constexpr float kMouseDeadZone = 0.12f;
             float mx = (fabsf(state.mouseX) > kMouseDeadZone) ? state.mouseX : 0.0f;
             float my = (fabsf(state.mouseY) > kMouseDeadZone) ? state.mouseY : 0.0f;
-            if (mx != 0.0f || my != 0.0f) {
+            bool mouseIsMoving = (mx != 0.0f || my != 0.0f);
+            if (mouseIsMoving && !mouseWasMoving)
+                pushEvent({ PadEventType::MouseAction, "move", true });
+            mouseWasMoving = mouseIsMoving;
+            if (mouseIsMoving) {
                 float speed = getMouseSpeed();
                 mouseAccumX += mx * speed;
                 mouseAccumY += my * speed;
@@ -651,14 +823,62 @@ void PadEngine::threadFunc() {
                 }
             }
 
-            output.update(state);
+            // --- Touchpad delta mouse (no dead zone — real finger movement, not velocity) ---
+            if (cfg->touchpad.mouseEnabled &&
+                (state.touchDeltaX != 0.0f || state.touchDeltaY != 0.0f)) {
+                constexpr float kTouchpadScale = 1.5f;
+                mouseAccumX += state.touchDeltaX * kTouchpadScale;
+                mouseAccumY += state.touchDeltaY * kTouchpadScale;
+                LONG dx = static_cast<LONG>(mouseAccumX);
+                LONG dy = static_cast<LONG>(mouseAccumY);
+                if (dx != 0 || dy != 0) {
+                    mouseAccumX -= static_cast<float>(dx);
+                    mouseAccumY -= static_cast<float>(dy);
+                    INPUT inp = {};
+                    inp.type       = INPUT_MOUSE;
+                    inp.mi.dwFlags = MOUSEEVENTF_MOVE;
+                    inp.mi.dx      = dx;
+                    inp.mi.dy      = dy;
+                    SendInput(1, &inp, sizeof(INPUT));
+                }
+            }
+
+            { std::lock_guard<std::mutex> lock(m_mutex); m_lastVirtualState = state; }
+            output->update(state);
         }
 
         Sleep(8);
     }
 
+        // ── End of run loop ───────────────────────────────────────────────────
+        m_connected = false;
+
+        if (!m_running) break;  // normal stop — exit outer loop
+
+        // Switch was requested: read the target and pre-select it for next iteration
+        DeviceCandidate target;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            target = m_switchTarget;
+        }
+        m_switchPending.store(false);
+
+        if (target.vid == 0) {
+            spdlog::warn("[Switch] Target device no longer valid — rescanning.");
+        } else {
+            spdlog::info("[Switch] Switching to: {} [VID={:04X} PID={:04X}]",
+                target.name, target.vid, target.pid);
+            preSelected = target;
+        }
+        // Loop back to outer while — preSelected drives the next configure phase
+    }
+    // =========================================================================
+    // End outer loop
+    // =========================================================================
+
     m_hidHide.unhideDevice();
     m_connected = false;
+    { std::lock_guard<std::mutex> lock(m_mutex); m_activeDevice = {}; }
     m_phase.store(EnginePhase::Stopped);
     setStatus("Stopped");
     spdlog::info("[PadEngine] thread stopped.");

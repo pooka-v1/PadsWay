@@ -2,6 +2,6 @@
   <Configurations>
     <Platform Name="x64" />
   </Configurations>
+  <Folder Name="/Elementos de la solución/" />
   <Project Path="VirtualPad/VirtualPad.vcxproj" Id="51506331-12a2-4ec3-a608-f929699433eb" />
-  <Project Path="tools/TriggerCount/TriggerCount.vcxproj" />
 </Solution>

@@ -1,0 +1,60 @@
+{
+  "state_map": {
+    "btnA":     { "physical": "a",      "type": "button" },
+    "btnB":     { "physical": "b",      "type": "button" },
+    "btnX":     { "physical": "x",      "type": "button" },
+    "btnY":     { "physical": "y",      "type": "button" },
+    "btnLB":    { "physical": "l1",     "type": "button" },
+    "btnRB":    { "physical": "r1",     "type": "button" },
+    "btnBack":  { "physical": "select", "type": "button" },
+    "btnStart": { "physical": "start",  "type": "button" },
+    "btnHome":  { "physical": "home",   "type": "button" },
+    "btnL3":    { "physical": "l3",     "type": "button" },
+    "btnR3":    { "physical": "r3",     "type": "button" },
+
+    "btnL4":    { "physical": "l4",        "type": "physical_only" },
+    "btnR4":    { "physical": "r4",        "type": "physical_only" },
+    "btnLP":    { "physical": "lp",        "type": "physical_only" },
+    "btnRP":    { "physical": "rp",        "type": "physical_only" },
+    "btnTouch": { "physical": "touch_btn", "type": "physical_only" },
+
+    "triggerL": {
+      "physical": "l2", "type": "trigger",
+      "axis_target": "trigger_l",
+      "prompt": "Aprieta L2 (gatillo izquierdo)",
+      "invert_if_positive": false
+    },
+    "triggerR": {
+      "physical": "r2", "type": "trigger",
+      "axis_target": "trigger_r",
+      "prompt": "Aprieta R2 (gatillo derecho)",
+      "invert_if_positive": false
+    },
+
+    "leftX": {
+      "type": "axis", "axis_target": "left_x",
+      "prompt": "Empuja el stick izquierdo a la DERECHA",
+      "invert_if_positive": false
+    },
+    "leftY": {
+      "type": "axis", "axis_target": "left_y",
+      "prompt": "Empuja el stick izquierdo hacia ABAJO",
+      "invert_if_positive": true
+    },
+    "rightX": {
+      "type": "axis", "axis_target": "right_x",
+      "prompt": "Empuja el stick derecho a la DERECHA",
+      "invert_if_positive": false
+    },
+    "rightY": {
+      "type": "axis", "axis_target": "right_y",
+      "prompt": "Empuja el stick derecho hacia ABAJO",
+      "invert_if_positive": true
+    },
+
+    "dpadUp":    { "type": "dpad", "direction": "up"    },
+    "dpadDown":  { "type": "dpad", "direction": "down"  },
+    "dpadLeft":  { "type": "dpad", "direction": "left"  },
+    "dpadRight": { "type": "dpad", "direction": "right" }
+  }
+}

@@ -31,4 +31,8 @@ public:
     // Replaces the button/axis mapping config without reopening the device.
     // Called when the user switches game profiles at runtime.
     virtual void setConfig(const ControllerConfig& cfg) = 0;
+
+    // Returns the physical button state (action.physical names) from the last read().
+    // Used by the UI to display the physical pad independently of the virtual remapping.
+    virtual GamepadState getPhysicalState() const { return GamepadState{}; }
 };

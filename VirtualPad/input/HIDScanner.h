@@ -12,9 +12,10 @@ public:
         WORD        vid;
         WORD        pid;
         USHORT      usagePage;
-        USHORT      usage;          // 0x04 = Joystick, 0x05 = Gamepad
-        std::string path;           // device interface path (for CreateFile)
+        USHORT      usage;           // 0x04 = Joystick, 0x05 = Gamepad
+        std::string path;            // device interface path (for CreateFile)
         std::string productName;
+        std::string connectionType;  // "usb" or "bt" (detected from path)
     };
 
     static std::vector<DeviceInfo> scan();
