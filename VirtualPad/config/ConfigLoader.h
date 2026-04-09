@@ -1,5 +1,6 @@
 #pragma once
 #include "../input/ControllerConfig.h"
+#include "../ui/PadLayout.h"
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -7,9 +8,14 @@
 // Loads all controller configs from a JSON file.
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path);
 
-// Returns a pointer to the matching config, or nullptr if not found.
+// Returns a pointer to the best-matching config, or nullptr if not found.
+// Matches on VID+PID (required). connection (+2) and sourceName (+1) are optional
+// secondary discriminators. Entries that declare these fields are skipped when the
+// incoming value doesn't match; entries without them act as generic fallbacks.
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
-                                   uint16_t vid, uint16_t pid);
+                                   uint16_t vid, uint16_t pid,
+                                   const std::string& connection  = "",
+                                   const std::string& sourceName  = "");
 
 // Loads macro library from a JSON file (name -> execution string).
 // Returns an empty map if the file does not exist.
@@ -27,14 +33,14 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path);
 
 // ── Game profiles ──────────────────────────────────────────────────────────
 
-// A game profile declares button overrides for one or more controllers.
-// Axes and dpad are always inherited from controllers.json unchanged.
+// A game profile declares button and axis overrides for one or more controllers.
 struct GameProfile {
     std::string profile_name;
 
     struct Override {
         uint16_t vid = 0, pid = 0;
-        std::unordered_map<int, ButtonAction> buttons;  // physical bit -> action
+        std::unordered_map<int, ButtonAction>     buttons;  // physical bit -> action
+        std::unordered_map<std::string, AxisMapping> axes;  // source -> mapping
     };
     std::vector<Override> overrides;
 };
@@ -46,3 +52,16 @@ GameProfile loadGameProfile(const std::string& path);
 // Returns a copy of base with the matching override's buttons applied on top.
 // Axes and dpad are unchanged. If no override matches vid/pid, returns base as-is.
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
+
+// ── Pad layouts ─────────────────────────────────────────────────────────────
+
+// Loads all pad layouts from a JSON file.
+// Returns an empty vector if the file does not exist.
+std::vector<PadLayout> loadPadLayouts(const std::string& path);
+
+// Returns a pointer to the layout with the given id, or nullptr if not found.
+const PadLayout* findLayout(const std::vector<PadLayout>& layouts, const std::string& id);
+
+// Serialises all pad layouts back to a JSON file.
+// Throws std::runtime_error if the file cannot be written.
+void savePadLayouts(const std::string& path, const std::vector<PadLayout>& layouts);

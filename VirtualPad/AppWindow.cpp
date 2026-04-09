@@ -1,6 +1,9 @@
 #include "AppWindow.h"
 
 #include <algorithm>
+#include <fstream>
+#include "nlohmann/json.hpp"
+using json = nlohmann::json;
 #include <chrono>
 #include <d3d11.h>
 #include <dxgi.h>
@@ -60,6 +63,12 @@ int AppWindow::run() {
         m_controllerConfigs = loadControllerConfigs("data/controllers.json");
     } catch (...) {}   // optional — scanner falls back to WinMM names if missing
 
+    try { m_padLayouts = loadPadLayouts("data/pad_layouts.json"); } catch (...) {}
+    if (m_padLayouts.empty()) {
+        try { m_padLayouts = loadPadLayouts("data/pad_layouts.json.bak"); } catch (...) {}
+        m_layoutsFromBackup = !m_padLayouts.empty();
+    }
+
     // Discover game profiles in data/ (any .json that has a profile_name field)
     m_profilePaths.clear();
     m_profileNames.clear();
@@ -83,6 +92,10 @@ int AppWindow::run() {
             FindClose(h);
         }
     }
+
+    m_padView.load(m_device);
+    m_virtualPadView.load(m_device);
+    m_layoutEditor.init(m_device, &m_padLayouts);
 
     m_engine.start();
 
@@ -147,6 +160,8 @@ void AppWindow::renderFrame() {
     if (ImGui::BeginTabBar("MainTabs")) {
         if (ImGui::BeginTabItem("Engine"))  { renderEngineTab();  ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Scanner")) { renderScannerTab(); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Pads"))    { renderPadsTab();    ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Layout"))  { renderLayoutTab();  ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
 
@@ -164,30 +179,15 @@ void AppWindow::renderEngineTab() {
     bool        connected = m_engine.isConnected();
     bool        running   = m_engine.isRunning();
 
-    if (phase == EnginePhase::WaitingSelection) {
-        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "●");
-        ImGui::SameLine();
-        ImGui::Text("Multiple controllers detected — select one:");
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        auto candidates = m_engine.getCandidates();
-        for (int i = 0; i < (int)candidates.size(); ++i) {
-            const auto& dev = candidates[i];
-            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
-            const char* displayName = cfg ? cfg->source_name.c_str() : dev.name.c_str();
-            const char* src = (dev.source == DeviceCandidate::Source::HID) ? "HID" : "WinMM";
-            char label[256];
-            snprintf(label, sizeof(label), "[%s]  %s    VID:%04X  PID:%04X",
-                src, displayName, dev.vid, dev.pid);
-            if (ImGui::Button(label))
-                m_engine.selectDevice(i);
-        }
-    } else if (connected) {
+    // ── Status indicator ──────────────────────────────────────────────────
+    if (connected) {
         ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "●");
         ImGui::SameLine();
         ImGui::Text("Connected — %s", m_engine.getDevice().c_str());
+    } else if (phase == EnginePhase::WaitingSelection) {
+        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "●");
+        ImGui::SameLine();
+        ImGui::Text("Select a controller:");
     } else if (running) {
         ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "●");
         ImGui::SameLine();
@@ -199,9 +199,67 @@ void AppWindow::renderEngineTab() {
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Status:");
-    ImGui::SameLine();
-    ImGui::Text("%s", m_engine.getStatus().c_str());
+    ImGui::TextDisabled("Status: %s", m_engine.getStatus().c_str());
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // ── Device list ───────────────────────────────────────────────────────
+    // WaitingSelection uses the candidates snapshot; all other states use the
+    // live monitor list so newly connected devices appear without a restart.
+    auto availableDevices = m_engine.getAvailableDevices();
+    auto candidates       = m_engine.getCandidates();
+    DeviceCandidate activeDevice = m_engine.getActiveDevice();
+
+    const std::vector<DeviceCandidate>& displayList =
+        (phase == EnginePhase::WaitingSelection && !candidates.empty())
+        ? candidates : availableDevices;
+
+    if (displayList.empty()) {
+        ImGui::TextDisabled("  No controllers detected");
+    } else {
+        for (int i = 0; i < (int)displayList.size(); ++i) {
+            const auto& dev = displayList[i];
+            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid,
+                                                     dev.connectionType);
+            const char* displayName = cfg ? cfg->source_name.c_str() : dev.name.c_str();
+            const char* src = (dev.source == DeviceCandidate::Source::HID) ? "HID" : "WinMM";
+
+            // Determine if this entry is the currently active device
+            bool isActive = (dev.vid == activeDevice.vid && dev.pid == activeDevice.pid
+                          && dev.source == activeDevice.source);
+            if (isActive && dev.source == DeviceCandidate::Source::HID)
+                isActive = (dev.hidPath == activeDevice.hidPath);
+            if (isActive && dev.source == DeviceCandidate::Source::WinMM)
+                isActive = (dev.port == activeDevice.port);
+
+            if (isActive) {
+                ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "  >");
+                ImGui::SameLine();
+                ImGui::Text("[%s]  %s    VID:%04X  PID:%04X", src, displayName, dev.vid, dev.pid);
+            } else {
+                ImGui::Text("   ");
+                ImGui::SameLine();
+                ImGui::Text("[%s]  %s    VID:%04X  PID:%04X", src, displayName, dev.vid, dev.pid);
+                ImGui::SameLine();
+
+                char btnLabel[64];
+                snprintf(btnLabel, sizeof(btnLabel), "Activar##dev%d", i);
+
+                if (phase == EnginePhase::WaitingSelection) {
+                    if (ImGui::SmallButton(btnLabel))
+                        m_engine.selectDevice(i);
+                } else if (connected) {
+                    if (ImGui::SmallButton(btnLabel))
+                        m_engine.requestSwitch(i);
+                } else {
+                    ImGui::BeginDisabled();
+                    ImGui::SmallButton(btnLabel);
+                    ImGui::EndDisabled();
+                }
+            }
+        }
+    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -224,7 +282,6 @@ void AppWindow::renderEngineTab() {
             m_engine.setProfilePath(m_profilePaths[m_profileSelected - 1]);
     }
 
-    // Show active profile name if the engine is running with one
     std::string activeName = m_engine.getActiveProfileName();
     if (!activeName.empty()) {
         ImGui::SameLine();
@@ -481,7 +538,8 @@ void AppWindow::renderScannerTab() {
     // ── HID device live monitor ───────────────────────────────────────────
     if (m_hidSelected >= 0 && m_hidSelected < (int)m_hidDevices.size()) {
         const auto& hdev = m_hidDevices[m_hidSelected];
-        const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid);
+        const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
+                                                 hdev.connectionType);
 
         // Header
         ImGui::Spacing();
@@ -519,13 +577,17 @@ void AppWindow::renderScannerTab() {
         if (m_hidScanState.btnHome)  btns |= (1u << 12);
         if (m_hidScanState.btnL3)    btns |= (1u << 13);
         if (m_hidScanState.btnR3)    btns |= (1u << 14);
+        if (m_hidScanState.btnLP)    btns |= (1u << 15);
+        if (m_hidScanState.btnRP)    btns |= (1u << 16);
+        if (m_hidScanState.btnL4)    btns |= (1u << 17);
+        if (m_hidScanState.btnR4)    btns |= (1u << 18);
         const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
 
         // ── Buttons ──────────────────────────────────────────────────────
         ImGui::Text("Buttons");
         ImGui::Separator();
         ImGui::Spacing();
-        for (int i = 0; i < 16; ++i) {
+        for (int i = 0; i < 19; ++i) {
             bool pressed = (btns & (1u << i)) != 0;
             ImGui::PushStyleColor(ImGuiCol_Button,
                 pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f) : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
@@ -597,6 +659,30 @@ void AppWindow::renderScannerTab() {
         else if (!m_hidScanState.dpadDown &&  m_hidScanState.dpadLeft  && !m_hidScanState.dpadUp)    pov = 27000;
         else if ( m_hidScanState.dpadUp   &&  m_hidScanState.dpadLeft)                               pov = 31500;
         drawPOVCompass(pov);
+
+        // Gyroscope (only shown when the device reports IMU data)
+        if (m_hidScanState.gyroActive) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::Text("Gyroscope");
+            ImGui::Separator();
+            ImGui::Spacing();
+            struct { const char* name; float v; } axes[] = {
+                { "X", m_hidScanState.gyroX },
+                { "Y", m_hidScanState.gyroY },
+                { "Z", m_hidScanState.gyroZ },
+            };
+            for (auto& a : axes) {
+                float dev_f = fabsf(a.v);
+                ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                    ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.60f, 1.0f));
+                ImGui::Text("%-2s", a.name);
+                ImGui::SameLine();
+                char ov[12]; snprintf(ov, sizeof(ov), "%+.4f", a.v);
+                ImGui::ProgressBar((a.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
+                ImGui::PopStyleColor();
+            }
+        }
 
         ImGui::EndChild();
         return;
@@ -721,7 +807,7 @@ bool AppWindow::initWindow() {
     m_hwnd = CreateWindowExW(
         0, L"VirtualPadWindow", L"VirtualPad",
         WS_OVERLAPPEDWINDOW,
-        100, 100, 1000, 650,
+        100, 100, 1150, 780,
         nullptr, nullptr, wc.hInstance, this);
 
     return m_hwnd != nullptr;
@@ -773,7 +859,409 @@ void AppWindow::cleanupRenderTarget() {
     if (m_renderTarget) { m_renderTarget->Release(); m_renderTarget = nullptr; }
 }
 
+void AppWindow::renderPadsTab() {
+    // Physical pad: update layout when the active controller changes, or when
+    // the editor has just saved (forceSetLayout bypasses the id-cache guard).
+    std::string layoutId = m_engine.getActiveLayoutId();
+    if (m_forceLayoutReload || layoutId != m_currentLayoutId) {
+        m_currentLayoutId   = layoutId;
+        m_forceLayoutReload = false;
+        const PadLayout* layout = findLayout(m_padLayouts, layoutId);
+        if (layout)
+            m_padView.forceSetLayout(*layout);
+    }
+
+    // Virtual pad: always xbox_one, loaded once
+    if (!m_virtualPadInitialized) {
+        const PadLayout* vLayout = findLayout(m_padLayouts, "xbox_one");
+        if (vLayout) {
+            m_virtualPadView.setLayout(*vLayout);
+            m_virtualPadInitialized = true;
+        }
+    }
+
+    if (ImGui::BeginTabBar("##PadsSubTabs")) {
+
+        if (ImGui::BeginTabItem("Ver")) {
+            ImGui::Spacing();
+
+            ImGui::BeginGroup();
+            m_padView.render(m_engine.getLastState());
+            ImGui::EndGroup();
+
+            ImGui::SameLine(0.0f, 10.0f);
+            ImGui::BeginGroup();
+            {
+                if (!m_arrowRightTex.valid())
+                    PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
+                const auto& L = m_padView.getLayout();
+                constexpr float kArrowSize = 40.0f;
+                float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
+                if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
+                if (m_arrowRightTex.valid())
+                    ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
+            }
+            ImGui::EndGroup();
+            ImGui::SameLine(0.0f, 10.0f);
+
+            ImGui::BeginGroup();
+            m_virtualPadView.render(m_engine.getLastVirtualState());
+            ImGui::EndGroup();
+
+            // ── Marquee ───────────────────────────────────────────────────────────────
+
+    for (const auto& ev : m_engine.pollEvents()) {
+        MarqueeEntry entry;
+        switch (ev.type) {
+            case PadEventType::BotToggle:
+                entry.type = ev.active ? MarqueeEntryType::BotOn : MarqueeEntryType::BotOff;
+                entry.text = std::string("[BOT]   ") + ev.name + (ev.active ? "  ON" : "  OFF");
+                break;
+            case PadEventType::MacroToggle:
+                entry.type = MarqueeEntryType::Macro;
+                entry.text = std::string("[MACRO] ") + ev.name + (ev.active ? "  ON" : "  OFF");
+                break;
+            case PadEventType::KeyboardAction:
+                entry.type = MarqueeEntryType::Keyboard;
+                entry.text = std::string("[KB]    ") + ev.name;
+                break;
+            case PadEventType::MouseAction:
+                entry.type = MarqueeEntryType::Mouse;
+                entry.text = std::string("[MOUSE] ") + ev.name;
+                break;
+        }
+        m_marqueeLines.push_back(entry);
+        if (m_marqueeLines.size() > 4) m_marqueeLines.pop_front();
+    }
+
+    // 3. Render — always 4 slots so the area height is constant from the first entry
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Colors: Macro=yellow, BotOn=blue, BotOff=naranja, KB=cyan, Mouse=verde claro
+    static const ImVec4 kColMacro    = { 1.00f, 0.85f, 0.00f, 1.0f };
+    static const ImVec4 kColBotOn    = { 0.30f, 0.60f, 1.00f, 1.0f };
+    static const ImVec4 kColBotOff   = { 1.00f, 0.55f, 0.10f, 1.0f };
+    static const ImVec4 kColKeyboard = { 0.40f, 0.95f, 0.95f, 1.0f };
+    static const ImVec4 kColMouse    = { 0.60f, 0.95f, 0.60f, 1.0f };
+
+    const int n = (int)m_marqueeLines.size();
+    for (int slot = 0; slot < 4; ++slot) {
+        if (slot < n) {
+            const auto& entry = m_marqueeLines[slot];
+            ImVec4 col;
+            switch (entry.type) {
+                case MarqueeEntryType::Macro:    col = kColMacro;    break;
+                case MarqueeEntryType::BotOn:    col = kColBotOn;    break;
+                case MarqueeEntryType::BotOff:   col = kColBotOff;   break;
+                case MarqueeEntryType::Keyboard: col = kColKeyboard; break;
+                case MarqueeEntryType::Mouse:    col = kColMouse;    break;
+                default:                         col = kColMacro;    break;
+            }
+            // Fade: slot 0 (oldest) = 0.25 alpha, slot 3 (newest) = 1.0 — fixed scale of 4
+            col.w = 0.25f + 0.75f * ((float)(slot + 1) / 4.0f);
+            ImGui::TextColored(col, "%s", entry.text.c_str());
+        } else {
+            // Empty slot — reserve the line height so the layout doesn't jump
+            ImGui::Dummy({ 1.0f, ImGui::GetTextLineHeight() });
+        }
+    }
+
+            ImGui::EndTabItem(); // Ver
+        }
+
+        if (ImGui::BeginTabItem("Mapear")) {
+            renderMappingSubtab();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar(); // ##PadsSubTabs
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mapping subtab — helpers
+// ---------------------------------------------------------------------------
+
+// Tabla de traducción: nombre corto de controllers.json ↔ nombre de campo en GamepadState/layout
+static const std::pair<const char*, const char*> kBtnNames[] = {
+    {"a",         "btnA"},    {"b",         "btnB"},
+    {"x",         "btnX"},    {"y",         "btnY"},
+    {"l1",        "btnLB"},   {"r1",        "btnRB"},
+    {"select",    "btnBack"}, {"start",     "btnStart"},
+    {"home",      "btnHome"}, {"l3",        "btnL3"},
+    {"r3",        "btnR3"},   {"l4",        "btnL4"},
+    {"r4",        "btnR4"},   {"lp",        "btnLP"},
+    {"rp",        "btnRP"},   {"touch_btn", "btnTouch"},
+};
+static std::string shortToState(const std::string& s) {
+    for (auto& [k, v] : kBtnNames) if (k == s) return v;
+    return s;
+}
+static std::string stateToShort(const std::string& s) {
+    for (auto& [k, v] : kBtnNames) if (v == s) return k;
+    return s;
+}
+static int findCompByState(const PadLayout& layout, const std::string& stateName) {
+    for (int i = 0; i < (int)layout.components.size(); ++i)
+        if (layout.components[i].state == stateName) return i;
+    return -1;
+}
+static void activateState(GamepadState& s, const std::string& name) {
+    if      (name == "btnA")      s.btnA      = true;
+    else if (name == "btnB")      s.btnB      = true;
+    else if (name == "btnX")      s.btnX      = true;
+    else if (name == "btnY")      s.btnY      = true;
+    else if (name == "btnLB")     s.btnLB     = true;
+    else if (name == "btnRB")     s.btnRB     = true;
+    else if (name == "btnL3")     s.btnL3     = true;
+    else if (name == "btnR3")     s.btnR3     = true;
+    else if (name == "btnBack")   s.btnBack   = true;
+    else if (name == "btnStart")  s.btnStart  = true;
+    else if (name == "btnHome")   s.btnHome   = true;
+    else if (name == "btnTouch")  s.btnTouch  = true;
+    else if (name == "btnL4")     s.btnL4     = true;
+    else if (name == "btnR4")     s.btnR4     = true;
+    else if (name == "btnLP")     s.btnLP     = true;
+    else if (name == "btnRP")     s.btnRP     = true;
+    else if (name == "triggerL")  s.triggerL  = 1.0f;
+    else if (name == "triggerR")  s.triggerR  = 1.0f;
+    else if (name == "dpadUp")    s.dpadUp    = true;
+    else if (name == "dpadDown")  s.dpadDown  = true;
+    else if (name == "dpadLeft")  s.dpadLeft  = true;
+    else if (name == "dpadRight") s.dpadRight = true;
+}
+
+// ---------------------------------------------------------------------------
+// Mapping subtab
+// ---------------------------------------------------------------------------
+
+void AppWindow::renderMappingSubtab() {
+    // ── Pre-populate edits cuando cambia el mando activo ─────────────────────
+    DeviceCandidate dev = m_engine.getActiveDevice();
+    if (dev.vid != m_mappingActiveVid || dev.pid != m_mappingActivePid) {
+        m_mappingActiveVid   = dev.vid;
+        m_mappingActivePid   = dev.pid;
+        m_mappingSelPhysComp = -1;
+        m_mappingEdits.clear();
+        for (const auto& cfg : m_controllerConfigs) {
+            if (cfg.vid == dev.vid && cfg.pid == dev.pid) {
+                for (const auto& [idx, action] : cfg.buttons) {
+                    if (action.type == ButtonActionType::VirtualButton &&
+                        !action.physical.empty() && !action.name.empty() &&
+                        action.physical != action.name)
+                        m_mappingEdits[action.physical] = action.name;
+                }
+                break;
+            }
+        }
+    }
+
+    ImGui::Spacing();
+    ImVec2 mouse       = ImGui::GetIO().MousePos;
+    bool   mouseClicked = ImGui::IsMouseClicked(0);
+
+    // ── Construir estados de display ──────────────────────────────────────────
+    m_mappingFlashTimer -= ImGui::GetIO().DeltaTime;
+    if (m_mappingFlashTimer <= 0.0f) m_mappingFlashComp = -1;
+
+    GamepadState physDisplay{};
+    GamepadState virtDisplay{};
+    if (m_mappingSelPhysComp >= 0) {
+        const auto& physComps = m_padView.getLayout().components;
+        if (m_mappingSelPhysComp < (int)physComps.size()) {
+            const std::string& physState = physComps[m_mappingSelPhysComp].state;
+            activateState(physDisplay, physState);
+            std::string physShort = stateToShort(physState);
+            auto it = m_mappingEdits.find(physShort);
+            std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
+            activateState(virtDisplay, shortToState(virtShort));
+        }
+    }
+    // Flash de confirmación: ilumina el botón virtual recién asignado
+    if (m_mappingFlashComp >= 0) {
+        const auto& virtComps = m_virtualPadView.getLayout().components;
+        if (m_mappingFlashComp < (int)virtComps.size())
+            activateState(virtDisplay, virtComps[m_mappingFlashComp].state);
+    }
+
+    // ── Pad físico ────────────────────────────────────────────────────────────
+    ImGui::BeginGroup();
+    m_mappingPhysOrigin = ImGui::GetCursorScreenPos();
+    m_padView.render(physDisplay);
+    ImGui::Spacing();
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextDisabled("Físico");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::EndGroup();
+
+    ImGui::SameLine(0.0f, 10.0f);
+    ImGui::BeginGroup();
+    {
+        if (!m_arrowRightTex.valid())
+            PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
+        const auto& L = m_padView.getLayout();
+        constexpr float kArrowSize = 40.0f;
+        float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
+        if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
+        if (m_arrowRightTex.valid())
+            ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
+    }
+    ImGui::EndGroup();
+    ImGui::SameLine(0.0f, 10.0f);
+
+    ImGui::BeginGroup();
+    m_mappingVirtOrigin = ImGui::GetCursorScreenPos();
+    m_virtualPadView.render(virtDisplay);
+    ImGui::Spacing();
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::TextDisabled("Virtual (Xbox One)");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::EndGroup();
+
+    // ── Gestión de clicks ─────────────────────────────────────────────────────
+    if (mouseClicked) {
+        int physHit = m_padView.hitTest(mouse, m_mappingPhysOrigin);
+        if (physHit >= 0 && m_padView.getLayout().components[physHit].type == "button") {
+            m_mappingSelPhysComp = (physHit == m_mappingSelPhysComp) ? -1 : physHit;
+        } else if (m_mappingSelPhysComp >= 0) {
+            int virtHit = m_virtualPadView.hitTest(mouse, m_mappingVirtOrigin);
+            if (virtHit >= 0 && m_virtualPadView.getLayout().components[virtHit].type == "button") {
+                const auto& physComps = m_padView.getLayout().components;
+                std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
+                std::string virtShort = stateToShort(m_virtualPadView.getLayout().components[virtHit].state);
+                if (!physShort.empty() && !virtShort.empty()) {
+                    // Si el virtual pulsado ya es el asignado → desasignar; si no → asignar
+                    auto it = m_mappingEdits.find(physShort);
+                    bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
+                    m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
+                    m_mappingFlashComp  = alreadyAssigned ? -1 : virtHit;
+                    m_mappingFlashTimer = alreadyAssigned ?  0.0f : 0.5f;
+                }
+                m_mappingSelPhysComp = -1;
+            }
+        }
+    }
+
+    // ── Guardar ───────────────────────────────────────────────────────────────
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (ImGui::Button("Guardar mapping##mapSave", { 160.0f, 0.0f }))
+        saveMappingEdits();
+}
+
+// ---------------------------------------------------------------------------
+// saveMappingEdits — escribe m_mappingEdits en controllers.json
+// ---------------------------------------------------------------------------
+
+void AppWindow::saveMappingEdits() {
+    try {
+        const std::string path = "data/controllers.json";
+        json root;
+        {
+            std::ifstream f(path);
+            if (f.is_open()) root = json::parse(f);
+        }
+        if (!root.contains("controllers") || !root["controllers"].is_array()) return;
+
+        char vidStr[8], pidStr[8];
+        snprintf(vidStr, sizeof(vidStr), "%04X", m_mappingActiveVid);
+        snprintf(pidStr, sizeof(pidStr), "%04X", m_mappingActivePid);
+
+        for (auto& ctrl : root["controllers"]) {
+            if (ctrl.value("vid","") != std::string(vidStr) ||
+                ctrl.value("pid","") != std::string(pidStr)) continue;
+            if (!ctrl.contains("buttons")) continue;
+
+            // Recoger cambios primero para no modificar mientras iteramos
+            std::vector<std::pair<std::string, json>> changes;
+            for (auto& [key, btn] : ctrl["buttons"].items()) {
+                std::string physShort;
+                if (btn.is_string())
+                    physShort = btn.get<std::string>();
+                else if (btn.is_object() && btn.contains("physical"))
+                    physShort = btn["physical"].get<std::string>();
+                else continue;
+
+                auto it = m_mappingEdits.find(physShort);
+                if (it == m_mappingEdits.end()) continue;
+
+                json newBtn;
+                if (btn.is_object()) {
+                    newBtn = btn;
+                    if (it->second.empty())
+                        newBtn.erase("virtual");
+                    else
+                        newBtn["virtual"] = it->second;
+                } else {
+                    newBtn["physical"] = physShort;
+                    if (!it->second.empty())
+                        newBtn["virtual"] = it->second;
+                }
+                changes.push_back({ key, std::move(newBtn) });
+            }
+            for (auto& [key, val] : changes)
+                ctrl["buttons"][key] = val;
+
+            break;
+        }
+
+        // Validar antes de escribir
+        std::string dumped = root.dump(2);
+        json::parse(dumped);  // lanza si el JSON generado es inválido
+
+        // Escribir a fichero temporal y hacer rename atómico
+        std::string tmpPath = path + ".tmp";
+        {
+            std::ofstream tmp(tmpPath);
+            if (!tmp.is_open()) return;
+            tmp << dumped;
+        }  // destructor flushes + close
+
+        MoveFileExA(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+
+        m_controllerConfigs = loadControllerConfigs(path);
+        m_engine.reloadConfigs();
+    } catch (const std::exception&) {}
+}
+
+// ---------------------------------------------------------------------------
+// Layout tab
+// ---------------------------------------------------------------------------
+
+void AppWindow::renderLayoutTab() {
+    ImGui::Spacing();
+
+    if (m_layoutsFromBackup) {
+        ImGui::TextColored({ 1.0f, 0.7f, 0.1f, 1.0f },
+            "AVISO: pad_layouts.json fallo al cargar. Usando copia de seguridad (.bak).");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    }
+
+    m_layoutEditor.render();
+
+    if (m_layoutEditor.pollControllersSaved()) {
+        m_controllerConfigs = loadControllerConfigs("data/controllers.json");
+        m_engine.reloadConfigs();
+    }
+
+    if (m_layoutEditor.pollLayoutSaved()) {
+        m_forceLayoutReload     = true;
+        m_virtualPadInitialized = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 void AppWindow::cleanup() {
+    m_layoutEditor.unload();
+    m_virtualPadView.unload();
+    m_padView.unload();
+    m_arrowRightTex.release();
     cleanupRenderTarget();
     if (m_swapChain) { m_swapChain->Release(); m_swapChain = nullptr; }
     if (m_context)   { m_context->Release();   m_context   = nullptr; }

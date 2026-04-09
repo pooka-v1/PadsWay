@@ -19,8 +19,14 @@
         "3":  { "type": "macro",    "name": "BanishingBlade" },
         "6":  { "type": "bot",      "name": "LightningBot"   },
         "15": { "type": "macro",    "name": "LuluOverdrive"  },
-        "13": { "type": "keyboard", "keys": ["alt", "tab"]   }
+        "13": { "type": "keyboard", "keys": ["alt", "tab"]   },
+		"14": { "physical": "l3",   "type": "mouse_click", "button": "left" }
+	  },
+      "axes": {
+        "hid_z": { "target": "mouse_x", "invert": false, "speed": 15 },
+        "hid_rz": { "target": "mouse_y", "invert": false, "speed": 15 }
       }
+      
     }
   ]
 }

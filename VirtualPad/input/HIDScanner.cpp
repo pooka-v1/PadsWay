@@ -69,13 +69,26 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
 
         CloseHandle(h);
 
+        // Detect connection type from path.
+        // USB HID paths look like: \\?\HID#VID_xxxx&PID_xxxx#...
+        // BT HID paths use: BTHENUM, BLUETOOTHHIDDEVICE, BTH_HID,
+        // or the Bluetooth HID service GUID {00001124-0000-1000-8000-00805f9b34fb}
+        std::string pathUpper = path;
+        for (auto& ch : pathUpper) ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+        std::string connType = (pathUpper.find("BTHENUM")               != std::string::npos ||
+                                pathUpper.find("BLUETOOTHHIDDEVICE")    != std::string::npos ||
+                                pathUpper.find("BTH_HID")               != std::string::npos ||
+                                pathUpper.find("00001124-0000-1000-8000-00805F9B34FB") != std::string::npos)
+                               ? "bt" : "usb";
+
         DeviceInfo dev;
-        dev.vid         = attribs.VendorID;
-        dev.pid         = attribs.ProductID;
-        dev.usagePage   = caps.UsagePage;
-        dev.usage       = caps.Usage;
-        dev.path        = std::move(path);
-        dev.productName = std::move(productName);
+        dev.vid            = attribs.VendorID;
+        dev.pid            = attribs.ProductID;
+        dev.usagePage      = caps.UsagePage;
+        dev.usage          = caps.Usage;
+        dev.path           = std::move(path);
+        dev.productName    = std::move(productName);
+        dev.connectionType = std::move(connType);
         result.push_back(std::move(dev));
     }
 

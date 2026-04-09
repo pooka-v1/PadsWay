@@ -1,14 +1,18 @@
 #pragma once
 #include <windows.h>
 #include <d3d11.h>
+#include <deque>
 #include <vector>
 #include <future>
 #include <atomic>
+#include <unordered_map>
 #include "PadEngine.h"
 #include "PadScanner.h"
 #include "input/HIDScanner.h"
 #include "config/ConfigLoader.h"
 #include "GamepadState.h"
+#include "ui/PadView.h"
+#include "ui/LayoutEditor.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -34,6 +38,9 @@ private:
     void renderFrame();
     void renderEngineTab();
     void renderScannerTab();
+    void renderPadsTab();
+    void renderMappingSubtab();
+    void renderLayoutTab();
 
     // --- Win32 window procedure ---
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -73,4 +80,37 @@ private:
     // --- HID live monitor (scanner right panel for HID devices) ---
     // Uses the engine's last read state — avoids competing with the engine on BT HID.
     GamepadState m_hidScanState = {};
+
+    // --- Pad layouts ---
+    std::vector<PadLayout> m_padLayouts;
+    std::string            m_currentLayoutId;   // last layout applied to m_padView
+
+    // --- Marquee ---
+    enum class MarqueeEntryType { Macro, BotOn, BotOff, Keyboard, Mouse };
+    struct MarqueeEntry { MarqueeEntryType type; std::string text; };
+
+    std::deque<MarqueeEntry> m_marqueeLines;  // max 4 visible entries (oldest first)
+
+    // --- Pad views ---
+    PadView m_padView;                          // physical controller
+    PadView m_virtualPadView;                   // virtual Xbox One output
+    bool    m_virtualPadInitialized = false;    // xbox_one layout loaded once
+    bool    m_forceLayoutReload     = false;    // set after editor saves; triggers forceSetLayout
+
+    // --- Layout editor ---
+    LayoutEditor m_layoutEditor;
+    bool         m_layoutEditorInitialized = false;
+    bool         m_layoutsFromBackup       = false;  // true when .bak was the fallback
+
+    // --- Mapping editor (subtab [Mapear] en Pads) ---
+    int      m_mappingSelPhysComp  = -1;  // componente físico seleccionado (-1 = ninguno)
+    ImVec2   m_mappingPhysOrigin   = {};  // canvas origin del pad físico (capturado cada frame)
+    ImVec2   m_mappingVirtOrigin   = {};  // canvas origin del pad virtual
+    uint16_t m_mappingActiveVid    = 0;   // VID del mando activo al cargar edits
+    uint16_t m_mappingActivePid    = 0;   // PID del mando activo al cargar edits
+    int      m_mappingFlashComp    = -1;  // componente virtual en flash de confirmación (-1 = ninguno)
+    float    m_mappingFlashTimer   = 0.0f; // segundos restantes del flash
+    std::unordered_map<std::string, std::string> m_mappingEdits;  // physShort → virtShort
+    PadTexture m_arrowRightTex;
+    void saveMappingEdits();
 };

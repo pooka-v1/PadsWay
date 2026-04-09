@@ -3,6 +3,8 @@
 Lee mandos físicos (WinMM, HID, XInput) y los reenvía como un mando Xbox 360 virtual via ViGEm.
 Soporta macros, bots y configuración por JSON sin tocar el código.
 
+[Read in English](README.md)
+
 ---
 
 ## Requisitos
@@ -79,23 +81,23 @@ El D-pad en DInput suele ser un POV hat:
   "source_name": "8BitDo Pro 3 (D-mode)",
   "mode": "dinput",
   "buttons": {
-    "1":  "b",
-    "2":  "a",
-    "_3": "Rp (paddle derecho) — sin equivalente Xbox, usar en perfil de juego",
-    "4":  "y",
-    "5":  "x",
-    "_6": "Lp (paddle izquierdo) — sin equivalente Xbox, usar en perfil de juego",
-    "7":  "l1",
-    "8":  "r1",
-    "9":  { "type": "trigger", "target": "l2" },
-    "10": { "type": "trigger", "target": "r2" },
-    "11": "select",
-    "12": "start",
-    "13": "home",
-    "14": "l3",
-    "15": "r3",
-    "_17": "L4 — sin equivalente Xbox, usar en perfil de juego",
-    "_18": "R4 — sin equivalente Xbox, usar en perfil de juego"
+    "1":  { "physical": "b",      "virtual": "b"      },
+    "2":  { "physical": "a",      "virtual": "a"      },
+    "3":  { "physical": "rp"                          },
+    "4":  { "physical": "y",      "virtual": "y"      },
+    "5":  { "physical": "x",      "virtual": "x"      },
+    "6":  { "physical": "lp"                          },
+    "7":  { "physical": "l1",     "virtual": "l1"     },
+    "8":  { "physical": "r1",     "virtual": "r1"     },
+    "9":  { "physical": "l2",     "type": "trigger",  "target": "l2" },
+    "10": { "physical": "r2",     "type": "trigger",  "target": "r2" },
+    "11": { "physical": "select", "virtual": "select" },
+    "12": { "physical": "start",  "virtual": "start"  },
+    "13": { "physical": "home",   "virtual": "home"   },
+    "14": { "physical": "l3",     "virtual": "l3"     },
+    "15": { "physical": "r3",     "virtual": "r3"     },
+    "17": { "physical": "l4"                          },
+    "18": { "physical": "r4"                          }
   },
   "axes": {
     "dwXpos": { "target": "left_x",  "invert": false },
@@ -243,15 +245,34 @@ Usa el **Tab Scanner** de VirtualPad para identificar qué número sale al pulsa
 | `"l3"` | Click stick izquierdo |
 | `"r3"` | Click stick derecho |
 
+### Formato de botones
+
+Cada entrada es un objeto con dos conceptos independientes:
+
+- **`physical`** — nombre del botón en el mando físico real (`"a"`, `"l4"`, `"rp"`...).
+  Se usa para el tracking visual en la UI. Sobrevive a los overrides de perfil — un botón siempre sabe qué es físicamente, independientemente de la acción asignada.
+- **`virtual`** / acción — qué ocurre al pulsar el botón.
+
+```json
+"7":  { "physical": "l1", "virtual": "l1" }           // botón normal: físico l1 → virtual l1
+"3":  { "physical": "rp" }                             // sin equivalente Xbox — solo visual
+"9":  { "physical": "l2", "type": "trigger", "target": "l2" }
+```
+
+El formato corto `"1": "b"` sigue siendo válido para mandos sin botones extra
+y equivale a `{ "physical": "b", "virtual": "b" }`.
+
 ### Tipos de acción para botones
 
 ```json
-"N": "a"                                      // botón virtual simple
-"N": { "type": "trigger", "target": "l2" }   // gatillo digital (L2 o R2)
-"N": { "type": "macro",   "name": "NombreMacro" }
-"N": { "type": "bot",     "name": "LightningBot" }
-"N": { "type": "keyboard",    "keys": ["alt", "tab"] }
-"N": { "type": "mouse_click", "button": "left" }
+"N": "b"                                              // formato corto (physical = virtual = "b")
+"N": { "physical": "b", "virtual": "b" }             // explícito
+"N": { "physical": "rp" }                             // solo visual, sin output virtual
+"N": { "physical": "l2", "type": "trigger", "target": "l2" }
+"N": { "physical": "rp", "type": "macro",   "name": "NombreMacro" }
+"N": { "physical": "lp", "type": "bot",     "name": "LightningBot" }
+"N": { "physical": "home", "type": "keyboard",    "keys": ["alt", "tab"] }
+"N": { "physical": "l3",   "type": "mouse_click", "button": "left" }
 ```
 
 #### Acción `keyboard` — combos de teclado
@@ -339,21 +360,28 @@ pero el convenio de VirtualPad es `+1.0 = arriba`. Ajusta según lo que veas en 
 `controllers.json` es la **config base pura**: cada botón físico mapea a su equivalente Xbox 360 estándar.
 Los macros, bots y asignaciones especiales van en un JSON separado por juego.
 
-### Por qué botones como Lp, Rp, L4, R4 no están en la base
+### Botones sin equivalente Xbox (Lp, Rp, L4, R4)
 
-Algunos mandos tienen botones que no existen en el protocolo Xbox 360 (no hay equivalente virtual).
-En la base quedan sin mapear — no tienen efecto. Se usan exclusivamente desde perfiles de juego, asignándolos a macros o bots.
+Algunos mandos tienen botones que no existen en el protocolo Xbox 360 — no pueden producir output virtual.
+Se declaran en la config base solo con el campo `physical` (sin `virtual`):
 
-Ejemplo — Pro 3 D-mode (botones WinMM):
+```json
+"3":  { "physical": "rp" },
+"17": { "physical": "l4" }
+```
 
-| Botón WinMM | Físico | En base | Motivo |
+Esto significa:
+- Se **iluminan en la UI** al pulsarlos, independientemente de la acción asignada.
+- **No producen output Xbox virtual** por defecto.
+- En un perfil de juego se pueden asignar a macros, bots, combos de teclado, etc.
+- Incluso con perfil activo, la UI sigue reflejando que el botón físico está pulsado.
+
+| Botón WinMM | Físico | Virtual Xbox | Uso |
 |---|---|---|---|
-| 3 | Rp (paddle derecho) | — | no tiene equivalente Xbox 360 |
-| 6 | Lp (paddle izquierdo) | — | no tiene equivalente Xbox 360 |
-| 17 | L4 | — | no tiene equivalente Xbox 360 |
-| 18 | R4 | — | no tiene equivalente Xbox 360 |
-
-> Para futuro: si se extiende `GamepadState` con campos propios (l4, r4, lp, rp) y `ViGEmOutputAdapter` los mapea, estos botones podrían tener función virtual propia. Por ahora, solo son útiles como disparadores de macros/bots.
+| 3 | Rp (paddle derecho) | — | macro / bot en perfil de juego |
+| 6 | Lp (paddle izquierdo) | — | macro / bot en perfil de juego |
+| 17 | L4 | — | macro / teclado en perfil de juego |
+| 18 | R4 | — | macro / teclado en perfil de juego |
 
 ### Formato del perfil de juego
 
@@ -388,12 +416,104 @@ Ejemplo — Pro 3 D-mode (botones WinMM):
 
 ---
 
+## Editor de layouts
+
+La pestaña **Layout** proporciona un editor visual para `data/pad_layouts.json`.
+
+### Abrir un layout
+
+Haz clic en cualquier nombre de layout en el panel izquierdo para abrirlo en el editor de inmediato.
+Si hay cambios sin guardar, aparece un diálogo de confirmación antes de cambiar.
+
+### Interacciones en el canvas
+
+| Acción | Resultado |
+|---|---|
+| **Un clic** sobre un componente | Lo selecciona (resaltado en amarillo). Sus propiedades aparecen en el panel derecho. |
+| **Clic + arrastrar** | Mueve el componente seleccionado libremente sobre el canvas. |
+| **Teclas de dirección** (con el canvas enfocado) | Desplaza 1 píxel por pulsación. |
+
+### Tres paneles
+
+**Panel izquierdo** — lista de layouts y lista de elementos, cada una con su propio scroll independiente:
+- `[+ Botón]` `[+ Cruceta]` `[+ Analógico]` `[+ Decoración]` — añade un componente de ese tipo.
+- `[Eliminar elemento]` — borra el componente seleccionado.
+- `[Copiar layout]` — duplica el layout actual como punto de partida para uno nuevo.
+- `[Guardar]` / `[Descartar]` — guarda en `pad_layouts.json` (crea un `.bak` automático en el primer guardado si no existe) o descarta todos los cambios.
+- `[Emparejar mando]` — lanza el Asistente de emparejamiento (ver más abajo).
+
+Tipos de componente soportados: `button`, `stick`, `dpad`, `touchpad`, `gyroscope`, `decoration`, `template`.
+El componente `gyroscope` es visible en la pestaña Pads cuando el mando conectado reporta datos IMU (p. ej. DualShock 4 por USB). No requiere calibración — los datos se leen automáticamente desde offsets HID fijos.
+
+**Panel central** — canvas con el layout a escala. Se muestran las zonas FRONT (franja inferior) y TOP (área principal) con sus componentes renderizados en vivo.
+
+**Panel derecho** — propiedades del componente seleccionado:
+- **Posición** `cx` / `cy` y **Tamaño** `w` / `h` — campos numéricos. El checkbox junto a cada par bloquea la proporción de aspecto.
+- **Imagen / Overlay** — combos filtrados por subcarpeta (`templates/`, `buttons/`, `cross/`, `analogics/`, `decorations/`). Seleccionar una imagen rellena automáticamente el tamaño con las dimensiones de la imagen.
+- **State bindings** — `state`, `state_x`, `state_y`, `state_click`, `state_up/down/left/right` — combos con los nombres de campo de `GamepadState`.
+- **Colores** — colores activo/inactivo para la imagen base y el overlay.
+
+### Control de cambios
+
+Un indicador `*` aparece cuando hay cambios sin guardar. Cambiar de layout sin guardar activa un diálogo de confirmación.
+
+---
+
+## Asistente de emparejamiento de mando
+
+El botón **Emparejar mando** del Editor de layouts lanza un asistente paso a paso para mapear un mando físico al layout abierto y generar la entrada correspondiente en `data/controllers.json`.
+
+### Cómo funciona
+
+El asistente guía a través de cinco etapas:
+
+1. **Seleccionar mando** — lista todos los dispositivos físicos detectados (WinMM y HID). El mando virtual de ViGEm se filtra automáticamente.
+2. **Nombrar mando** — introduce un nombre descriptivo. Para mandos WinMM, alterna entre modo DInput y XInput.
+3. **Asignar botones** — para cada botón, gatillo y clic de stick del layout, el asistente muestra la imagen activa de ese botón como referencia visual y pide que pulses el botón físico correspondiente. A medida que se asigna cada botón, aparece su número superpuesto en el canvas.
+4. **Asignar ejes y gatillos** — para cada eje analógico (stick izquierdo X/Y, stick derecho X/Y) y gatillo (L2, R2), el asistente muestra la imagen activa del componente junto con flechas que indican la dirección de movimiento esperada.
+   - **Stick izquierdo X**: empuja totalmente hacia la **derecha**.
+   - **Stick izquierdo Y**: empuja totalmente hacia **abajo**.
+   - **Stick derecho X/Y**: mismo convenio.
+   - **Gatillos**: aprieta completamente.
+   - **Los componentes de giroscopio se omiten** — los datos del giroscopio se leen automáticamente desde offsets HID fijos y no requieren ningún paso de calibración.
+5. **Revisión** — muestra todos los botones, ejes y cruceta asignados. Confirma para guardar o reinicia desde el paso de nombre.
+
+### Resultado
+
+Al guardar, se escribe o reemplaza la entrada en `data/controllers.json` por VID/PID. La pestaña Pads recarga la configuración automáticamente.
+
+### Mapa de estados (`data/state_map.json`)
+
+El asistente usa `state_map.json` para saber el nombre físico del botón (`physical`), el target del eje (`axis_target`) y el texto de instrucción a mostrar para cada campo de `GamepadState`. Los componentes cuyo campo `state` no tenga entrada en el mapa se omiten en silencio.
+
+```json
+{
+  "state_map": {
+    "btnA":    { "physical": "a",   "type": "button" },
+    "leftX":   { "type": "axis",    "axis_target": "left_x",
+                 "prompt": "Empuja el stick izquierdo a la DERECHA",
+                 "invert_if_positive": false },
+    "dpadUp":  { "type": "dpad",    "direction": "up" }
+  }
+}
+```
+
+### Problemas conocidos (en progreso)
+
+| Problema | Estado |
+|---|---|
+| El eje X del stick analógico izquierdo puede no capturarse (empujar a la derecha no calibra) | En investigación |
+| La pestaña Pads no se refresca hasta reiniciar la app después de que el asistente guarda | En investigación |
+
+---
+
 ## Archivos de datos
 
 | Archivo | Descripción |
 |---|---|
 | `data/controllers.json` | Configuración base de mandos físicos |
 | `data/FinalFantasyX.json` | Perfil de juego para FFX (overrides sobre la base) |
+| `data/MonsterHunterStories2.json` | Perfil de juego para MHS2 (overrides sobre la base) |
 | `data/macros.json` | Biblioteca de macros reutilizables |
 | `data/virtualpad.json` | VID/PID del mando virtual creado por ViGEm + nivel de log |
 
@@ -536,5 +656,19 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 | 13 | PS | home |
 | **14** | **Touchpad click** | **— sin equivalente** |
 
-> L2 y R2 son analógicos independientes (dwUpos / dwVpos). Se pueden pulsar ambos a la vez.
-> Features DS4 avanzadas (touchpad XY, giroscopio, LEDs, rumble) pendientes para fases futuras.
+> L2 y R2 son analógicos independientes vía HID (`hid_rx` / `hid_ry`). Se pueden pulsar ambos a la vez.
+> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, touchpad (seguimiento XY + clic, emulación de ratón), giroscopio (ejes X/Y/Z visibles en la pestaña Pads).
+> **Bluetooth**: report simplificado (sticks + botones de cara). Soporte BT completo pendiente.
+
+---
+
+### 8BitDo Zero 2 — Bluetooth (VID:2DC8 PID:6006)
+
+⚠️ **Limitación conocida:** el Zero 2 comparte VID y PID con el Pro 2 en modo Bluetooth.
+VirtualPad no puede distinguirlos — carga el perfil del Pro 2 para ambos.
+
+Con el Zero 2 conectado, la cruceta se reporta como 4 ejes analógicos en lugar de hat switch,
+por lo que la dirección no funciona correctamente con el perfil del Pro 2.
+
+**Solución pendiente:** conectar el mando, usar el Tab Scanner para ver cómo reporta
+realmente sus ejes y cruceta, y crear un perfil dedicado o añadir un mecanismo de distinción.

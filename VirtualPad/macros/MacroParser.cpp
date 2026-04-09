@@ -60,6 +60,20 @@ void MacroParser::doParse(Macro& macro) {
         }
     }
 
+    // tick() uses pos = elapsed % cycleMs to match steps, so all step timings
+    // must fit within [0, cycleMs). Scale proportionally when N/M caused cycleMs
+    // to differ from the inner sequence duration (e.g. (L1,R1)*5000/30).
+    if (seq.durationMs > 0 && cycleMs != seq.durationMs) {
+        for (auto& s : seq.steps) {
+            s.startMs = (int)((long long)s.startMs * cycleMs / seq.durationMs);
+            s.endMs   = (int)((long long)s.endMs   * cycleMs / seq.durationMs);
+            s.holdMs  = (int)((long long)s.holdMs  * cycleMs / seq.durationMs);
+            int slot  = s.endMs - s.startMs;
+            if (s.holdMs > slot) s.holdMs = slot;
+            if (s.holdMs < 1)   s.holdMs = 1;
+        }
+    }
+
     macro.setup(std::move(seq.steps), mode, totalMs, cycleMs);
 }
 
@@ -164,17 +178,35 @@ MacroParser::ParsedSeq MacroParser::unroll(const ParsedSeq& inner, const RepeatS
     ParsedSeq result;
     int cursor = 0;
 
+    // When cycleMs differs from the inner duration (e.g. (L1,R1)*5000/30),
+    // scale step timings proportionally so every step fits within the cycle.
+    bool needsScale = (inner.durationMs > 0 && inner.durationMs != cycleMs);
+
     while (cursor < rs.totalMs) {
         int cycleEnd = (std::min)(cursor + cycleMs, rs.totalMs);
 
         for (const auto& s : inner.steps) {
-            int absStart = s.startMs + cursor;
+            int sStart, sHold, sEnd;
+            if (needsScale) {
+                sStart = (int)((long long)s.startMs * cycleMs / inner.durationMs);
+                sEnd   = (int)((long long)s.endMs   * cycleMs / inner.durationMs);
+                sHold  = (int)((long long)s.holdMs  * cycleMs / inner.durationMs);
+                int slot = sEnd - sStart;
+                if (sHold > slot) sHold = slot;
+                if (sHold < 1)   sHold = 1;
+            } else {
+                sStart = s.startMs;
+                sHold  = s.holdMs;
+                sEnd   = s.endMs;
+            }
+
+            int absStart = sStart + cursor;
             if (absStart >= rs.totalMs) break;
 
             CompiledStep step = s;
             step.startMs = absStart;
-            step.holdMs  = (std::min)(s.holdMs, (std::max)(0, cycleEnd - absStart));
-            step.endMs   = (std::min)(s.endMs + cursor, cycleEnd);
+            step.holdMs  = (std::min)(sHold, (std::max)(0, cycleEnd - absStart));
+            step.endMs   = (std::min)(sEnd + cursor, cycleEnd);
 
             if (step.holdMs > 0)
                 result.steps.push_back(step);

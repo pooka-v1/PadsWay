@@ -81,23 +81,23 @@ The D-pad in DInput is usually a POV hat:
   "source_name": "8BitDo Pro 3 (D-mode)",
   "mode": "dinput",
   "buttons": {
-    "1":  "b",
-    "2":  "a",
-    "_3": "Rp (right paddle) — no Xbox equivalent, use in game profile",
-    "4":  "y",
-    "5":  "x",
-    "_6": "Lp (left paddle) — no Xbox equivalent, use in game profile",
-    "7":  "l1",
-    "8":  "r1",
-    "9":  { "type": "trigger", "target": "l2" },
-    "10": { "type": "trigger", "target": "r2" },
-    "11": "select",
-    "12": "start",
-    "13": "home",
-    "14": "l3",
-    "15": "r3",
-    "_17": "L4 — no Xbox equivalent, use in game profile",
-    "_18": "R4 — no Xbox equivalent, use in game profile"
+    "1":  { "physical": "b",      "virtual": "b"      },
+    "2":  { "physical": "a",      "virtual": "a"      },
+    "3":  { "physical": "rp"                          },
+    "4":  { "physical": "y",      "virtual": "y"      },
+    "5":  { "physical": "x",      "virtual": "x"      },
+    "6":  { "physical": "lp"                          },
+    "7":  { "physical": "l1",     "virtual": "l1"     },
+    "8":  { "physical": "r1",     "virtual": "r1"     },
+    "9":  { "physical": "l2",     "type": "trigger",  "target": "l2" },
+    "10": { "physical": "r2",     "type": "trigger",  "target": "r2" },
+    "11": { "physical": "select", "virtual": "select" },
+    "12": { "physical": "start",  "virtual": "start"  },
+    "13": { "physical": "home",   "virtual": "home"   },
+    "14": { "physical": "l3",     "virtual": "l3"     },
+    "15": { "physical": "r3",     "virtual": "r3"     },
+    "17": { "physical": "l4"                          },
+    "18": { "physical": "r4"                          }
   },
   "axes": {
     "dwXpos": { "target": "left_x",  "invert": false },
@@ -245,15 +245,34 @@ Use the **Scanner tab** in VirtualPad to identify which number lights up when pr
 | `"l3"` | Left stick click |
 | `"r3"` | Right stick click |
 
+### Button format
+
+Each button entry is an object with two independent concepts:
+
+- **`physical`** — the name of the button on the physical controller body (`"a"`, `"l4"`, `"rp"`...).
+  Used for visual tracking in the UI. Survives profile overrides — a button always knows what it is physically, regardless of what action is assigned to it.
+- **`virtual`** / action — what happens when the button is pressed.
+
+```json
+"7":  { "physical": "l1", "virtual": "l1" }           // normal button: physical l1 → virtual l1
+"3":  { "physical": "rp" }                             // no Xbox equivalent — visual only
+"9":  { "physical": "l2", "type": "trigger", "target": "l2" }
+```
+
+The short string format `"1": "b"` is still supported for controllers without extra buttons
+and is equivalent to `{ "physical": "b", "virtual": "b" }`.
+
 ### Button action types
 
 ```json
-"N": "a"                                      // simple virtual button
-"N": { "type": "trigger", "target": "l2" }   // digital trigger (L2 or R2)
-"N": { "type": "macro",   "name": "MacroName" }
-"N": { "type": "bot",     "name": "LightningBot" }
-"N": { "type": "keyboard",    "keys": ["alt", "tab"] }
-"N": { "type": "mouse_click", "button": "left" }
+"N": "b"                                              // short form (physical = virtual = "b")
+"N": { "physical": "b", "virtual": "b" }             // explicit
+"N": { "physical": "rp" }                             // visual only, no virtual output
+"N": { "physical": "l2", "type": "trigger", "target": "l2" }
+"N": { "physical": "rp", "type": "macro",   "name": "MacroName" }
+"N": { "physical": "lp", "type": "bot",     "name": "LightningBot" }
+"N": { "physical": "home", "type": "keyboard",    "keys": ["alt", "tab"] }
+"N": { "physical": "l3",   "type": "mouse_click", "button": "left" }
 ```
 
 #### Action `keyboard` — keyboard shortcuts
@@ -341,21 +360,28 @@ but VirtualPad's convention is `+1.0 = up`. Adjust based on what you see in the 
 `controllers.json` is the **pure base config**: each physical button maps to its standard Xbox 360 equivalent.
 Macros, bots, and special assignments go in a separate JSON file per game.
 
-### Why buttons like Lp, Rp, L4, R4 are not in the base
+### Buttons with no Xbox equivalent (Lp, Rp, L4, R4)
 
-Some controllers have buttons that don't exist in the Xbox 360 protocol (no virtual equivalent).
-In the base config they are left unmapped — they have no effect. They are used exclusively from game profiles, assigned to macros or bots.
+Some controllers have buttons that don't exist in the Xbox 360 protocol — they cannot produce virtual output.
+They are declared in the base config with only a `physical` field (no `virtual`):
 
-Example — Pro 3 D-mode (WinMM buttons):
+```json
+"3":  { "physical": "rp" },
+"17": { "physical": "l4" }
+```
 
-| WinMM button | Physical | In base | Reason |
+This means:
+- They **light up in the UI** whenever pressed, regardless of what action is assigned.
+- They have **no virtual Xbox output** by default.
+- In a game profile they can be assigned to macros, bots, keyboard combos, etc.
+- Even with a profile active, the UI still reflects that the physical button is pressed.
+
+| WinMM button | Physical | Virtual Xbox | Use |
 |---|---|---|---|
-| 3 | Rp (right paddle) | — | no Xbox 360 equivalent |
-| 6 | Lp (left paddle) | — | no Xbox 360 equivalent |
-| 17 | L4 | — | no Xbox 360 equivalent |
-| 18 | R4 | — | no Xbox 360 equivalent |
-
-> Future consideration: if `GamepadState` is extended with custom fields (l4, r4, lp, rp) and `ViGEmOutputAdapter` maps them, these buttons could have their own virtual function. For now, they are only useful as macro/bot triggers.
+| 3 | Rp (right paddle) | — | macro / bot in game profile |
+| 6 | Lp (left paddle) | — | macro / bot in game profile |
+| 17 | L4 | — | macro / keyboard in game profile |
+| 18 | R4 | — | macro / keyboard in game profile |
 
 ### Game profile format
 
@@ -390,12 +416,104 @@ Example — Pro 3 D-mode (WinMM buttons):
 
 ---
 
+## Layout Editor
+
+The **Layout** tab provides a visual editor for `data/pad_layouts.json`.
+
+### Opening a layout
+
+Click any layout name in the left panel to open it in the editor immediately.
+If there are unsaved changes, a confirmation dialog appears before switching.
+
+### Canvas interactions
+
+| Action | Result |
+|---|---|
+| **Single click** on a component | Selects it (highlighted in yellow). Properties appear in the right panel. |
+| **Click + drag** | Moves the selected component freely on the canvas. |
+| **Arrow keys** (with canvas focused) | Nudge 1 pixel per key press. |
+
+### Three panels
+
+**Left panel** — layout list and element list, each with its own independent scroll:
+- `[+ Button]` `[+ Dpad]` `[+ Analog]` `[+ Decoration]` — add a component of that type.
+- `[Delete element]` — removes the selected component.
+- `[Copy layout]` — duplicates the current layout as a starting point for a new one.
+- `[Save]` / `[Discard]` — save to `pad_layouts.json` (creates a `.bak` backup on first save if none exists) or discard all changes.
+- `[Pair controller]` — launches the Controller Binding Wizard (see below).
+
+Supported component types: `button`, `stick`, `dpad`, `touchpad`, `gyroscope`, `decoration`, `template`.
+The `gyroscope` component is visible in the Pads tab when the connected controller reports IMU data (e.g. DualShock 4 over USB). It requires no calibration — data is read automatically from fixed HID offsets.
+
+**Center panel** — canvas showing the pad layout at scale. Zones FRONT (bottom strip) and TOP (main area) are displayed with their components rendered live.
+
+**Right panel** — properties of the selected component:
+- **Position** `cx` / `cy` and **Size** `w` / `h` — numeric fields. Lock aspect ratio with the checkbox next to each pair.
+- **Image / Overlay** — combo boxes filtered by subfolder (`templates/`, `buttons/`, `cross/`, `analogics/`, `decorations/`). Selecting an image auto-fills the size from the image dimensions.
+- **State bindings** — `state`, `state_x`, `state_y`, `state_click`, `state_up/down/left/right` — combo boxes showing known `GamepadState` field names.
+- **Colors** — active/inactive colors for the base image and the overlay.
+
+### Dirty tracking
+
+A `*` indicator appears when there are unsaved changes. Switching layouts or closing the editor without saving triggers a confirmation dialog.
+
+---
+
+## Controller Binding Wizard
+
+The **Pair controller** button in the Layout Editor launches a step-by-step wizard to map a physical controller to the open layout and generate the corresponding entry in `data/controllers.json`.
+
+### How it works
+
+The wizard guides you through five stages:
+
+1. **Select controller** — lists all detected physical devices (WinMM and HID). The ViGEm virtual controller is automatically filtered out.
+2. **Name controller** — enter a friendly name. For WinMM controllers, toggle DInput ↔ XInput mode.
+3. **Bind buttons** — for each button/trigger/stick-click in the layout, the wizard shows the active image of that button as a visual reference and prompts you to press the corresponding physical button. A number overlay appears on the layout canvas as each button is bound.
+4. **Bind axes and triggers** — for each analog axis (left stick X/Y, right stick X/Y) and trigger (L2, R2), the wizard shows the active image of the component plus directional arrows indicating the expected movement direction.
+   - For **left stick X**: push fully to the **right**.
+   - For **left stick Y**: push fully **down**.
+   - For **right stick X/Y**: same convention.
+   - For **triggers**: press fully.
+   - **Gyroscope components are skipped** — gyroscope data is read automatically from fixed HID byte offsets and does not require any calibration step.
+5. **Review** — shows all bound buttons, axes, and D-pad. Confirm to save or restart from the name step.
+
+### Result
+
+Saving writes or replaces the entry in `data/controllers.json` by VID/PID. The Pads tab reloads the configuration automatically.
+
+### State map (`data/state_map.json`)
+
+The wizard uses `state_map.json` to know which physical button name (`physical`), which axis target (`axis_target`), and which prompt to show for each `GamepadState` field. Components whose `state` field has no entry in the state map are skipped silently.
+
+```json
+{
+  "state_map": {
+    "btnA":    { "physical": "a",   "type": "button" },
+    "leftX":   { "type": "axis",    "axis_target": "left_x",
+                 "prompt": "Push the left stick to the RIGHT",
+                 "invert_if_positive": false },
+    "dpadUp":  { "type": "dpad",    "direction": "up" }
+  }
+}
+```
+
+### Known issues (in progress)
+
+| Issue | Status |
+|---|---|
+| Left analog stick X axis capture may fail (pushing right not detected) | Under investigation |
+| Pads tab does not refresh until app restart after wizard saves | Under investigation |
+
+---
+
 ## Data files
 
 | File | Description |
 |---|---|
 | `data/controllers.json` | Base configuration for physical controllers |
 | `data/FinalFantasyX.json` | Game profile for FFX (overrides on top of base) |
+| `data/MonsterHunterStories2.json` | Game profile for MHS2 (overrides on top of base) |
 | `data/macros.json` | Reusable macro library |
 | `data/virtualpad.json` | VID/PID of the virtual controller created by ViGEm + log level |
 
@@ -538,5 +656,20 @@ Works the same over USB and Bluetooth (same VID/PID).
 | 13 | PS | home |
 | **14** | **Touchpad click** | **— no equivalent** |
 
-> L2 and R2 are independent analog triggers (dwUpos / dwVpos). Both can be pressed simultaneously.
-> Advanced DS4 features (touchpad XY, gyroscope, LEDs, rumble) pending for future phases.
+> L2 and R2 are independent analog triggers via HID (`hid_rx` / `hid_ry`). Both can be pressed simultaneously.
+> **USB fully supported**: buttons, analog sticks, analog triggers, touchpad (XY tracking + click, mouse emulation), gyroscope (X/Y/Z axes visible in the Pads tab).
+> **Bluetooth**: simplified report only (sticks + face buttons). Full BT support pending.
+
+---
+
+### 8BitDo Zero 2 — Bluetooth (VID:2DC8 PID:6006)
+
+⚠️ **Known limitation:** the Zero 2 shares VID and PID with the Pro 2 in Bluetooth mode.
+VirtualPad cannot distinguish between them — it will load the Pro 2 config for both.
+
+When running with the Zero 2, the D-pad is reported as 4 analog axes instead of a hat switch,
+so directional input does not work correctly with the Pro 2 profile.
+
+**Workaround:** pending investigation. Connect the controller and use the Scanner tab to inspect
+how the Zero 2 actually reports its axes and D-pad, then create a dedicated profile or add a
+distinguishing mechanism.

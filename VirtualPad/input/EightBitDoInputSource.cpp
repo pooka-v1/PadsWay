@@ -36,6 +36,10 @@ bool EightBitDoInputSource::read(GamepadState& state) {
         else if (name == "home")   state.btnHome  = value;
         else if (name == "l3")     state.btnL3    = value;
         else if (name == "r3")     state.btnR3    = value;
+        else if (name == "l4")     state.btnL4    = value;
+        else if (name == "r4")     state.btnR4    = value;
+        else if (name == "lp")     state.btnLP    = value;
+        else if (name == "rp")     state.btnRP    = value;
     };
 
     // Process all mapped buttons.
@@ -60,6 +64,14 @@ bool EightBitDoInputSource::read(GamepadState& state) {
         }
     }
 
+    // Estado visual físico — independiente de la acción asignada.
+    // Permite iluminar L4/R4/Lp/Rp aunque el perfil los tenga como Macro/Bot.
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.physical.empty()) continue;
+        bool pressed = (info.dwButtons & (1u << (bit - 1))) != 0;
+        setVirtualButton(action.physical, pressed);
+    }
+
     // Process all mapped axes.
     for (const auto& [source, mapping] : m_config.axes) {
         float v = normalizeAxis(getAxisValue(info, source));
@@ -75,6 +87,14 @@ bool EightBitDoInputSource::read(GamepadState& state) {
         }
         else if (mapping.target == "mouse_x") state.mouseX = v;
         else if (mapping.target == "mouse_y") state.mouseY = v;
+    }
+
+    // Estado visual físico — independiente de la acción asignada.
+    // Permite iluminar L4/R4/Lp/Rp aunque el perfil los tenga como Macro/Bot.
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.physical.empty()) continue;
+        bool pressed = (info.dwButtons & (1u << (bit - 1))) != 0;
+        setVirtualButton(action.physical, pressed);
     }
 
     if (m_config.dpad == "pov")
