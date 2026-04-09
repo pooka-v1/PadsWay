@@ -111,6 +111,12 @@ private:
     int      m_mappingFlashComp    = -1;  // componente virtual en flash de confirmación (-1 = ninguno)
     float    m_mappingFlashTimer   = 0.0f; // segundos restantes del flash
     std::unordered_map<std::string, std::string> m_mappingEdits;  // physShort → virtShort
+    // H9 — hardware mapping (hold to select, press to assign)
+    int          m_h9HoldComp    = -1;   // component being held for selection (-1 = none)
+    float        m_h9HoldTimer   = 0.0f; // seconds held so far
+    float        m_h9ErrorTimer  = 0.0f; // seconds left to show invalid-target error
+    GamepadState m_h9PrevPhysState{};    // previous frame physical state for edge detection
     PadTexture m_arrowRightTex;
     void saveMappingEdits();
+    void reloadMappingEdits();
 };

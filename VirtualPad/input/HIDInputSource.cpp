@@ -281,23 +281,27 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
         if (usages[i] >= 1 && usages[i] <= 32)
             m_lastButtonMask |= (1u << (usages[i] - 1));
 
+    // OR semantics: only set true, never overwrite with false.
+    // GamepadState starts zeroed each frame, so un-pressed buttons are already false.
+    // This allows multiple physical buttons to map to the same virtual target.
     auto setBtn = [&](const std::string& name, bool v) {
-        if      (name == "a")      state.btnA     = v;
-        else if (name == "b")      state.btnB     = v;
-        else if (name == "x")      state.btnX     = v;
-        else if (name == "y")      state.btnY     = v;
-        else if (name == "l1")     state.btnLB    = v;
-        else if (name == "r1")     state.btnRB    = v;
-        else if (name == "select") state.btnBack  = v;
-        else if (name == "start")  state.btnStart = v;
-        else if (name == "home")   state.btnHome  = v;
-        else if (name == "l3")     state.btnL3    = v;
-        else if (name == "r3")     state.btnR3    = v;
-        else if (name == "l4")        state.btnL4    = v;
-        else if (name == "r4")        state.btnR4    = v;
-        else if (name == "lp")        state.btnLP    = v;
-        else if (name == "rp")        state.btnRP    = v;
-        else if (name == "touch_btn") state.btnTouch = v;
+        if (!v) return;
+        if      (name == "a")         state.btnA     = true;
+        else if (name == "b")         state.btnB     = true;
+        else if (name == "x")         state.btnX     = true;
+        else if (name == "y")         state.btnY     = true;
+        else if (name == "l1")        state.btnLB    = true;
+        else if (name == "r1")        state.btnRB    = true;
+        else if (name == "select")    state.btnBack  = true;
+        else if (name == "start")     state.btnStart = true;
+        else if (name == "home")      state.btnHome  = true;
+        else if (name == "l3")        state.btnL3    = true;
+        else if (name == "r3")        state.btnR3    = true;
+        else if (name == "l4")        state.btnL4    = true;
+        else if (name == "r4")        state.btnR4    = true;
+        else if (name == "lp")        state.btnLP    = true;
+        else if (name == "rp")        state.btnRP    = true;
+        else if (name == "touch_btn") state.btnTouch = true;
     };
 
     // Physical display state: build separately using action.physical names.
@@ -328,6 +332,15 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
     }
     m_physicalState = physDisplay;
 
+    // Reset virtual button states before remapping so OR logic works correctly
+    // regardless of unordered_map iteration order.
+    state.btnA = state.btnB = state.btnX    = state.btnY   = false;
+    state.btnLB = state.btnRB = false;
+    state.btnBack = state.btnStart = state.btnHome = false;
+    state.btnL3 = state.btnR3 = false;
+    state.btnL4 = state.btnR4 = false;
+    state.btnLP = state.btnRP = state.btnTouch = false;
+
     // Virtual remapping: use action.name so ViGEm receives the mapped output.
     for (const auto& [bit, action] : m_config.buttons) {
         bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
@@ -336,8 +349,10 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
             setBtn(action.name, pressed);
             break;
         case ButtonActionType::Trigger:
-            if      (action.target == "l2") state.triggerL = pressed ? 1.0f : 0.0f;
-            else if (action.target == "r2") state.triggerR = pressed ? 1.0f : 0.0f;
+            if (pressed) {
+                if      (action.target == "l2") state.triggerL = 1.0f;
+                else if (action.target == "r2") state.triggerR = 1.0f;
+            }
             break;
         default: break;
         }

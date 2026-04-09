@@ -23,24 +23,36 @@ bool EightBitDoInputSource::read(GamepadState& state) {
 
     m_lastButtonMask = info.dwButtons;
 
-    // Apply a virtual button name to the corresponding GamepadState field.
+    // OR semantics: only set true, never overwrite with false.
+    // GamepadState starts zeroed each frame, so un-pressed buttons are already false.
+    // This allows multiple physical buttons to map to the same virtual target.
     auto setVirtualButton = [&](const std::string& name, bool value) {
-        if      (name == "a")      state.btnA     = value;
-        else if (name == "b")      state.btnB     = value;
-        else if (name == "x")      state.btnX     = value;
-        else if (name == "y")      state.btnY     = value;
-        else if (name == "l1")     state.btnLB    = value;
-        else if (name == "r1")     state.btnRB    = value;
-        else if (name == "select") state.btnBack  = value;
-        else if (name == "start")  state.btnStart = value;
-        else if (name == "home")   state.btnHome  = value;
-        else if (name == "l3")     state.btnL3    = value;
-        else if (name == "r3")     state.btnR3    = value;
-        else if (name == "l4")     state.btnL4    = value;
-        else if (name == "r4")     state.btnR4    = value;
-        else if (name == "lp")     state.btnLP    = value;
-        else if (name == "rp")     state.btnRP    = value;
+        if (!value) return;
+        if      (name == "a")      state.btnA     = true;
+        else if (name == "b")      state.btnB     = true;
+        else if (name == "x")      state.btnX     = true;
+        else if (name == "y")      state.btnY     = true;
+        else if (name == "l1")     state.btnLB    = true;
+        else if (name == "r1")     state.btnRB    = true;
+        else if (name == "select") state.btnBack  = true;
+        else if (name == "start")  state.btnStart = true;
+        else if (name == "home")   state.btnHome  = true;
+        else if (name == "l3")     state.btnL3    = true;
+        else if (name == "r3")     state.btnR3    = true;
+        else if (name == "l4")     state.btnL4    = true;
+        else if (name == "r4")     state.btnR4    = true;
+        else if (name == "lp")     state.btnLP    = true;
+        else if (name == "rp")     state.btnRP    = true;
     };
+
+    // Reset virtual button states before remapping so OR logic works correctly
+    // regardless of unordered_map iteration order.
+    state.btnA = state.btnB = state.btnX    = state.btnY   = false;
+    state.btnLB = state.btnRB = false;
+    state.btnBack = state.btnStart = state.btnHome = false;
+    state.btnL3 = state.btnR3 = false;
+    state.btnL4 = state.btnR4 = false;
+    state.btnLP = state.btnRP = false;
 
     // Process all mapped buttons.
     for (const auto& [bit, action] : m_config.buttons) {
@@ -53,8 +65,10 @@ bool EightBitDoInputSource::read(GamepadState& state) {
             float v = !action.axis.empty()
                 ? normalizeTrigger(getAxisValue(info, action.axis))
                 : (pressed ? 1.0f : 0.0f);
-            if      (action.target == "l2") state.triggerL = v;
-            else if (action.target == "r2") state.triggerR = v;
+            if (v > 0.0f) {
+                if      (action.target == "l2") state.triggerL = v;
+                else if (action.target == "r2") state.triggerR = v;
+            }
             break;
         }
         case ButtonActionType::Bot:

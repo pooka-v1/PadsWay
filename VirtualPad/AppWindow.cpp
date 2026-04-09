@@ -985,6 +985,26 @@ void AppWindow::renderPadsTab() {
 // ---------------------------------------------------------------------------
 
 // Tabla de traducción: nombre corto de controllers.json ↔ nombre de campo en GamepadState/layout
+static bool isStateActive(const GamepadState& s, const std::string& n) {
+    if (n == "btnA")     return s.btnA;
+    if (n == "btnB")     return s.btnB;
+    if (n == "btnX")     return s.btnX;
+    if (n == "btnY")     return s.btnY;
+    if (n == "btnLB")    return s.btnLB;
+    if (n == "btnRB")    return s.btnRB;
+    if (n == "btnBack")  return s.btnBack;
+    if (n == "btnStart") return s.btnStart;
+    if (n == "btnHome")  return s.btnHome;
+    if (n == "btnL3")    return s.btnL3;
+    if (n == "btnR3")    return s.btnR3;
+    if (n == "btnL4")    return s.btnL4;
+    if (n == "btnR4")    return s.btnR4;
+    if (n == "btnLP")    return s.btnLP;
+    if (n == "btnRP")    return s.btnRP;
+    if (n == "btnTouch") return s.btnTouch;
+    return false;
+}
+
 static const std::pair<const char*, const char*> kBtnNames[] = {
     {"a",         "btnA"},    {"b",         "btnB"},
     {"x",         "btnX"},    {"y",         "btnY"},
@@ -1037,6 +1057,21 @@ static void activateState(GamepadState& s, const std::string& name) {
 // Mapping subtab
 // ---------------------------------------------------------------------------
 
+void AppWindow::reloadMappingEdits() {
+    m_mappingEdits.clear();
+    for (const auto& cfg : m_controllerConfigs) {
+        if (cfg.vid == m_mappingActiveVid && cfg.pid == m_mappingActivePid) {
+            for (const auto& [idx, action] : cfg.buttons) {
+                if (action.type == ButtonActionType::VirtualButton &&
+                    !action.physical.empty() && !action.name.empty() &&
+                    action.physical != action.name)
+                    m_mappingEdits[action.physical] = action.name;
+            }
+            break;
+        }
+    }
+}
+
 void AppWindow::renderMappingSubtab() {
     // ── Pre-populate edits cuando cambia el mando activo ─────────────────────
     DeviceCandidate dev = m_engine.getActiveDevice();
@@ -1044,26 +1079,84 @@ void AppWindow::renderMappingSubtab() {
         m_mappingActiveVid   = dev.vid;
         m_mappingActivePid   = dev.pid;
         m_mappingSelPhysComp = -1;
-        m_mappingEdits.clear();
-        for (const auto& cfg : m_controllerConfigs) {
-            if (cfg.vid == dev.vid && cfg.pid == dev.pid) {
-                for (const auto& [idx, action] : cfg.buttons) {
-                    if (action.type == ButtonActionType::VirtualButton &&
-                        !action.physical.empty() && !action.name.empty() &&
-                        action.physical != action.name)
-                        m_mappingEdits[action.physical] = action.name;
+        reloadMappingEdits();
+    }
+
+    ImGui::Spacing();
+    ImVec2 mouse        = ImGui::GetIO().MousePos;
+    bool   mouseClicked = ImGui::IsMouseClicked(0);
+    float  dt           = ImGui::GetIO().DeltaTime;
+
+    // ── H9: lógica de mapping desde el mando ─────────────────────────────────
+    {
+        GamepadState physNow = m_engine.getLastState();
+        const auto& physComps = m_padView.getLayout().components;
+
+        if (m_h9ErrorTimer > 0.0f)
+            m_h9ErrorTimer -= dt;
+
+        if (m_mappingSelPhysComp < 0) {
+            // Paso 1: detectar botón mantenido 2s → seleccionarlo
+            int activeComp = -1;
+            for (int i = 0; i < (int)physComps.size(); ++i) {
+                if (physComps[i].type != "button") continue;
+                if (isStateActive(physNow, physComps[i].state)) { activeComp = i; break; }
+            }
+            if (activeComp >= 0) {
+                if (m_h9HoldComp != activeComp) {
+                    m_h9HoldComp  = activeComp;
+                    m_h9HoldTimer = 0.0f;
+                } else {
+                    m_h9HoldTimer += dt;
+                    if (m_h9HoldTimer >= 1.0f) {
+                        m_mappingSelPhysComp = activeComp;
+                        m_h9HoldComp  = -1;
+                        m_h9HoldTimer = 0.0f;
+                    }
+                }
+            } else {
+                m_h9HoldComp  = -1;
+                m_h9HoldTimer = 0.0f;
+            }
+        } else {
+            // Paso 2: detectar rising edge en botón diferente → asignar
+            static const char* kInvalidVirt[] = { "l4", "r4", "lp", "rp", "touch_btn" };
+            const std::string& selState = physComps[m_mappingSelPhysComp].state;
+
+            for (int i = 0; i < (int)physComps.size(); ++i) {
+                if (physComps[i].type != "button") continue;
+                const std::string& compState = physComps[i].state;
+                bool wasActive = isStateActive(m_h9PrevPhysState, compState);
+                bool isActive  = isStateActive(physNow, compState);
+                if (!isActive || wasActive) continue;  // solo rising edge
+
+                std::string virtShort = stateToShort(compState);
+                bool invalid = false;
+                for (auto* s : kInvalidVirt) if (virtShort == s) { invalid = true; break; }
+
+                if (invalid) {
+                    m_h9ErrorTimer = 2.0f;
+                } else {
+                    std::string physShort = stateToShort(selState);
+                    if (!physShort.empty() && !virtShort.empty()) {
+                        auto it = m_mappingEdits.find(physShort);
+                        bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
+                        m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
+                        int flashComp = findCompByState(m_virtualPadView.getLayout(), shortToState(virtShort));
+                        m_mappingFlashComp  = alreadyAssigned ? -1 : flashComp;
+                        m_mappingFlashTimer = alreadyAssigned ? 0.0f : 0.5f;
+                    }
+                    m_mappingSelPhysComp = -1;
                 }
                 break;
             }
         }
+
+        m_h9PrevPhysState = physNow;
     }
 
-    ImGui::Spacing();
-    ImVec2 mouse       = ImGui::GetIO().MousePos;
-    bool   mouseClicked = ImGui::IsMouseClicked(0);
-
     // ── Construir estados de display ──────────────────────────────────────────
-    m_mappingFlashTimer -= ImGui::GetIO().DeltaTime;
+    m_mappingFlashTimer -= dt;
     if (m_mappingFlashTimer <= 0.0f) m_mappingFlashComp = -1;
 
     GamepadState physDisplay{};
@@ -1120,6 +1213,64 @@ void AppWindow::renderMappingSubtab() {
     ImGui::SetWindowFontScale(1.0f);
     ImGui::EndGroup();
 
+    // ── Marcos de foco y texto instruccional ──────────────────────────────────
+    {
+        constexpr ImU32 kFrameColor = IM_COL32(255, 220, 0, 200);
+        constexpr float kThickness  = 2.5f;
+        constexpr float kPad        = 4.0f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+
+        const auto& physL = m_padView.getLayout();
+        const auto& virtL = m_virtualPadView.getLayout();
+        float physH = physL.FrontH + physL.TopH;
+        float virtH = virtL.FrontH + virtL.TopH;
+
+        if (m_mappingSelPhysComp < 0) {
+            // Reposo: marco alrededor del físico
+            ImVec2 rMin = { m_mappingPhysOrigin.x - kPad, m_mappingPhysOrigin.y - kPad };
+            ImVec2 rMax = { m_mappingPhysOrigin.x + physL.W + kPad, m_mappingPhysOrigin.y + physH + kPad };
+            dl->AddRect(rMin, rMax, kFrameColor, 4.0f, 0, kThickness);
+        } else {
+            // Paso 1: marco alrededor del virtual
+            ImVec2 rMin = { m_mappingVirtOrigin.x - kPad, m_mappingVirtOrigin.y - kPad };
+            ImVec2 rMax = { m_mappingVirtOrigin.x + virtL.W + kPad, m_mappingVirtOrigin.y + virtH + kPad };
+            dl->AddRect(rMin, rMax, kFrameColor, 4.0f, 0, kThickness);
+        }
+    }
+
+    // Texto instruccional centrado debajo de los mandos
+    ImGui::Spacing();
+    {
+        const char* msg;
+        ImVec4      col = { 1.0f, 0.86f, 0.0f, 1.0f };  // amarillo
+        if (m_h9ErrorTimer > 0.0f) {
+            msg = "Ese botón no tiene equivalente Xbox — elige otro";
+            col = { 1.0f, 0.3f, 0.3f, 1.0f };  // rojo
+        } else if (m_mappingSelPhysComp < 0 && m_h9HoldComp >= 0) {
+            msg = "Mantén pulsado para seleccionar";
+        } else if (m_mappingSelPhysComp < 0) {
+            msg = "Elige el botón que quieres reasignar";
+        } else {
+            msg = "Elige dónde lo quieres asignar en el virtual";
+        }
+
+        float availW = m_mappingVirtOrigin.x + m_virtualPadView.getLayout().W - m_mappingPhysOrigin.x;
+        ImGui::SetWindowFontScale(1.35f);
+        float textW  = ImGui::CalcTextSize(msg).x;
+        float offsetX = (availW - textW) * 0.5f;
+        if (offsetX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+        ImGui::TextColored(col, "%s", msg);
+        ImGui::SetWindowFontScale(1.0f);
+
+        // Barra de progreso del hold
+        if (m_mappingSelPhysComp < 0 && m_h9HoldComp >= 0 && m_h9HoldTimer > 0.0f) {
+            constexpr float kBarW = 160.0f;
+            float barOffX = (availW - kBarW) * 0.5f;
+            if (barOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + barOffX);
+            ImGui::ProgressBar(m_h9HoldTimer / 1.0f, { kBarW, 6.0f }, "");
+        }
+    }
+
     // ── Gestión de clicks ─────────────────────────────────────────────────────
     if (mouseClicked) {
         int physHit = m_padView.hitTest(mouse, m_mappingPhysOrigin);
@@ -1144,12 +1295,21 @@ void AppWindow::renderMappingSubtab() {
         }
     }
 
-    // ── Guardar ───────────────────────────────────────────────────────────────
+    // ── Guardar / Cancelar ────────────────────────────────────────────────────
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
     if (ImGui::Button("Guardar mapping##mapSave", { 160.0f, 0.0f }))
         saveMappingEdits();
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Button,        { 0.35f, 0.35f, 0.35f, 1.0f });
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.45f, 0.45f, 0.45f, 1.0f });
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  { 0.25f, 0.25f, 0.25f, 1.0f });
+    if (ImGui::Button("Cancelar##mapCancel", { 100.0f, 0.0f })) {
+        m_mappingSelPhysComp = -1;
+        reloadMappingEdits();
+    }
+    ImGui::PopStyleColor(3);
 }
 
 // ---------------------------------------------------------------------------

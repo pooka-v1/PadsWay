@@ -53,10 +53,12 @@
           "virtual": "r3"
         },
         "17": {
-          "physical": "l4"
+          "physical": "l4",
+          "virtual": "r1"
         },
         "18": {
-          "physical": "r4"
+          "physical": "r4",
+          "virtual": "l1"
         },
         "2": {
           "physical": "a",
