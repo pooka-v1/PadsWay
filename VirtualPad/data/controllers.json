@@ -184,25 +184,29 @@
         },
         "hid_rz": {
           "invert": true,
+          "stick_id": "right_y",
           "target": "right_y"
         },
         "hid_x": {
           "invert": false,
+          "stick_id": "left_x",
           "target": "left_x"
         },
         "hid_y": {
           "invert": true,
+          "stick_id": "left_y",
           "target": "left_y"
         },
         "hid_z": {
           "invert": false,
+          "stick_id": "right_x",
           "target": "right_x"
         }
       },
       "buttons": {
         "1": {
           "physical": "a",
-          "virtual": "b"
+          "virtual": "a"
         },
         "11": {
           "physical": "select",
@@ -213,7 +217,8 @@
           "virtual": "start"
         },
         "13": {
-          "physical": "home"
+          "physical": "home",
+          "virtual": "home"
         },
         "14": {
           "physical": "l3",
@@ -237,11 +242,11 @@
         },
         "4": {
           "physical": "x",
-          "virtual": "y"
+          "virtual": "r3"
         },
         "5": {
           "physical": "y",
-          "virtual": "x"
+          "virtual": "dpad_right"
         },
         "6": {
           "keys": [
@@ -261,6 +266,25 @@
         }
       },
       "dpad": "hid_hat",
+      "dpad_remap": {
+        "down": {
+          "keys": [
+            "k"
+          ],
+          "physical": "dpad_down",
+          "type": "keyboard"
+        },
+        "left": {
+          "button": "right",
+          "physical": "dpad_left",
+          "type": "mouse_click"
+        },
+        "right": {
+          "name": "LuluOverdrive",
+          "physical": "dpad_right",
+          "type": "macro"
+        }
+      },
       "layout_id": "pro2_ps",
       "mode": "hid",
       "pid": "6006",

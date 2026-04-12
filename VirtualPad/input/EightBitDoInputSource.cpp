@@ -87,6 +87,10 @@ bool EightBitDoInputSource::read(GamepadState& state) {
     }
 
     // Process all mapped axes.
+    bool hasAxisDpad = false;
+    for (const auto& [source, mapping] : m_config.axes)
+        if (mapping.target == "dpad_x" || mapping.target == "dpad_y") { hasAxisDpad = true; break; }
+
     for (const auto& [source, mapping] : m_config.axes) {
         float v = normalizeAxis(getAxisValue(info, source));
         if (mapping.invert) v = -v;
@@ -101,6 +105,18 @@ bool EightBitDoInputSource::read(GamepadState& state) {
         }
         else if (mapping.target == "mouse_x") state.mouseX = v;
         else if (mapping.target == "mouse_y") state.mouseY = v;
+        else if (mapping.target == "dpad_x") {
+            state.dpadLeft  = v < -mapping.threshold;
+            state.dpadRight = v >  mapping.threshold;
+        }
+        else if (mapping.target == "dpad_y") {
+            state.dpadUp   = v < -mapping.threshold;
+            state.dpadDown = v >  mapping.threshold;
+        }
+        else if (mapping.target == "btn_dir") {
+            if (!mapping.btnNeg.empty()) setVirtualButton(mapping.btnNeg, v < -mapping.threshold);
+            if (!mapping.btnPos.empty()) setVirtualButton(mapping.btnPos, v >  mapping.threshold);
+        }
     }
 
     // Estado visual físico — independiente de la acción asignada.
@@ -111,7 +127,7 @@ bool EightBitDoInputSource::read(GamepadState& state) {
         setVirtualButton(action.physical, pressed);
     }
 
-    if (m_config.dpad == "pov")
+    if (!hasAxisDpad && m_config.dpad == "pov")
         parsePOV(info.dwPOV, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
 
     // If both digital triggers are pressed simultaneously, cancel each other out.
@@ -119,6 +135,85 @@ bool EightBitDoInputSource::read(GamepadState& state) {
     if (state.triggerL > 0.0f && state.triggerR > 0.0f) {
         state.triggerL = 0.0f;
         state.triggerR = 0.0f;
+    }
+
+    // ── axis_actions: per-direction half-axis processing ─────────────────────
+    m_activeAxisActions.clear();
+    if (!m_config.axis_actions.empty()) {
+        auto setVBtn = [&](const std::string& name, bool val) {
+            if (!val) return;
+            if      (name == "a")      state.btnA     = true;
+            else if (name == "b")      state.btnB     = true;
+            else if (name == "x")      state.btnX     = true;
+            else if (name == "y")      state.btnY     = true;
+            else if (name == "l1")     state.btnLB    = true;
+            else if (name == "r1")     state.btnRB    = true;
+            else if (name == "select") state.btnBack  = true;
+            else if (name == "start")  state.btnStart = true;
+            else if (name == "home")   state.btnHome  = true;
+            else if (name == "l3")     state.btnL3    = true;
+            else if (name == "r3")     state.btnR3    = true;
+            else if (name == "l4")     state.btnL4    = true;
+            else if (name == "r4")     state.btnR4    = true;
+            else if (name == "lp")     state.btnLP    = true;
+            else if (name == "rp")     state.btnRP    = true;
+        };
+
+        for (const auto& [source, mapping] : m_config.axes) {
+            float v = normalizeAxis(getAxisValue(info, source));
+            if (mapping.invert) v = -v;
+
+            auto processHalf = [&](const std::string& key, float halfV) {
+                auto ait = m_config.axis_actions.find(key);
+                if (ait == m_config.axis_actions.end()) return;
+                const HalfAxisAction& ha = ait->second;
+                float absV = std::abs(halfV);
+
+                switch (ha.type) {
+                case HalfAxisActionType::Analog: {
+                    float outV = absV * ha.scale;
+                    if (ha.outDir == "neg") outV = -outV;
+                    if      (ha.target == "left_x")  state.leftX  = outV;
+                    else if (ha.target == "left_y")  state.leftY  = outV;
+                    else if (ha.target == "right_x") state.rightX = outV;
+                    else if (ha.target == "right_y") state.rightY = outV;
+                    break;
+                }
+                case HalfAxisActionType::VirtualButton:
+                    if (absV > ha.threshold) setVBtn(ha.target, true);
+                    break;
+                case HalfAxisActionType::Dpad:
+                    if (absV > ha.threshold) {
+                        if      (ha.target == "up")    state.dpadUp    = true;
+                        else if (ha.target == "down")  state.dpadDown  = true;
+                        else if (ha.target == "left")  state.dpadLeft  = true;
+                        else if (ha.target == "right") state.dpadRight = true;
+                    }
+                    break;
+                case HalfAxisActionType::Macro:
+                case HalfAxisActionType::Keyboard:
+                case HalfAxisActionType::Mouse:
+                    if (absV > ha.threshold)
+                        m_activeAxisActions.push_back(key);
+                    break;
+                }
+            };
+
+            if (v >= 0.0f) processHalf(source + "_pos", v);
+            else           processHalf(source + "_neg", v);
+        }
+    }
+
+    // Button → dpad remapping: after POV and axis_actions so it only affects
+    // virtual output and isn't overwritten by physical dpad processing.
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.type != ButtonActionType::VirtualButton) continue;
+        bool pressed = (info.dwButtons & (1u << (bit - 1))) != 0;
+        if (!pressed) continue;
+        if      (action.name == "dpad_up")    state.dpadUp    = true;
+        else if (action.name == "dpad_down")  state.dpadDown  = true;
+        else if (action.name == "dpad_left")  state.dpadLeft  = true;
+        else if (action.name == "dpad_right") state.dpadRight = true;
     }
 
     return true;

@@ -23,6 +23,7 @@ public:
     DWORD       getLastButtonMask()   const override { return m_lastButtonMask; }
     void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
     GamepadState getPhysicalState()   const override { return m_physicalState; }
+    std::vector<std::string> getActiveAxisActions() const override { return m_activeAxisActions; }
 
 private:
     HANDLE           m_device         = INVALID_HANDLE_VALUE;
@@ -40,7 +41,8 @@ private:
     float            m_lastTouchX      = 0.0f;
     float            m_lastTouchY      = 0.0f;
     bool             m_lastTouchActive = false;
-    GamepadState     m_physicalState;   // estado físico (action.physical), capturado antes del remapping virtual
+    GamepadState             m_physicalState;      // physical display state (pre-remapping)
+    std::vector<std::string> m_activeAxisActions;  // axis_action keys active this frame (for PadEngine edge detection)
 
     struct ValueRange { LONG logMin; LONG logMax; USHORT bitSize; };
     std::unordered_map<USHORT, ValueRange> m_valueCaps; // HID usage → logical range

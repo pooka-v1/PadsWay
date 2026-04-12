@@ -16,11 +16,13 @@ public:
     const char* getName()           const override { return m_config.source_name.c_str(); }
     DWORD       getLastButtonMask() const override { return m_lastButtonMask; }
     void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
+    std::vector<std::string> getActiveAxisActions() const override { return m_activeAxisActions; }
 
 private:
     UINT             m_joyId;
     ControllerConfig m_config;
     DWORD            m_lastButtonMask = 0;
+    std::vector<std::string> m_activeAxisActions;
 
     static DWORD getAxisValue(const JOYINFOEX& info, const std::string& source);
     static float normalizeAxis(DWORD value);

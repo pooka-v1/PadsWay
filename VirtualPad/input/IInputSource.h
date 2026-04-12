@@ -1,6 +1,8 @@
 #pragma once
 
 #include <windows.h>
+#include <vector>
+#include <string>
 #include "../GamepadState.h"
 #include "ControllerConfig.h"
 
@@ -35,4 +37,8 @@ public:
     // Returns the physical button state (action.physical names) from the last read().
     // Used by the UI to display the physical pad independently of the virtual remapping.
     virtual GamepadState getPhysicalState() const { return GamepadState{}; }
+
+    // Returns the axis_action keys that are currently active (threshold exceeded) after the
+    // last read(). Used by PadEngine for Macro/Keyboard/Mouse edge-detection on axis directions.
+    virtual std::vector<std::string> getActiveAxisActions() const { return {}; }
 };

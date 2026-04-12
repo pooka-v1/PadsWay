@@ -217,7 +217,11 @@ bool HIDInputSource::read(GamepadState& state) {
         spdlog::debug("[HID][raw] {}", raw);
     }
 
-    if (m_config.dpad == "hid_hat") {
+    bool hasAxisDpad = false;
+    for (const auto& [src, m] : m_config.axes)
+        if (m.target == "dpad_x" || m.target == "dpad_y") { hasAxisDpad = true; break; }
+
+    if (!hasAxisDpad && m_config.dpad == "hid_hat") {
         ULONG hatValue = 0xFFFFFFFF; // default = out of range = neutral
         NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
                                                 &hatValue, PREPARSED, buf, bufLen);
@@ -244,6 +248,60 @@ bool HIDInputSource::read(GamepadState& state) {
         } else {
             parseHIDDpad(hatValue, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
         }
+    }
+
+    // Copy physical dpad directions (hat switch only — before button remapping)
+    m_physicalState.dpadUp    = state.dpadUp;
+    m_physicalState.dpadDown  = state.dpadDown;
+    m_physicalState.dpadLeft  = state.dpadLeft;
+    m_physicalState.dpadRight = state.dpadRight;
+
+    // Apply dpad remapping: snapshot active directions, then map each to its virtual target
+    if (!m_config.dpadRemap.empty()) {
+        bool wasUp    = state.dpadUp;
+        bool wasDown  = state.dpadDown;
+        bool wasLeft  = state.dpadLeft;
+        bool wasRight = state.dpadRight;
+
+        auto applyRemap = [&](bool active, const std::string& dir,
+                              bool& srcFlag) {
+            if (!active) return;
+            auto it = m_config.dpadRemap.find(dir);
+            if (it == m_config.dpadRemap.end()) return;
+            srcFlag = false;  // clear original direction
+            const std::string& v = it->second;
+            if      (v == "a")          state.btnA     = true;
+            else if (v == "b")          state.btnB     = true;
+            else if (v == "x")          state.btnX     = true;
+            else if (v == "y")          state.btnY     = true;
+            else if (v == "l1")         state.btnLB    = true;
+            else if (v == "r1")         state.btnRB    = true;
+            else if (v == "select")     state.btnBack  = true;
+            else if (v == "start")      state.btnStart = true;
+            else if (v == "home")       state.btnHome  = true;
+            else if (v == "l3")         state.btnL3    = true;
+            else if (v == "r3")         state.btnR3    = true;
+            else if (v == "dpad_up")    state.dpadUp    = true;
+            else if (v == "dpad_down")  state.dpadDown  = true;
+            else if (v == "dpad_left")  state.dpadLeft  = true;
+            else if (v == "dpad_right") state.dpadRight = true;
+        };
+        applyRemap(wasUp,    "up",    state.dpadUp);
+        applyRemap(wasDown,  "down",  state.dpadDown);
+        applyRemap(wasLeft,  "left",  state.dpadLeft);
+        applyRemap(wasRight, "right", state.dpadRight);
+    }
+
+    // Button → dpad remapping: after physical-state copy and dpadRemap,
+    // so it only affects virtual output and isn't intercepted by dpadRemap.
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.type != ButtonActionType::VirtualButton) continue;
+        bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
+        if (!pressed) continue;
+        if      (action.name == "dpad_up")    state.dpadUp    = true;
+        else if (action.name == "dpad_down")  state.dpadDown  = true;
+        else if (action.name == "dpad_left")  state.dpadLeft  = true;
+        else if (action.name == "dpad_right") state.dpadRight = true;
     }
 
     return true;
@@ -306,7 +364,9 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
 
     // Physical display state: build separately using action.physical names.
     // Must run BEFORE virtual loop so display and ViGEm output stay independent.
-    GamepadState physDisplay = state;  // inherit axes already applied
+    // Do NOT inherit from state here — state has last frame's remapped axes, not physical ones.
+    // Axis physical values are written by applyAxes() using stickId (physical position).
+    GamepadState physDisplay = {};
     auto setPhys = [&](const std::string& name, bool v) {
         if      (name == "a")         physDisplay.btnA     = v;
         else if (name == "b")         physDisplay.btnB     = v;
@@ -365,6 +425,22 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
 }
 
 void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
+    // OR-semantics button setter (same as setBtn in applyButtons; needed for btn_dir target)
+    auto setBtn = [&](const std::string& name, bool v) {
+        if (!v) return;
+        if      (name == "a")         state.btnA     = true;
+        else if (name == "b")         state.btnB     = true;
+        else if (name == "x")         state.btnX     = true;
+        else if (name == "y")         state.btnY     = true;
+        else if (name == "l1")        state.btnLB    = true;
+        else if (name == "r1")        state.btnRB    = true;
+        else if (name == "select")    state.btnBack  = true;
+        else if (name == "start")     state.btnStart = true;
+        else if (name == "home")      state.btnHome  = true;
+        else if (name == "l3")        state.btnL3    = true;
+        else if (name == "r3")        state.btnR3    = true;
+    };
+
     // Log first raw report bytes once to diagnose BT vs USB report format
     if (m_readCount == 1) {
         ULONG dumpLen = (bufLen < 24) ? bufLen : 24;
@@ -412,6 +488,16 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
         float v = normalizeHIDAxis(au.usage, rawValue);
         if (mapping.invert) v = -v;
 
+        // Physical display: write to stickId position (physical axis), not target (virtual axis).
+        // This ensures the physical pad shows the stick that is actually moving on the hardware,
+        // regardless of where it is routed by the user's mapping.
+        if (!mapping.stickId.empty()) {
+            if      (mapping.stickId == "left_x")  m_physicalState.leftX  = v;
+            else if (mapping.stickId == "left_y")  m_physicalState.leftY  = v;
+            else if (mapping.stickId == "right_x") m_physicalState.rightX = v;
+            else if (mapping.stickId == "right_y") m_physicalState.rightY = v;
+        }
+
         if      (mapping.target == "left_x")          state.leftX   = v;
         else if (mapping.target == "left_y")          state.leftY   = v;
         else if (mapping.target == "right_x")         state.rightX  = v;
@@ -424,6 +510,79 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
         }
         else if (mapping.target == "mouse_x") state.mouseX = v;
         else if (mapping.target == "mouse_y") state.mouseY = v;
+        else if (mapping.target == "dpad_x") {
+            state.dpadLeft  = v < -mapping.threshold;
+            state.dpadRight = v >  mapping.threshold;
+        }
+        else if (mapping.target == "dpad_y") {
+            state.dpadUp   = v < -mapping.threshold;
+            state.dpadDown = v >  mapping.threshold;
+        }
+        else if (mapping.target == "btn_dir") {
+            if (!mapping.btnNeg.empty()) setBtn(mapping.btnNeg, v < -mapping.threshold);
+            if (!mapping.btnPos.empty()) setBtn(mapping.btnPos, v >  mapping.threshold);
+        }
+    }
+
+    // ── axis_actions: per-direction half-axis processing ─────────────────────
+    // For each axis that has entries in axis_actions, process positive and negative halves.
+    // This runs after whole-axis processing so both can coexist during transition.
+    m_activeAxisActions.clear();
+    for (const auto& [source, mapping] : m_config.axes) {
+        if (m_config.axis_actions.empty()) break;  // fast path: nothing to do
+
+        AxisUsage au = usageFromAxisName(source);
+        if (au.usage == 0) continue;
+        auto pit = m_usagePage.find(au.usage);
+        USHORT page = (pit != m_usagePage.end()) ? pit->second : au.page;
+        ULONG rawValue = 0;
+        if (HidP_GetUsageValue(HidP_Input, page, 0, au.usage, &rawValue, PREPARSED, buf, bufLen)
+            != HIDP_STATUS_SUCCESS) continue;
+
+        float v = normalizeHIDAxis(au.usage, rawValue);
+        if (mapping.invert) v = -v;
+
+        // Check positive half-axis action
+        auto processHalf = [&](const std::string& key, float halfV) {
+            auto ait = m_config.axis_actions.find(key);
+            if (ait == m_config.axis_actions.end()) return;
+            const HalfAxisAction& ha = ait->second;
+            float absV = std::abs(halfV);
+
+            switch (ha.type) {
+            case HalfAxisActionType::Analog: {
+                // Proportional: drive the target virtual half-axis with absV * scale
+                float outV = absV * ha.scale;
+                if (ha.outDir == "neg") outV = -outV;
+                if      (ha.target == "left_x")  state.leftX  = outV;
+                else if (ha.target == "left_y")  state.leftY  = outV;
+                else if (ha.target == "right_x") state.rightX = outV;
+                else if (ha.target == "right_y") state.rightY = outV;
+                break;
+            }
+            case HalfAxisActionType::VirtualButton:
+                if (absV > ha.threshold) setBtn(ha.target, true);
+                break;
+            case HalfAxisActionType::Dpad:
+                if (absV > ha.threshold) {
+                    if      (ha.target == "up")    state.dpadUp    = true;
+                    else if (ha.target == "down")  state.dpadDown  = true;
+                    else if (ha.target == "left")  state.dpadLeft  = true;
+                    else if (ha.target == "right") state.dpadRight = true;
+                }
+                break;
+            case HalfAxisActionType::Macro:
+            case HalfAxisActionType::Keyboard:
+            case HalfAxisActionType::Mouse:
+                // Handled in PadEngine via getActiveAxisActions()
+                if (absV > ha.threshold)
+                    m_activeAxisActions.push_back(key);
+                break;
+            }
+        };
+
+        if (v >= 0.0f) processHalf(source + "_pos", v);
+        else           processHalf(source + "_neg", v);
     }
 }
 

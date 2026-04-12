@@ -7,6 +7,7 @@
 #include <mmsystem.h>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 
 #include "input/EightBitDoInputSource.h"
@@ -587,13 +588,39 @@ void PadEngine::threadFunc() {
         std::unordered_map<int, bool>        kbPrevBtn;
         std::unordered_map<int, bool>        mousePrevBtn;
 
+        // Axis-action equivalents (keyed by "source_pos"/"source_neg")
+        std::unordered_map<std::string, Macro>       axisMacros;
+        std::unordered_map<std::string, bool>        axisMacroPrev;
+        std::unordered_map<std::string, std::string> axisMacroNames;
+        std::unordered_map<std::string, bool>        axisKbPrev;
+        std::unordered_map<std::string, bool>        axisMousePrev;
+
+        // Dpad H5 actions (keyed by "up"/"down"/"left"/"right")
+        std::unordered_map<std::string, Macro>       dpadMacros;
+        std::unordered_map<std::string, bool>        dpadMacroPrev;
+        std::unordered_map<std::string, std::string> dpadMacroNames;
+        std::unordered_map<std::string, bool>        dpadKbPrev;
+        std::unordered_map<std::string, bool>        dpadMousePrev;
+
         auto initMacros = [&]() {
             macros.clear();      macroPrevBtn.clear(); macroNames.clear();
             macroRotCount.clear(); macroLastRX.clear(); macroLastRY.clear();
             kbPrevBtn.clear();   mousePrevBtn.clear();
+            axisMacros.clear();  axisMacroPrev.clear(); axisMacroNames.clear();
+            axisKbPrev.clear();  axisMousePrev.clear();
+            dpadMacros.clear();  dpadMacroPrev.clear(); dpadMacroNames.clear();
+            dpadKbPrev.clear();  dpadMousePrev.clear();
             for (const auto& [bit, action] : cfg->buttons) {
                 if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
                 if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
+            }
+            for (const auto& [dir, action] : cfg->dpadActions) {
+                if (action.type == ButtonActionType::Keyboard)   dpadKbPrev[dir]    = false;
+                if (action.type == ButtonActionType::MouseClick) dpadMousePrev[dir] = false;
+            }
+            for (const auto& [key, action] : cfg->axis_actions) {
+                if (action.type == HalfAxisActionType::Keyboard) axisKbPrev[key]    = false;
+                if (action.type == HalfAxisActionType::Mouse)    axisMousePrev[key] = false;
             }
             lightningBotBit = findBotBit(*cfg, "LightningBot");
             if (lightningBotBit > 0)
@@ -621,6 +648,51 @@ void PadEngine::threadFunc() {
                     spdlog::info("Macro '{}' assigned to button {}.", action.name, bit);
                 } catch (const std::exception& ex) {
                     spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+                }
+            }
+            // Dpad H5 macros
+            for (const auto& [dir, action] : cfg->dpadActions) {
+                if (action.type != ButtonActionType::Macro) continue;
+                std::string execution;
+                auto it = macroLibrary.find(action.name);
+                if (it == macroLibrary.end()) {
+                    spdlog::warn("Macro '{}' (dpad {}) not found in library.", action.name, dir);
+                    continue;
+                }
+                execution = it->second;
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    dpadMacros[dir]     = std::move(m);
+                    dpadMacroPrev[dir]  = false;
+                    dpadMacroNames[dir] = action.name;
+                    spdlog::info("Macro '{}' assigned to dpad {}.", action.name, dir);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+                }
+            }
+
+            // Axis-direction macros
+            for (const auto& [key, action] : cfg->axis_actions) {
+                if (action.type != HalfAxisActionType::Macro) continue;
+                std::string execution = action.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(action.target);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (axis {}) not found in library.", action.target, key);
+                        continue;
+                    }
+                    execution = it->second;
+                }
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    axisMacros[key]     = std::move(m);
+                    axisMacroPrev[key]  = false;
+                    axisMacroNames[key] = action.target;
+                    spdlog::info("Macro '{}' assigned to axis direction {}.", action.target, key);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.target, ex.what());
                 }
             }
         };
@@ -798,6 +870,117 @@ void PadEngine::threadFunc() {
                         pushEvent({ PadEventType::MouseAction, btn + " click", true });
                 }
                 prev = pressed;
+            }
+
+            // --- Axis-direction Macro / Keyboard / Mouse (edge-triggered) ---
+            {
+                auto activeAA = input->getActiveAxisActions();
+                std::unordered_set<std::string> activeAASet(activeAA.begin(), activeAA.end());
+
+                for (auto& [key, macro] : axisMacros) {
+                    bool active = activeAASet.count(key) > 0;
+                    bool& prev  = axisMacroPrev[key];
+                    if (active && !prev) {
+                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                            macro.start();
+                        else
+                            macro.toggle();
+                        if (macro.isActive())
+                            spdlog::info("[MACRO][AXIS] '{}' ON", axisMacroNames[key]);
+                        pushEvent({ PadEventType::MacroToggle, axisMacroNames[key], macro.isActive() });
+                    }
+                    if (!active && prev)
+                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                            macro.stop();
+                    prev = active;
+                    macro.tick(state);
+                }
+
+                for (auto& [key, prev] : axisKbPrev) {
+                    bool active = activeAASet.count(key) > 0;
+                    const HalfAxisAction& action = cfg->axis_actions.at(key);
+                    if (active && !prev) {
+                        sendKeyCombo(action.keys, true);
+                        std::string combo;
+                        for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                        pushEvent({ PadEventType::KeyboardAction, combo, true });
+                    }
+                    if (!active && prev) sendKeyCombo(action.keys, false);
+                    prev = active;
+                }
+
+                for (auto& [key, prev] : axisMousePrev) {
+                    bool active = activeAASet.count(key) > 0;
+                    if (active != prev) {
+                        const std::string& btn = cfg->axis_actions.at(key).mouseButton;
+                        sendMouseButton(btn, active);
+                        if (active)
+                            pushEvent({ PadEventType::MouseAction, btn + " click", true });
+                    }
+                    prev = active;
+                }
+            }
+
+            // --- Dpad H5 actions (Macro / Keyboard / Mouse, edge-triggered) ---
+            // Helper: get dpad active state by direction string
+            auto dpadActive = [&](const std::string& dir) -> bool {
+                if (dir == "up")    return state.dpadUp;
+                if (dir == "down")  return state.dpadDown;
+                if (dir == "left")  return state.dpadLeft;
+                if (dir == "right") return state.dpadRight;
+                return false;
+            };
+            for (auto& [dir, macro] : dpadMacros) {
+                bool active = dpadActive(dir);
+                bool& prev  = dpadMacroPrev[dir];
+                if (active && !prev) {
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
+                    else macro.toggle();
+                    if (macro.isActive())
+                        spdlog::info("[MACRO][DPAD] '{}' ON", dpadMacroNames[dir]);
+                    pushEvent({ PadEventType::MacroToggle, dpadMacroNames[dir], macro.isActive() });
+                }
+                if (!active && prev)
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
+                prev = active;
+                macro.tick(state);
+                // Don't forward to virtual pad
+                if (dir == "up")    state.dpadUp    = false;
+                if (dir == "down")  state.dpadDown  = false;
+                if (dir == "left")  state.dpadLeft  = false;
+                if (dir == "right") state.dpadRight = false;
+            }
+            for (auto& [dir, prev] : dpadKbPrev) {
+                bool active = dpadActive(dir);
+                const ButtonAction& action = cfg->dpadActions.at(dir);
+                if (active && !prev) {
+                    sendKeyCombo(action.keys, true);
+                    std::string combo;
+                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                }
+                if (!active && prev) sendKeyCombo(action.keys, false);
+                prev = active;
+                // Don't forward to virtual pad
+                if (dir == "up")    state.dpadUp    = false;
+                if (dir == "down")  state.dpadDown  = false;
+                if (dir == "left")  state.dpadLeft  = false;
+                if (dir == "right") state.dpadRight = false;
+            }
+            for (auto& [dir, prev] : dpadMousePrev) {
+                bool active = dpadActive(dir);
+                if (active != prev) {
+                    const std::string& btn = cfg->dpadActions.at(dir).mouseButton;
+                    sendMouseButton(btn, active);
+                    if (active)
+                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
+                }
+                prev = active;
+                // Don't forward to virtual pad
+                if (dir == "up")    state.dpadUp    = false;
+                if (dir == "down")  state.dpadDown  = false;
+                if (dir == "left")  state.dpadLeft  = false;
+                if (dir == "right") state.dpadRight = false;
             }
 
             // --- Mouse movement (continuous, sub-pixel accumulator) ---

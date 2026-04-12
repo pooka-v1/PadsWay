@@ -65,10 +65,10 @@ int AppWindow::run() {
 
     try {
         VirtualPadConfig vpCfg = loadVirtualPadConfig("data/virtualpad.json");
-        m_acceptedXboxButtons = vpCfg.acceptedXboxButtons;
-    } catch (...) {
-        m_acceptedXboxButtons = {"a","b","x","y","l1","r1","select","start","home","l3","r3"};
-    }
+        m_acceptedXboxButtons  = vpCfg.acceptedXboxButtons;
+        m_stickSelectThreshold = vpCfg.stickSelectThreshold;
+        m_stickHoldMs          = vpCfg.stickHoldMs;
+    } catch (...) {}  // struct defaults apply if file is missing or malformed
 
     try { m_padLayouts = loadPadLayouts("data/pad_layouts.json"); } catch (...) {}
     if (m_padLayouts.empty()) {
@@ -1043,6 +1043,47 @@ static std::pair<const char*, const char*> imguiKeyToKeyName(ImGuiKey k) {
     }
 }
 
+// H9/H6: reads the X/Y float values for a stick component given its stateX field name.
+static void readStickXY(const GamepadState& s, const std::string& stateX, float& outX, float& outY) {
+    if (stateX == "leftX")  { outX = s.leftX;  outY = s.leftY;  return; }
+    if (stateX == "rightX") { outX = s.rightX; outY = s.rightY; return; }
+    outX = outY = 0.0f;
+}
+
+// H6: returns (xStickId, yStickId) from a stick component's stateX field
+static std::pair<std::string,std::string> stickIdsFromStateX(const std::string& stateX) {
+    if (stateX == "leftX")  return {"left_x",  "left_y"};
+    if (stateX == "rightX") return {"right_x", "right_y"};
+    return {"", ""};
+}
+
+// Dpad helpers
+static std::string dpadDirToState(const PadComponent& c, const std::string& dir) {
+    if (dir == "up")    return c.stateUp;
+    if (dir == "down")  return c.stateDown;
+    if (dir == "left")  return c.stateLeft;
+    if (dir == "right") return c.stateRight;
+    return {};
+}
+static std::string dpadDirFromMouse(ImVec2 mouse, float cx, float cy) {
+    float dx = mouse.x - cx;
+    float dy = mouse.y - cy;
+    return (std::abs(dx) >= std::abs(dy))
+        ? (dx >= 0 ? "right" : "left")
+        : (dy >= 0 ? "down"  : "up");
+}
+
+// H6: human-readable label for an Xbox button short name
+static const char* xboxBtnLabel(const std::string& key) {
+    static const std::pair<const char*, const char*> kLabels[] = {
+        {"a","A"}, {"b","B"}, {"x","X"}, {"y","Y"},
+        {"l1","LB"}, {"r1","RB"}, {"l3","L3"}, {"r3","R3"},
+        {"select","Select"}, {"start","Start"}, {"home","Home"},
+    };
+    for (auto& [k, v] : kLabels) if (key == k) return v;
+    return key.c_str();
+}
+
 static bool isStateActive(const GamepadState& s, const std::string& n) {
     if (n == "btnA")     return s.btnA;
     if (n == "btnB")     return s.btnB;
@@ -1060,6 +1101,10 @@ static bool isStateActive(const GamepadState& s, const std::string& n) {
     if (n == "btnLP")    return s.btnLP;
     if (n == "btnRP")    return s.btnRP;
     if (n == "btnTouch") return s.btnTouch;
+    if (n == "dpadUp")   return s.dpadUp;
+    if (n == "dpadDown") return s.dpadDown;
+    if (n == "dpadLeft") return s.dpadLeft;
+    if (n == "dpadRight")return s.dpadRight;
     return false;
 }
 
@@ -1072,6 +1117,8 @@ static const std::pair<const char*, const char*> kBtnNames[] = {
     {"r3",        "btnR3"},   {"l4",        "btnL4"},
     {"r4",        "btnR4"},   {"lp",        "btnLP"},
     {"rp",        "btnRP"},   {"touch_btn", "btnTouch"},
+    {"dpad_up",   "dpadUp"},  {"dpad_down", "dpadDown"},
+    {"dpad_left", "dpadLeft"},{"dpad_right","dpadRight"},
 };
 static std::string shortToState(const std::string& s) {
     for (auto& [k, v] : kBtnNames) if (k == s) return v;
@@ -1082,8 +1129,14 @@ static std::string stateToShort(const std::string& s) {
     return s;
 }
 static int findCompByState(const PadLayout& layout, const std::string& stateName) {
-    for (int i = 0; i < (int)layout.components.size(); ++i)
-        if (layout.components[i].state == stateName) return i;
+    for (int i = 0; i < (int)layout.components.size(); ++i) {
+        const PadComponent& c = layout.components[i];
+        if (c.state == stateName) return i;
+        // L3/R3: buscar por stateClick en sticks
+        if (c.type == "stick" && c.stateClick == stateName) return i;
+        // Dpad: "dpadUp/Down/Left/Right" pertenecen al componente de tipo dpad
+        if (c.type == "dpad" && stateName.rfind("dpad", 0) == 0) return i;
+    }
     return -1;
 }
 static void activateState(GamepadState& s, const std::string& name) {
@@ -1118,6 +1171,7 @@ static void activateState(GamepadState& s, const std::string& name) {
 void AppWindow::reloadMappingEdits() {
     m_mappingEdits.clear();
     m_h5ActionEdits.clear();
+    m_h6AxisEdits.clear();
     for (const auto& cfg : m_controllerConfigs) {
         if (cfg.vid == m_mappingActiveVid && cfg.pid == m_mappingActivePid) {
             for (const auto& [idx, action] : cfg.buttons) {
@@ -1135,6 +1189,10 @@ void AppWindow::reloadMappingEdits() {
                 default: break;
                 }
             }
+            for (const auto& [dir, vShort] : cfg.dpadRemap)
+                m_mappingEdits["dpad_" + dir] = vShort;
+            for (const auto& [dir, action] : cfg.dpadActions)
+                m_h5ActionEdits["dpad_" + dir] = action;
             break;
         }
     }
@@ -1164,37 +1222,123 @@ void AppWindow::renderMappingSubtab() {
             m_h9ErrorTimer -= dt;
 
         if (m_mappingSelPhysComp < 0) {
-            // Paso 1: detectar botón mantenido 1s → seleccionarlo
-            int activeComp = -1;
+            // ── Paso 1a: stick al tope → seleccionar eje ──────────────────────
+            int         activeStickComp = -1;
+            std::string activeStickDir;
             for (int i = 0; i < (int)physComps.size(); ++i) {
-                if (physComps[i].type != "button") continue;
-                if (isStateActive(physNow, physComps[i].state)) { activeComp = i; break; }
+                const PadComponent& c = physComps[i];
+                if (c.type != "stick") continue;
+                float x = 0.0f, y = 0.0f;
+                readStickXY(physNow, c.stateX, x, y);
+                std::string dir;
+                if      (y >=  m_stickSelectThreshold) dir = "up";
+                else if (y <= -m_stickSelectThreshold) dir = "down";
+                else if (x <= -m_stickSelectThreshold) dir = "left";
+                else if (x >=  m_stickSelectThreshold) dir = "right";
+                if (!dir.empty()) { activeStickComp = i; activeStickDir = dir; break; }
             }
-            if (activeComp >= 0) {
-                if (m_h9HoldComp != activeComp) {
-                    m_h9HoldComp  = activeComp;
-                    m_h9HoldTimer = 0.0f;
+
+            if (activeStickComp >= 0) {
+                if (m_h9HoldComp != activeStickComp || m_h9HoldStickDir != activeStickDir) {
+                    m_h9HoldComp      = activeStickComp;
+                    m_h9HoldStickDir  = activeStickDir;
+                    m_h9HoldTimer     = 0.0f;
                 } else {
                     m_h9HoldTimer += dt;
-                    if (m_h9HoldTimer >= 1.0f) {
-                        m_mappingSelPhysComp = activeComp;
-                        m_h5ActionType = H5ActionType::Xbox;  // siempre empezar en modo Xbox
-                        m_h9HoldComp  = -1;
-                        m_h9HoldTimer = 0.0f;
+                    if (m_h9HoldTimer >= m_stickHoldMs / 1000.0f) {
+                        m_mappingSelPhysComp = activeStickComp;
+                        m_selStickDir        = activeStickDir;
+                        m_selStickAsButton   = false;
+                        m_h9HoldComp         = -1;
+                        m_h9HoldStickDir.clear();
+                        m_h9HoldTimer        = 0.0f;
                     }
                 }
             } else {
-                m_h9HoldComp  = -1;
-                m_h9HoldTimer = 0.0f;
+                // ── Paso 1b: botón mantenido 1s → seleccionarlo ──
+                // Incluye botones normales y L3/R3 (stateClick de sticks)
+                if (!m_h9HoldStickDir.empty()) {
+                    m_h9HoldComp = -1;
+                    m_h9HoldStickDir.clear();
+                    m_h9HoldDpadDir.clear();
+                    m_h9HoldTimer = 0.0f;
+                } else {
+                    int  activeComp       = -1;
+                    bool activeIsStickBtn = false;
+                    std::string activeDpadDir;
+                    for (int i = 0; i < (int)physComps.size(); ++i) {
+                        const PadComponent& c = physComps[i];
+                        if (c.type == "button" && isStateActive(physNow, c.state)) {
+                            activeComp = i; activeIsStickBtn = false; break;
+                        }
+                        if (c.type == "stick" && !c.stateClick.empty() &&
+                            isStateActive(physNow, c.stateClick)) {
+                            activeComp = i; activeIsStickBtn = true; break;
+                        }
+                        if (c.type == "dpad") {
+                            for (const char* d : {"up","down","left","right"}) {
+                                std::string st = dpadDirToState(c, d);
+                                if (!st.empty() && isStateActive(physNow, st)) {
+                                    activeComp = i; activeDpadDir = d; break;
+                                }
+                            }
+                            if (activeComp >= 0) break;
+                        }
+                    }
+                    if (activeComp >= 0) {
+                        if (m_h9HoldComp != activeComp) {
+                            m_h9HoldComp      = activeComp;
+                            m_h9HoldDpadDir   = activeDpadDir;
+                            m_h9HoldTimer     = 0.0f;
+                        } else {
+                            m_h9HoldDpadDir = activeDpadDir;  // actualizar dir si cambia
+                            m_h9HoldTimer += dt;
+                            if (m_h9HoldTimer >= 1.0f) {
+                                m_mappingSelPhysComp = activeComp;
+                                m_selStickAsButton   = activeIsStickBtn;
+                                m_selDpadDir         = activeDpadDir;
+                                m_h5ActionType = H5ActionType::Xbox;
+                                m_h9HoldComp    = -1;
+                                m_h9HoldDpadDir.clear();
+                                m_h9HoldTimer   = 0.0f;
+                            }
+                        }
+                    } else {
+                        m_h9HoldComp    = -1;
+                        m_h9HoldDpadDir.clear();
+                        m_h9HoldTimer   = 0.0f;
+                    }
+                }
             }
         } else if (m_h5ActionType == H5ActionType::Xbox) {
             // Paso 2 (solo modo Xbox): detectar rising edge → asignar botón virtual
-            const std::string& selState = physComps[m_mappingSelPhysComp].state;
+            const PadComponent& selComp2 = physComps[m_mappingSelPhysComp];
+            std::string selState;
+            if (m_selStickAsButton)
+                selState = selComp2.stateClick;                        // L3/R3
+            else if (selComp2.type == "dpad" && !m_selDpadDir.empty())
+                selState = dpadDirToState(selComp2, m_selDpadDir);     // dpad direction
+            else
+                selState = selComp2.state;                             // botón normal
             std::string physShort = stateToShort(selState);
 
+            // Iterar todos los "estados de botón" posibles: button, stateClick de sticks, dpad dirs
+            // Construimos una lista plana de states candidatos
+            std::vector<std::string> candidateStates;
             for (int i = 0; i < (int)physComps.size(); ++i) {
-                if (physComps[i].type != "button") continue;
-                const std::string& compState = physComps[i].state;
+                const PadComponent& c = physComps[i];
+                if (c.type == "button" && !c.state.empty())
+                    candidateStates.push_back(c.state);
+                else if (c.type == "stick" && !c.stateClick.empty())
+                    candidateStates.push_back(c.stateClick);
+                else if (c.type == "dpad") {
+                    for (const char* d : {"up","down","left","right"}) {
+                        std::string st = dpadDirToState(c, d);
+                        if (!st.empty()) candidateStates.push_back(st);
+                    }
+                }
+            }
+            for (const auto& compState : candidateStates) {
                 bool wasActive = isStateActive(m_h9PrevPhysState, compState);
                 bool isActive  = isStateActive(physNow, compState);
                 if (!isActive || wasActive) continue;  // solo rising edge
@@ -1210,10 +1354,13 @@ void AppWindow::renderMappingSubtab() {
                         bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
                         m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
                         int flashComp = findCompByState(m_virtualPadView.getLayout(), shortToState(virtShort));
-                        m_mappingFlashComp  = alreadyAssigned ? -1 : flashComp;
-                        m_mappingFlashTimer = alreadyAssigned ? 0.0f : 0.5f;
+                        m_mappingFlashComp       = alreadyAssigned ? -1 : flashComp;
+                        m_mappingFlashTimer      = alreadyAssigned ? 0.0f : 0.5f;
+                        m_mappingFlashVirtShort  = alreadyAssigned ? "" : virtShort;
                     }
                     m_mappingSelPhysComp = -1;
+                    m_selStickAsButton   = false;
+                    m_selDpadDir.clear();
                     m_h5ActionType = H5ActionType::Xbox;
                 } else {
                     // Botón sin equivalente Xbox — si el fuente tiene asignación, la borramos.
@@ -1224,6 +1371,8 @@ void AppWindow::renderMappingSubtab() {
                         m_mappingEdits[physShort] = "";  // marca la entrada como "borrada" para que save la procese
                         m_h5ActionEdits.erase(physShort);
                         m_mappingSelPhysComp = -1;
+                        m_selStickAsButton   = false;
+                        m_selDpadDir.clear();
                         m_h5ActionType = H5ActionType::Xbox;
                     } else {
                         m_h9ErrorTimer = 2.0f;
@@ -1238,32 +1387,67 @@ void AppWindow::renderMappingSubtab() {
 
     // ── Construir estados de display ──────────────────────────────────────────
     m_mappingFlashTimer -= dt;
-    if (m_mappingFlashTimer <= 0.0f) m_mappingFlashComp = -1;
+    if (m_mappingFlashTimer <= 0.0f) { m_mappingFlashComp = -1; m_mappingFlashVirtShort.clear(); }
 
     GamepadState physDisplay{};
     GamepadState virtDisplay{};
+    // Durante H9 hold (antes de completar la selección): iluminar el componente que se mantiene pulsado
+    if (m_mappingSelPhysComp < 0 && m_h9HoldComp >= 0) {
+        const auto& physComps = m_padView.getLayout().components;
+        if (m_h9HoldComp < (int)physComps.size()) {
+            const PadComponent& heldComp = physComps[m_h9HoldComp];
+            if (heldComp.type == "button")
+                activateState(physDisplay, heldComp.state);
+            else if (heldComp.type == "stick" && !m_h9HoldStickDir.empty())
+                ; // stick en modo eje: no iluminar (las flechas de selección lo indicarán)
+            else if (heldComp.type == "stick")
+                activateState(physDisplay, heldComp.stateClick);  // L3/R3 hold
+            else if (heldComp.type == "dpad" && !m_h9HoldDpadDir.empty()) {
+                std::string dpadState = dpadDirToState(heldComp, m_h9HoldDpadDir);
+                activateState(physDisplay, dpadState);
+            }
+        }
+    }
     if (m_mappingSelPhysComp >= 0) {
         const auto& physComps = m_padView.getLayout().components;
         if (m_mappingSelPhysComp < (int)physComps.size()) {
-            const std::string& physState = physComps[m_mappingSelPhysComp].state;
-            activateState(physDisplay, physState);
-            std::string physShort = stateToShort(physState);
-            auto it = m_mappingEdits.find(physShort);
-            std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
-            activateState(virtDisplay, shortToState(virtShort));
+            const PadComponent& selComp = physComps[m_mappingSelPhysComp];
+            if (selComp.type == "button") {
+                const std::string& physState = selComp.state;
+                activateState(physDisplay, physState);
+                std::string physShort = stateToShort(physState);
+                auto it = m_mappingEdits.find(physShort);
+                std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
+                activateState(virtDisplay, shortToState(virtShort));
+            } else if (selComp.type == "stick" && m_selStickAsButton) {
+                // L3/R3: mostrar el click del stick iluminado
+                activateState(physDisplay, selComp.stateClick);
+                std::string physShort = stateToShort(selComp.stateClick);
+                auto it = m_mappingEdits.find(physShort);
+                std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
+                activateState(virtDisplay, shortToState(virtShort));
+            } else if (selComp.type == "stick") {
+                // Modo eje: physDisplay a cero (las flechas ya indican el estado)
+                (void)selComp;
+            } else if (selComp.type == "dpad" && !m_selDpadDir.empty()) {
+                std::string dpadState = dpadDirToState(selComp, m_selDpadDir);
+                activateState(physDisplay, dpadState);
+                std::string physShort = stateToShort(dpadState);
+                auto it = m_mappingEdits.find(physShort);
+                std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
+                activateState(virtDisplay, shortToState(virtShort));
+            }
         }
     }
     // Flash de confirmación: ilumina el botón virtual recién asignado
-    if (m_mappingFlashComp >= 0) {
-        const auto& virtComps = m_virtualPadView.getLayout().components;
-        if (m_mappingFlashComp < (int)virtComps.size())
-            activateState(virtDisplay, virtComps[m_mappingFlashComp].state);
-    }
+    if (m_mappingFlashComp >= 0 && !m_mappingFlashVirtShort.empty())
+        activateState(virtDisplay, shortToState(m_mappingFlashVirtShort));
 
     // ── Pad físico ────────────────────────────────────────────────────────────
     ImGui::BeginGroup();
     m_mappingPhysOrigin = ImGui::GetCursorScreenPos();
     m_padView.render(physDisplay);
+    m_padView.renderStickArrows(m_mappingPhysOrigin, m_mappingSelPhysComp, m_selStickDir);
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
     ImGui::TextDisabled("Físico");
@@ -1288,6 +1472,7 @@ void AppWindow::renderMappingSubtab() {
     ImGui::BeginGroup();
     m_mappingVirtOrigin = ImGui::GetCursorScreenPos();
     m_virtualPadView.render(virtDisplay);
+    m_virtualPadView.renderStickArrows(m_mappingVirtOrigin, -1, "");
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
     ImGui::TextDisabled("Virtual (Xbox One)");
@@ -1328,15 +1513,25 @@ void AppWindow::renderMappingSubtab() {
             msg = "Ese botón no tiene equivalente Xbox — elige otro";
             col = { 1.0f, 0.3f, 0.3f, 1.0f };  // rojo
         } else if (m_mappingSelPhysComp < 0 && m_h9HoldComp >= 0) {
-            msg = "Mantén pulsado para seleccionar";
+            msg = m_h9HoldStickDir.empty()
+                ? "Mant\xC3\xA9n pulsado para seleccionar"
+                : "Mant\xC3\xA9n el stick al tope para seleccionar direcci\xC3\xB3n";
         } else if (m_mappingSelPhysComp < 0) {
-            msg = "Elige el botón que quieres reasignar";
+            msg = "Elige el bot\xC3\xB3n, cruceta o stick que quieres reasignar";
+        } else if (m_mappingSelPhysComp >= 0 &&
+                   m_padView.getLayout().components[m_mappingSelPhysComp].type == "stick" &&
+                   (!m_selStickAsButton || m_h5ActionType == H5ActionType::Xbox)) {
+            // Stick en modo eje (dirección), o en modo botón pero solo si estamos en Xbox
+            if (m_selStickAsButton)
+                msg = "Elige en el virtual o pulsa el bot\xC3\xB3n f\xC3\xADsico que quieras asignarle";
+            else
+                msg = "Haz clic en el stick o cruceta virtual al que quieres asignar";
         } else if (m_h5ActionType == H5ActionType::Keyboard) {
             msg = m_h5CaptureKeys.empty()
                 ? "Pulsa las teclas del combo  (L1+R1 o A+B para cancelar)"
                 : "Pulsa m\xC3\xA1s teclas o haz clic en Asignar";
         } else {
-            msg = "Elige en el virtual o pulsa el botón físico que quieras asignarle";
+            msg = "Elige bot\xC3\xB3n, stick o cruceta en el virtual  \xE2\x80\x94  o pulsa el bot\xC3\xB3n f\xC3\xADsico";
         }
 
         float availW = m_mappingVirtOrigin.x + m_virtualPadView.getLayout().W - m_mappingPhysOrigin.x;
@@ -1352,14 +1547,28 @@ void AppWindow::renderMappingSubtab() {
             constexpr float kBarW = 160.0f;
             float barOffX = (availW - kBarW) * 0.5f;
             if (barOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + barOffX);
-            ImGui::ProgressBar(m_h9HoldTimer / 1.0f, { kBarW, 6.0f }, "");
+            float holdSec = m_h9HoldStickDir.empty() ? 1.0f : (m_stickHoldMs / 1000.0f);
+            ImGui::ProgressBar(m_h9HoldTimer / holdSec, { kBarW, 6.0f }, "");
         }
     }
 
-    // ── H5: selector de tipo + UI específica (solo cuando hay botón seleccionado) ──
+    // ── H5/H6: UI específica según el tipo de componente seleccionado ──────────
     if (m_mappingSelPhysComp >= 0) {
+        const auto& physComps = m_padView.getLayout().components;
+        const std::string& selType = physComps[m_mappingSelPhysComp].type;
         ImGui::Spacing();
         float availW = m_mappingVirtOrigin.x + m_virtualPadView.getLayout().W - m_mappingPhysOrigin.x;
+
+    if (selType != "stick" || m_selStickAsButton) {
+        // ── H5: botón seleccionado (incluye L3/R3) ─────────────────────────
+        // physShortSel: clave corta del componente físico seleccionado ("a", "l3", "dpad_up", etc.)
+        const auto& selPhysComp = physComps[m_mappingSelPhysComp];
+        const std::string physShortSel = (selType == "stick" && m_selStickAsButton)
+            ? stateToShort(selPhysComp.stateClick)
+            : (selType == "dpad")
+                ? stateToShort(dpadDirToState(selPhysComp, m_selDpadDir))
+                : stateToShort(selPhysComp.state);
+
         float btnW   = 90.0f;
         float totalW = btnW * 4 + ImGui::GetStyle().ItemSpacing.x * 3;
         float offX   = (availW - totalW) * 0.5f;
@@ -1411,9 +1620,8 @@ void AppWindow::renderMappingSubtab() {
             }
             ImGui::SameLine();
             if (ImGui::Button("Asignar##macroAssign", { 80.0f, 0.0f }) && !m_h5MacroSel.empty()) {
-                const auto& physComps = m_padView.getLayout().components;
-                std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
-                if (!physShort.empty()) {
+                if (!physShortSel.empty()) {
+                    std::string physShort = physShortSel;
                     ButtonAction act;
                     act.type     = ButtonActionType::Macro;
                     act.physical = physShort;
@@ -1422,6 +1630,8 @@ void AppWindow::renderMappingSubtab() {
                     m_mappingEdits.erase(physShort);
                 }
                 m_mappingSelPhysComp = -1;
+                m_selStickAsButton   = false;
+                m_selDpadDir.clear();
                 m_h5ActionType = H5ActionType::Xbox;
                 m_h5MacroSel.clear();
             }
@@ -1462,9 +1672,8 @@ void AppWindow::renderMappingSubtab() {
                     ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "%s", displayStr.c_str());
                     ImGui::SameLine();
                     if (ImGui::Button("Asignar##kbAssign", { bAsigW, 0.0f })) {
-                        const auto& physComps = m_padView.getLayout().components;
-                        std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
-                        if (!physShort.empty()) {
+                        if (!physShortSel.empty()) {
+                            std::string physShort = physShortSel;
                             ButtonAction act;
                             act.type     = ButtonActionType::Keyboard;
                             act.physical = physShort;
@@ -1473,6 +1682,8 @@ void AppWindow::renderMappingSubtab() {
                             m_mappingEdits.erase(physShort);
                         }
                         m_mappingSelPhysComp = -1;
+                        m_selStickAsButton   = false;
+                        m_selDpadDir.clear();
                         m_h5ActionType = H5ActionType::Xbox;
                         m_h5CaptureKeys.clear();
                     }
@@ -1499,9 +1710,8 @@ void AppWindow::renderMappingSubtab() {
             for (int i = 0; i < kN; ++i) {
                 if (i > 0) ImGui::SameLine();
                 if (ImGui::Button(kMouseBtns[i].label, { mBtnW, 0.0f })) {
-                    const auto& physComps = m_padView.getLayout().components;
-                    std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
-                    if (!physShort.empty()) {
+                    if (!physShortSel.empty()) {
+                        std::string physShort = physShortSel;
                         ButtonAction act;
                         act.type        = ButtonActionType::MouseClick;
                         act.physical    = physShort;
@@ -1510,42 +1720,174 @@ void AppWindow::renderMappingSubtab() {
                         m_mappingEdits.erase(physShort);
                     }
                     m_mappingSelPhysComp = -1;
+                    m_selStickAsButton   = false;
+                    m_selDpadDir.clear();
                     m_h5ActionType = H5ActionType::Xbox;
                 }
             }
         }
-    }
+    } // else (selType == "button", H5)
+    } // if (m_mappingSelPhysComp >= 0)
 
     // ── Gestión de clicks ─────────────────────────────────────────────────────
     if (mouseClicked) {
-        int physHit = m_padView.hitTest(mouse, m_mappingPhysOrigin);
-        if (physHit >= 0 && m_padView.getLayout().components[physHit].type == "button") {
-            if (physHit == m_mappingSelPhysComp) {
+        // Arrows have priority over the stick body hit-test on the physical pad
+        std::string arrowDir;
+        int arrowComp = m_padView.hitTestStickArrow(mouse, m_mappingPhysOrigin, arrowDir);
+        if (arrowComp >= 0) {
+            // Flecha → modo eje. Toggle si la misma flecha.
+            if (m_mappingSelPhysComp == arrowComp && m_selStickDir == arrowDir && !m_selStickAsButton) {
                 m_mappingSelPhysComp = -1;
-                m_h5ActionType = H5ActionType::Xbox;
-                m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
+                m_selStickDir.clear();
+                m_selStickAsButton = false;
             } else {
-                m_mappingSelPhysComp = physHit;
-                m_h5ActionType = H5ActionType::Xbox;
-                m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
+                m_mappingSelPhysComp = arrowComp;
+                m_selStickDir        = arrowDir;
+                m_selStickAsButton   = false;
+                m_h5CaptureKeys.clear();
+                m_h5MacroSel.clear();
             }
-        } else if (m_mappingSelPhysComp >= 0 && m_h5ActionType == H5ActionType::Xbox) {
-            int virtHit = m_virtualPadView.hitTest(mouse, m_mappingVirtOrigin);
-            if (virtHit >= 0 && m_virtualPadView.getLayout().components[virtHit].type == "button") {
-                const auto& physComps = m_padView.getLayout().components;
-                std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
-                std::string virtShort = stateToShort(m_virtualPadView.getLayout().components[virtHit].state);
-                if (!physShort.empty() && !virtShort.empty()) {
-                    m_h5ActionEdits.erase(physShort);
-                    auto it = m_mappingEdits.find(physShort);
-                    bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
-                    m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
-                    m_mappingFlashComp  = alreadyAssigned ? -1 : virtHit;
-                    m_mappingFlashTimer = alreadyAssigned ?  0.0f : 0.5f;
+        } else {
+
+        int physHit = m_padView.hitTest(mouse, m_mappingPhysOrigin);
+        if (physHit >= 0) {
+            const std::string& hitType = m_padView.getLayout().components[physHit].type;
+            if (hitType == "button") {
+                if (physHit == m_mappingSelPhysComp) {
+                    m_mappingSelPhysComp = -1;
+                    m_h5ActionType = H5ActionType::Xbox;
+                    m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
+                } else {
+                    m_mappingSelPhysComp = physHit;
+                    m_h5ActionType = H5ActionType::Xbox;
+                    m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
                 }
-                m_mappingSelPhysComp = -1;
+            } else if (hitType == "stick") {
+                // Clic en el cuerpo del stick → modo botón (L3/R3)
+                if (physHit == m_mappingSelPhysComp && m_selStickAsButton) {
+                    m_mappingSelPhysComp = -1;
+                    m_selStickAsButton   = false;
+                } else {
+                    m_mappingSelPhysComp = physHit;
+                    m_selStickAsButton   = true;
+                    m_selStickDir.clear();
+                    m_h5ActionType = H5ActionType::Xbox;
+                    m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
+                }
+            } else if (hitType == "dpad") {
+                // Clic en cruceta → determinar dirección por posición del ratón
+                const PadComponent& dc = m_padView.getLayout().components[physHit];
+                std::string dir = dpadDirFromMouse(mouse,
+                    m_mappingPhysOrigin.x + dc.cx,
+                    m_mappingPhysOrigin.y + dc.cy);
+                if (physHit == m_mappingSelPhysComp && m_selDpadDir == dir) {
+                    m_mappingSelPhysComp = -1;
+                    m_selDpadDir.clear();
+                } else {
+                    m_mappingSelPhysComp = physHit;
+                    m_selDpadDir         = dir;
+                    m_h5ActionType = H5ActionType::Xbox;
+                    m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
+                }
+            }
+        } else if (m_mappingSelPhysComp >= 0) {
+            const std::string& selType2 = m_padView.getLayout().components[m_mappingSelPhysComp].type;
+            // Botón / L3/R3 / dirección de cruceta → asignar a virtual
+            if ((selType2 == "button" || (selType2 == "stick" && m_selStickAsButton)
+                 || selType2 == "dpad")
+                && m_h5ActionType == H5ActionType::Xbox) {
+                int virtHit = m_virtualPadView.hitTest(mouse, m_mappingVirtOrigin);
+                if (virtHit >= 0) {
+                    const auto& virtComp  = m_virtualPadView.getLayout().components[virtHit];
+                    const auto& physComps = m_padView.getLayout().components;
+                    // physShort: según tipo de componente físico seleccionado
+                    const auto& selPC = physComps[m_mappingSelPhysComp];
+                    std::string physShort;
+                    if (selType2 == "stick")
+                        physShort = stateToShort(selPC.stateClick);
+                    else if (selType2 == "dpad")
+                        physShort = stateToShort(dpadDirToState(selPC, m_selDpadDir));
+                    else
+                        physShort = stateToShort(selPC.state);
+                    // virtShort: botón virtual, stateClick de stick virtual, o dirección de dpad virtual
+                    std::string virtShort;
+                    if (virtComp.type == "button")
+                        virtShort = stateToShort(virtComp.state);
+                    else if (virtComp.type == "stick" && !virtComp.stateClick.empty())
+                        virtShort = stateToShort(virtComp.stateClick);
+                    else if (virtComp.type == "dpad") {
+                        std::string vdir = dpadDirFromMouse(mouse,
+                            m_mappingVirtOrigin.x + virtComp.cx,
+                            m_mappingVirtOrigin.y + virtComp.cy);
+                        virtShort = stateToShort(dpadDirToState(virtComp, vdir));
+                    }
+                    if (!physShort.empty() && !virtShort.empty()) {
+                        m_h5ActionEdits.erase(physShort);
+                        auto it = m_mappingEdits.find(physShort);
+                        bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
+                        m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
+                        m_mappingFlashComp      = alreadyAssigned ? -1 : virtHit;
+                        m_mappingFlashTimer     = alreadyAssigned ?  0.0f : 0.5f;
+                        m_mappingFlashVirtShort = alreadyAssigned ? "" : virtShort;
+                    }
+                    m_mappingSelPhysComp = -1;
+                    m_selStickAsButton   = false;
+                    m_selDpadDir.clear();
+                }
+            } else if (selType2 == "stick") {
+                int virtHit = m_virtualPadView.hitTest(mouse, m_mappingVirtOrigin);
+                if (virtHit >= 0) {
+                    const auto& virtComps = m_virtualPadView.getLayout().components;
+                    const std::string& virtType = virtComps[virtHit].type;
+                    const auto& physComps = m_padView.getLayout().components;
+                    auto [xId, yId] = stickIdsFromStateX(physComps[m_mappingSelPhysComp].stateX);
+
+                    if (virtType == "stick" && !xId.empty()) {
+                        // Stick → virtual stick
+                        auto [vxId, vyId] = stickIdsFromStateX(virtComps[virtHit].stateX);
+                        if (!vxId.empty()) {
+                            for (const auto& cfg : m_controllerConfigs) {
+                                if (cfg.vid != m_mappingActiveVid || cfg.pid != m_mappingActivePid) continue;
+                                for (const auto& [src, mapping] : cfg.axes) {
+                                    std::string sid = mapping.stickId.empty() ? mapping.target : mapping.stickId;
+                                    if (sid == xId || sid == yId) {
+                                        AxisMapping edit = mapping;
+                                        edit.stickId = sid;
+                                        edit.btnNeg  = edit.btnPos = "";
+                                        edit.target  = (sid == xId) ? vxId : vyId;
+                                        m_h6AxisEdits[sid] = edit;
+                                    }
+                                }
+                                break;
+                            }
+                            m_mappingSelPhysComp = -1;
+                            m_selStickDir.clear();
+                        }
+                    } else if (virtType == "dpad" && !xId.empty()) {
+                        // Stick → cruceta
+                        auto buildDpadEdit = [&](const std::string& id, const std::string& tgt) {
+                            AxisMapping edit;
+                            edit.stickId = id;
+                            edit.target  = tgt;
+                            for (const auto& cfg : m_controllerConfigs) {
+                                if (cfg.vid != m_mappingActiveVid || cfg.pid != m_mappingActivePid) continue;
+                                for (const auto& [src, mapping] : cfg.axes) {
+                                    std::string sid = mapping.stickId.empty() ? mapping.target : mapping.stickId;
+                                    if (sid == id) { edit.invert = mapping.invert; break; }
+                                }
+                                break;
+                            }
+                            m_h6AxisEdits[id] = edit;
+                        };
+                        buildDpadEdit(xId, "dpad_x");
+                        if (!yId.empty()) buildDpadEdit(yId, "dpad_y");
+                        m_mappingSelPhysComp = -1;
+                        m_selStickDir.clear();
+                    }
+                }
             }
         }
+        } // end else (no arrow hit)
     }
 
     // ── Guardar / Cancelar ────────────────────────────────────────────────────
@@ -1560,6 +1902,9 @@ void AppWindow::renderMappingSubtab() {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  { 0.25f, 0.25f, 0.25f, 1.0f });
     if (ImGui::Button("Cancelar##mapCancel", { 100.0f, 0.0f })) {
         m_mappingSelPhysComp = -1;
+        m_selStickDir.clear();
+        m_selStickAsButton   = false;
+        m_selDpadDir.clear();
         m_h5ActionType = H5ActionType::Xbox;
         m_h5CaptureKeys.clear(); m_h5MacroSel.clear();
         reloadMappingEdits();
@@ -1642,6 +1987,69 @@ void AppWindow::saveMappingEdits() {
             }
             for (auto& [key, val] : changes)
                 ctrl["buttons"][key] = val;
+
+            // Dpad remapping: save into "dpad_remap" object (Xbox strings) and H5 actions (objects)
+            {
+                json dpadRemapJson = json::object();
+                for (const char* dir : {"up", "down", "left", "right"}) {
+                    std::string key = std::string("dpad_") + dir;
+                    // H5 action takes priority over Xbox remap
+                    auto h5it = m_h5ActionEdits.find(key);
+                    if (h5it != m_h5ActionEdits.end()) {
+                        const ButtonAction& act = h5it->second;
+                        json actJson = json::object();
+                        actJson["physical"] = key;
+                        if (act.type == ButtonActionType::Keyboard) {
+                            actJson["type"] = "keyboard";
+                            json keysArr = json::array();
+                            for (const auto& k : act.keys) keysArr.push_back(k);
+                            actJson["keys"] = keysArr;
+                        } else if (act.type == ButtonActionType::MouseClick) {
+                            actJson["type"]   = "mouse_click";
+                            actJson["button"] = act.mouseButton;
+                        } else if (act.type == ButtonActionType::Macro) {
+                            actJson["type"] = "macro";
+                            actJson["name"] = act.name;
+                        }
+                        dpadRemapJson[dir] = std::move(actJson);
+                    } else {
+                        auto it = m_mappingEdits.find(key);
+                        if (it != m_mappingEdits.end() && !it->second.empty())
+                            dpadRemapJson[dir] = it->second;
+                    }
+                }
+                if (dpadRemapJson.empty())
+                    ctrl.erase("dpad_remap");
+                else
+                    ctrl["dpad_remap"] = std::move(dpadRemapJson);
+            }
+
+            // H6: save axis (stick) remapping
+            if (!m_h6AxisEdits.empty() && ctrl.contains("axes")) {
+                for (auto& [source, axisJson] : ctrl["axes"].items()) {
+                    // Determine stickId for this axis entry
+                    std::string sid = axisJson.value("stick_id", std::string{});
+                    if (sid.empty()) {
+                        std::string t = axisJson.value("target", std::string{});
+                        if (t == "left_x"  || t == "left_y"  ||
+                            t == "right_x" || t == "right_y") sid = t;
+                    }
+                    auto eit = m_h6AxisEdits.find(sid);
+                    if (eit == m_h6AxisEdits.end()) continue;
+                    const AxisMapping& em = eit->second;
+                    axisJson["target"]   = em.target;
+                    axisJson["stick_id"] = em.stickId;
+                    if (em.target == "btn_dir") {
+                        if (!em.btnNeg.empty()) axisJson["btn_neg"] = em.btnNeg;
+                        else                    axisJson.erase("btn_neg");
+                        if (!em.btnPos.empty()) axisJson["btn_pos"] = em.btnPos;
+                        else                    axisJson.erase("btn_pos");
+                    } else {
+                        axisJson.erase("btn_neg");
+                        axisJson.erase("btn_pos");
+                    }
+                }
+            }
 
             break;
         }

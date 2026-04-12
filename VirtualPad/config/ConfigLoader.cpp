@@ -57,6 +57,44 @@ static ButtonAction parseButtonAction(const json& val) {
     return action;
 }
 
+// Parses an axis_actions JSON object into a map.
+// Key format: "<axis_source>_pos" or "<axis_source>_neg"
+static std::unordered_map<std::string, HalfAxisAction> parseAxisActionsJson(const json& j) {
+    std::unordered_map<std::string, HalfAxisAction> result;
+    for (const auto& [key, val] : j.items()) {
+        if (!key.empty() && key[0] == '_') continue;
+        HalfAxisAction a;
+        std::string type = val.value("type", "analog");
+        if (type == "analog") {
+            a.type   = HalfAxisActionType::Analog;
+            a.target = val.value("target",  std::string{});
+            a.outDir = val.value("out_dir", std::string{});
+            a.scale  = val.value("scale",   1.0f);
+        } else if (type == "button") {
+            a.type   = HalfAxisActionType::VirtualButton;
+            a.target = val.value("target", std::string{});
+        } else if (type == "dpad") {
+            a.type   = HalfAxisActionType::Dpad;
+            a.target = val.value("target", std::string{});
+        } else if (type == "macro") {
+            a.type      = HalfAxisActionType::Macro;
+            a.target    = val.value("target",    std::string{});
+            a.execution = val.value("execution", std::string{});
+        } else if (type == "keyboard") {
+            a.type = HalfAxisActionType::Keyboard;
+            if (val.contains("keys"))
+                for (const auto& k : val["keys"])
+                    a.keys.push_back(k.get<std::string>());
+        } else if (type == "mouse") {
+            a.type        = HalfAxisActionType::Mouse;
+            a.mouseButton = val.value("button", "left");
+        }
+        a.threshold = val.value("threshold", 0.5f);
+        result[key] = std::move(a);
+    }
+    return result;
+}
+
 // Parses a buttons JSON object into a map.
 // Keys starting with '_' are skipped (they are pseudo-comments).
 static std::unordered_map<int, ButtonAction> parseButtonsJson(const json& buttonsJson) {
@@ -91,11 +129,31 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
         for (const auto& [source, axisJson] : c.at("axes").items()) {
             AxisMapping m;
-            m.target = axisJson.at("target").get<std::string>();
-            m.invert = axisJson.value("invert", false);
-            m.speed  = axisJson.value("speed",  15.0f);
+            m.target    = axisJson.at("target").get<std::string>();
+            m.invert    = axisJson.value("invert",    false);
+            m.speed     = axisJson.value("speed",     15.0f);
+            m.stickId   = axisJson.value("stick_id",  std::string{});
+            m.btnNeg    = axisJson.value("btn_neg",   std::string{});
+            m.btnPos    = axisJson.value("btn_pos",   std::string{});
+            m.threshold = axisJson.value("threshold", 0.5f);
+            // infer stickId from target for first-time load (no stick_id field yet)
+            if (m.stickId.empty() &&
+                (m.target == "left_x" || m.target == "left_y" ||
+                 m.target == "right_x" || m.target == "right_y"))
+                m.stickId = m.target;
             cfg.axes[source] = m;
         }
+
+        if (c.contains("axis_actions"))
+            cfg.axis_actions = parseAxisActionsJson(c.at("axis_actions"));
+
+        if (c.contains("dpad_remap") && c["dpad_remap"].is_object())
+            for (const auto& [dir, btn] : c["dpad_remap"].items()) {
+                if (btn.is_string())
+                    cfg.dpadRemap[dir] = btn.get<std::string>();
+                else if (btn.is_object())
+                    cfg.dpadActions[dir] = parseButtonAction(btn);
+            }
 
         if (c.contains("touchpad")) {
             const auto& tp        = c["touchpad"];
@@ -174,10 +232,17 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
         cfg.pid = static_cast<uint16_t>(std::stoul(root["virtual_pid"].get<std::string>(), nullptr, 16));
     if (root.contains("log_level"))
         cfg.logLevel = root["log_level"].get<std::string>();
-    if (root.contains("accepted_xbox_buttons") && root["accepted_xbox_buttons"].is_array()) {
-        cfg.acceptedXboxButtons.clear();
-        for (const auto& b : root["accepted_xbox_buttons"])
-            cfg.acceptedXboxButtons.push_back(b.get<std::string>());
+    if (root.contains("pad_configurations") && root["pad_configurations"].is_object()) {
+        const auto& pc = root["pad_configurations"];
+        if (pc.contains("accepted_xbox_buttons") && pc["accepted_xbox_buttons"].is_array()) {
+            cfg.acceptedXboxButtons.clear();
+            for (const auto& b : pc["accepted_xbox_buttons"])
+                cfg.acceptedXboxButtons.push_back(b.get<std::string>());
+        }
+        if (pc.contains("stick_select_threshold") && pc["stick_select_threshold"].is_number())
+            cfg.stickSelectThreshold = pc["stick_select_threshold"].get<float>();
+        if (pc.contains("stick_hold_ms") && pc["stick_hold_ms"].is_number_integer())
+            cfg.stickHoldMs = pc["stick_hold_ms"].get<int>();
     }
     return cfg;
 }
@@ -199,12 +264,22 @@ GameProfile loadGameProfile(const std::string& path) {
         if (ov.contains("axes")) {
             for (const auto& [source, axisJson] : ov.at("axes").items()) {
                 AxisMapping m;
-                m.target = axisJson.at("target").get<std::string>();
-                m.invert = axisJson.value("invert", false);
-                m.speed  = axisJson.value("speed",  15.0f);
+                m.target    = axisJson.at("target").get<std::string>();
+                m.invert    = axisJson.value("invert",    false);
+                m.speed     = axisJson.value("speed",     15.0f);
+                m.stickId   = axisJson.value("stick_id",  std::string{});
+                m.btnNeg    = axisJson.value("btn_neg",   std::string{});
+                m.btnPos    = axisJson.value("btn_pos",   std::string{});
+                m.threshold = axisJson.value("threshold", 0.5f);
+                if (m.stickId.empty() &&
+                    (m.target == "left_x" || m.target == "left_y" ||
+                     m.target == "right_x" || m.target == "right_y"))
+                    m.stickId = m.target;
                 o.axes[source] = m;
             }
         }
+        if (ov.contains("axis_actions"))
+            o.axis_actions = parseAxisActionsJson(ov.at("axis_actions"));
         profile.overrides.push_back(std::move(o));
     }
     return profile;
@@ -228,6 +303,8 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
         }
         for (const auto& [source, mapping] : ov.axes)
             result.axes[source] = mapping;
+        for (const auto& [key, action] : ov.axis_actions)
+            result.axis_actions[key] = action;
     }
     return result;
 }
