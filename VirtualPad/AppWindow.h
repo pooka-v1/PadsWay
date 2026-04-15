@@ -13,6 +13,7 @@
 #include "GamepadState.h"
 #include "ui/PadView.h"
 #include "ui/LayoutEditor.h"
+#include "ui/MappingEditor.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -39,7 +40,6 @@ private:
     void renderEngineTab();
     void renderScannerTab();
     void renderPadsTab();
-    void renderMappingSubtab();
     void renderLayoutTab();
 
     // --- Win32 window procedure ---
@@ -108,61 +108,6 @@ private:
     bool         m_layoutsFromBackup       = false;  // true when .bak was the fallback
 
     // --- Mapping editor (modo mapping en Pads) ---
-    bool     m_mappingActive       = false; // true = modo mapping activo
-
-    int      m_mappingSelPhysComp  = -1;  // componente físico seleccionado (-1 = ninguno)
-    ImVec2   m_mappingPhysOrigin   = {};  // canvas origin del pad físico (capturado cada frame)
-    ImVec2   m_mappingVirtOrigin   = {};  // canvas origin del pad virtual
-    uint16_t m_mappingActiveVid    = 0;   // VID del mando activo al cargar edits
-    uint16_t m_mappingActivePid    = 0;   // PID del mando activo al cargar edits
-    int         m_mappingFlashComp    = -1;   // componente virtual en flash de confirmación (-1 = ninguno)
-    float       m_mappingFlashTimer   = 0.0f; // segundos restantes del flash
-    std::string m_mappingFlashVirtShort;      // virtShort asignado (para dpad y otros sin .state)
-    std::unordered_map<std::string, std::string>    m_mappingEdits;     // physShort → virtShort (Xbox)
-    std::unordered_map<std::string, ButtonAction>   m_h5ActionEdits;    // physShort → acción H5
-    // H5 — action type selector (buttons and half-axis directions)
-    enum class H5ActionType { Xbox, Analog, Macro, Keyboard, Mouse };
-    H5ActionType             m_h5ActionType         = H5ActionType::Xbox;
-    std::vector<std::pair<std::string,std::string>> m_h5CaptureKeys; // {json_name, display}
-    std::string              m_h5MacroSel;           // macro seleccionada en el combo
-    std::vector<std::string> m_h5MacroNames;         // nombres cargados de macros.json
-    bool                     m_h5MacroNamesLoaded = false;
-    // H9 — hardware mapping (hold to select, press to assign)
-    int          m_h9HoldComp     = -1;   // component being held for selection (-1 = none)
-    std::string  m_h9HoldStickDir;       // direction being held for stick ("up/down/left/right/center" or "")
-    std::string  m_h9HoldDpadDir;        // dpad direction being held ("up/down/left/right" or "")
-    float        m_h9HoldTimer   = 0.0f; // seconds held so far
-    float        m_h9ErrorTimer  = 0.0f; // seconds left to show invalid-target error
-    GamepadState m_h9PrevPhysState{};    // previous frame physical state for edge detection
-    PadTexture m_arrowRightTex;
-    // H6 — whole-axis mapping
-    std::unordered_map<std::string, AxisMapping> m_h6AxisEdits;  // stickId → pending edit
-    // H6 — half-axis and dpad-direction actions
-    // Key: axis source + "_pos"/"_neg" (e.g. "hid_x_pos") for sticks,
-    //      or dpad direction name (e.g. "dpad_up") for cruceta directions
-    std::unordered_map<std::string, HalfAxisAction> m_axisActionEdits;
-    std::string  m_selStickDir;          // selected direction for axis mapping: "up","down","left","right",""
-    bool         m_selStickAsButton = false;  // true → stick selected for L3/R3 button assignment
-    std::string  m_selDpadDir;           // selected dpad direction: "up","down","left","right",""
-    // H7 — trigger as source mapping
-    std::string  m_selTriggerSrc;        // "l2", "r2", or "" — selected physical trigger as source
-    std::unordered_map<std::string, ButtonAction> m_trigActionEdits;  // "l2"/"r2" → simple action
-    std::string  m_h9HoldTriggerSrc;     // "l2" or "r2" being held pre-selection, or ""
-    float        m_h9HoldTriggerTimer = 0.0f;
-    // H7 — rangos (trigger zones)
-    struct RangeEdit { float from = 0.0f; float to = 1.0f; ButtonAction action; bool hasAction = false; };
-    std::vector<RangeEdit> m_trigLRangeEdits;   // pending range edits for L2 (overrides simple)
-    std::vector<RangeEdit> m_trigRRangeEdits;   // pending range edits for R2 (overrides simple)
-    // Rangos modal state
-    bool         m_rangosModalOpen  = false;
-    std::string  m_rangosForTrigger;             // "l2" or "r2"
-    std::vector<RangeEdit> m_rangosWork;         // working copy while modal is open
-    int          m_rangosSelSect    = -1;        // selected section index (-1 = none)
-    H5ActionType m_rangosActType    = H5ActionType::Xbox;
-    std::vector<std::pair<std::string,std::string>> m_rangosCaptureKeys;
-    std::string  m_rangosMacroSel;
-    int          m_rangosXboxSel    = -1;        // index into kXboxChoices combo
-    void renderRangosModal();
-    void saveMappingEdits();
-    void reloadMappingEdits();
+    PadTexture    m_arrowRightTex;   // arrow used in the normal (non-mapping) pad view
+    MappingEditor m_mappingEditor;
 };

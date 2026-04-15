@@ -153,6 +153,8 @@
     <ClCompile Include="AppWindow.cpp" />
     <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
+    <ClCompile Include="ui\MappingEditor.cpp" />
+    <ClCompile Include="ui\MappingModel.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
