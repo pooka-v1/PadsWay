@@ -151,6 +151,7 @@
     <ClCompile Include="PadEngine.cpp" />
     <ClCompile Include="PadScanner.cpp" />
     <ClCompile Include="AppWindow.cpp" />
+    <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />

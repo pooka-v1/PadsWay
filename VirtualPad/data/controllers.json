@@ -194,22 +194,18 @@
         },
         "hid_rz": {
           "invert": true,
-          "stick_id": "right_y",
           "target": "right_y"
         },
         "hid_x": {
           "invert": false,
-          "stick_id": "left_x",
           "target": "left_x"
         },
         "hid_y": {
           "invert": true,
-          "stick_id": "left_y",
           "target": "left_y"
         },
         "hid_z": {
           "invert": false,
-          "stick_id": "right_x",
           "target": "right_x"
         }
       },
@@ -243,12 +239,7 @@
           "virtual": "a"
         },
         "3": {
-          "keys": [
-            "ctrl",
-            "v"
-          ],
-          "physical": "rp",
-          "type": "keyboard"
+          "physical": "rp"
         },
         "4": {
           "physical": "x",
@@ -259,12 +250,7 @@
           "virtual": "x"
         },
         "6": {
-          "keys": [
-            "ctrl",
-            "c"
-          ],
-          "physical": "lp",
-          "type": "keyboard"
+          "physical": "lp"
         },
         "7": {
           "physical": "l1",
