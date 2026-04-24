@@ -453,6 +453,20 @@ The `gyroscope` component is visible in the Pads tab when the connected controll
 - **State bindings** — `state`, `state_x`, `state_y`, `state_click`, `state_up/down/left/right` — combo boxes showing known `GamepadState` field names.
 - **Colors** — active/inactive colors for the base image and the overlay.
 
+### Template images
+
+The canvas has two zones stacked vertically:
+
+| Zone | Purpose | Recommended image size |
+|---|---|---|
+| **FRONT** | Bottom strip — front face of the controller | 480 × 200 px |
+| **TOP** | Main area — top/overhead view | 480 × 320 px |
+
+Template images are stretched to fill their zone exactly. Using images at these dimensions avoids any quality loss from scaling.
+Image files go in `images/templates/`.
+
+---
+
 ### Dirty tracking
 
 A `*` indicator appears when there are unsaved changes. Switching layouts or closing the editor without saving triggers a confirmation dialog.

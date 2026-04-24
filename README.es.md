@@ -453,6 +453,20 @@ El componente `gyroscope` es visible en la pestaña Pads cuando el mando conecta
 - **State bindings** — `state`, `state_x`, `state_y`, `state_click`, `state_up/down/left/right` — combos con los nombres de campo de `GamepadState`.
 - **Colores** — colores activo/inactivo para la imagen base y el overlay.
 
+### Imágenes de template
+
+El canvas tiene dos zonas apiladas verticalmente:
+
+| Zona | Propósito | Tamaño de imagen recomendado |
+|---|---|---|
+| **FRONT** | Franja inferior — cara frontal del mando | 480 × 200 px |
+| **TOP** | Área principal — vista superior | 480 × 320 px |
+
+Las imágenes se estiran para rellenar exactamente su zona. Usar imágenes a estas dimensiones evita pérdida de calidad por escalado.
+Los archivos van en `images/templates/`.
+
+---
+
 ### Control de cambios
 
 Un indicador `*` aparece cuando hay cambios sin guardar. Cambiar de layout sin guardar activa un diálogo de confirmación.

@@ -676,8 +676,8 @@ void LayoutEditor::startNew() {
     m_editLayout        = {};
     m_editLayout.id     = "__new__";
     m_editLayout.W      = 480.0f;
-    m_editLayout.FrontH = 160.0f;
-    m_editLayout.TopH   = 400.0f;
+    m_editLayout.FrontH = 200.0f;
+    m_editLayout.TopH   = 320.0f;
 
     // Auto-generate the two mandatory template backgrounds
     PadComponent tFront;

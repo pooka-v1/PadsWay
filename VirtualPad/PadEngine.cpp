@@ -1285,8 +1285,8 @@ void PadEngine::threadFunc() {
 
             // --- Mouse movement (continuous, sub-pixel accumulator) ---
             constexpr float kMouseDeadZone = 0.12f;
-            float mx = (fabsf(state.mouseX) > kMouseDeadZone) ? state.mouseX : 0.0f;
-            float my = (fabsf(state.mouseY) > kMouseDeadZone) ? state.mouseY : 0.0f;
+            float mx = (fabsf(state.mouseX) > kMouseDeadZone) ?  state.mouseX : 0.0f;
+            float my = (fabsf(state.mouseY) > kMouseDeadZone) ? -state.mouseY : 0.0f;
             bool mouseIsMoving = (mx != 0.0f || my != 0.0f);
             if (mouseIsMoving && !mouseWasMoving)
                 pushEvent({ PadEventType::MouseAction, "move", true });

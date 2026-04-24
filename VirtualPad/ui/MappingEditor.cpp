@@ -891,6 +891,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     float panelW = 280.0f;
                     float offX2 = (availW4 - panelW) * 0.5f;
                     if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
+                    ImGui::TextDisabled("Asigna ambas direcciones del eje");
+                    if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
                     ImGui::SetNextItemWidth(100.0f);
                     ImGui::SliderFloat("Vel.##axspd", &m_sel.axisMouseSpeed, 1.0f, 50.0f, "%.0f");
                     ImGui::SameLine();
@@ -905,6 +907,16 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         ha.type = HalfAxisActionType::MouseMove;
                         ha.target = m_sel.axisMouseAxis; ha.speed = m_sel.axisMouseSpeed;
                         m_model.axisActionEdits[axisKey] = ha;
+                        // Auto-assign opposite half so the full axis controls mouse bidirectionally.
+                        // halfV already carries the correct sign at runtime (_pos>0, _neg<0).
+                        auto oppositeKey = [](const std::string& k) {
+                            size_t p = k.rfind("_pos");
+                            if (p != std::string::npos) { auto r = k; r.replace(p, 4, "_neg"); return r; }
+                            size_t n = k.rfind("_neg");
+                            if (n != std::string::npos) { auto r = k; r.replace(n, 4, "_pos"); return r; }
+                            return k;
+                        };
+                        m_model.axisActionEdits[oppositeKey(axisKey)] = ha;
                         m_sel.physComp = -1; m_sel.stickDir.clear();
                         m_sel.actionType = H5ActionType::Xbox;
                     }
@@ -917,8 +929,22 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     float clearW = 100.0f;
                     float offX3 = (availW4 - clearW) * 0.5f;
                     if (offX3 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX3);
-                    if (ImGui::Button("Limpiar##axclr", { clearW, 0.0f }))
+                    if (ImGui::Button("Limpiar##axclr", { clearW, 0.0f })) {
+                        auto it = m_model.axisActionEdits.find(axisKey);
+                        bool isMouseMove = (it != m_model.axisActionEdits.end() &&
+                                            it->second.type == HalfAxisActionType::MouseMove);
                         m_model.axisActionEdits.erase(axisKey);
+                        if (isMouseMove) {
+                            auto oppositeKey = [](const std::string& k) {
+                                size_t p = k.rfind("_pos");
+                                if (p != std::string::npos) { auto r = k; r.replace(p, 4, "_neg"); return r; }
+                                size_t n = k.rfind("_neg");
+                                if (n != std::string::npos) { auto r = k; r.replace(n, 4, "_pos"); return r; }
+                                return k;
+                            };
+                            m_model.axisActionEdits.erase(oppositeKey(axisKey));
+                        }
+                    }
                 }
             }
         }

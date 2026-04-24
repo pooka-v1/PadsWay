@@ -453,6 +453,8 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
     state.triggerL = state.triggerR = 0.0f;
     // Dpad bits reset so axis_actions Dpad assignments clear when stick returns to neutral
     state.dpadUp = state.dpadDown = state.dpadLeft = state.dpadRight = false;
+    // Mouse delta reset each frame so axis_actions mouse_move stops when stick returns to neutral
+    state.mouseX = state.mouseY = 0.0f;
 
     // Buttons whose physical identity is a stick slot source lose their virtual
     // action entirely (one input → one output). Checked against action.physical
@@ -656,8 +658,8 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
                 }
                 break;
             case HalfAxisActionType::MouseMove:
-                if      (ha.target == "mouse_x") state.mouseX += absV;
-                else if (ha.target == "mouse_y") state.mouseY += absV;
+                if      (ha.target == "mouse_x") state.mouseX += halfV * ha.speed;
+                else if (ha.target == "mouse_y") state.mouseY += halfV * ha.speed;
                 break;
             case HalfAxisActionType::Ranges:
                 for (const auto& r : ha.ranges) {

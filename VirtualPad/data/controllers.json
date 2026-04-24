@@ -27,6 +27,20 @@
           "target": "right_x"
         }
       },
+      "axis_actions": {
+        "right_x_neg": {
+          "virtual": "right_x_neg"
+        },
+        "right_x_pos": {
+          "virtual": "right_x_pos"
+        },
+        "right_y_neg": {
+          "virtual": "right_y_neg"
+        },
+        "right_y_pos": {
+          "virtual": "right_y_pos"
+        }
+      },
       "buttons": {
         "1": {
           "physical": "b",
@@ -224,7 +238,7 @@
       "buttons": {
         "1": {
           "physical": "a",
-          "virtual": "dpad_right"
+          "virtual": "a"
         },
         "11": {
           "physical": "select",
@@ -248,18 +262,18 @@
         },
         "2": {
           "physical": "b",
-          "virtual": "dpad_down"
+          "virtual": "b"
         },
         "3": {
           "physical": "rp"
         },
         "4": {
           "physical": "x",
-          "virtual": "dpad_up"
+          "virtual": "x"
         },
         "5": {
           "physical": "y",
-          "virtual": "dpad_left"
+          "virtual": "y"
         },
         "6": {
           "physical": "lp"
@@ -336,92 +350,140 @@
     },
     {
       "axes": {
-        "dwRpos": {
+        "hid_rz": {
           "invert": true,
           "target": "right_y"
         },
-        "dwXpos": {
+        "hid_x": {
           "invert": false,
           "target": "left_x"
         },
-        "dwYpos": {
+        "hid_y": {
           "invert": true,
           "target": "left_y"
         },
-        "dwZpos": {
+        "hid_z": {
           "invert": false,
           "target": "right_x"
         }
       },
       "buttons": {
-        "1": "x",
-        "10": "start",
-        "11": "l3",
-        "12": "r3",
-        "2": "a",
-        "3": "b",
-        "4": "y",
-        "5": "l1",
-        "6": "r1",
-        "7": {
-          "target": "l2",
-          "type": "trigger"
+        "1": {
+          "physical": "x",
+          "virtual": "x"
         },
-        "8": {
-          "target": "r2",
-          "type": "trigger"
+        "10": {
+          "physical": "start",
+          "virtual": "start"
         },
-        "9": "select"
+        "11": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "12": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "9": {
+          "physical": "select",
+          "virtual": "select"
+        }
       },
-      "dpad": "pov",
-      "mode": "dinput",
+      "dpad": "hid_hat",
+      "layout_id": "f320",
+      "mode": "hid",
       "pid": "C216",
       "source_name": "Logitech F310 (D-mode)",
       "vid": "046D"
     },
     {
       "axes": {
-        "dwRpos": {
-          "invert": false,
-          "target": "right_y"
-        },
-        "dwUpos": {
+        "hid_rx": {
           "invert": false,
           "target": "right_x"
         },
-        "dwXpos": {
+        "hid_ry": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
           "invert": false,
           "target": "left_x"
         },
-        "dwYpos": {
-          "invert": false,
+        "hid_y": {
+          "invert": true,
           "target": "left_y"
         },
-        "dwZpos": {
+        "hid_z": {
           "invert": false,
-          "target": "trigger_combined"
+          "target": "trigger_l"
         }
       },
       "buttons": {
         "1": {
-          "physical": "b",
+          "physical": "a",
           "virtual": "a"
         },
-        "10": "r3",
+        "10": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
         "2": {
-          "physical": "a",
+          "physical": "b",
           "virtual": "b"
         },
-        "3": "x",
-        "4": "y",
-        "5": "l1",
-        "6": "r1",
-        "7": "select",
-        "8": "start",
-        "9": "l3"
+        "3": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "9": {
+          "physical": "l3",
+          "virtual": "l3"
+        }
       },
       "dpad": "hid_hat",
-      "mode": "xinput",
+      "layout_id": "f320",
+      "mode": "hid",
       "pid": "C21D",
       "source_name": "Logitech F310 (x-mode)",
       "vid": "046D"
@@ -437,7 +499,7 @@
           "target": "trigger_r"
         },
         "hid_rz": {
-          "invert": true,
+          "invert": false,
           "target": "right_y"
         },
         "hid_x": {
@@ -445,11 +507,11 @@
           "target": "left_x"
         },
         "hid_y": {
-          "invert": true,
+          "invert": false,
           "target": "left_y"
         },
         "hid_z": {
-          "invert": false,
+          "invert": true,
           "target": "right_x"
         }
       },

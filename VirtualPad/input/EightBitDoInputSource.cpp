@@ -76,6 +76,8 @@ bool EightBitDoInputSource::read(GamepadState& state) {
     state.btnLP = state.btnRP = false;
     // Dpad bits also reset so axis_actions Dpad assignments clear when stick returns to neutral
     state.dpadUp = state.dpadDown = state.dpadLeft = state.dpadRight = false;
+    // Mouse delta reset each frame so axis_actions mouse_move stops when stick returns to neutral
+    state.mouseX = state.mouseY = 0.0f;
 
     // Buttons whose physical identity is a stick slot source lose their virtual
     // action entirely (one input → one output). Identified by action.physical so
@@ -244,8 +246,8 @@ bool EightBitDoInputSource::read(GamepadState& state) {
                     }
                     break;
                 case HalfAxisActionType::MouseMove:
-                    if      (ha.target == "mouse_x") state.mouseX += absV;
-                    else if (ha.target == "mouse_y") state.mouseY += absV;
+                    if      (ha.target == "mouse_x") state.mouseX += halfV * ha.speed;
+                    else if (ha.target == "mouse_y") state.mouseY += halfV * ha.speed;
                     break;
                 case HalfAxisActionType::Ranges:
                     for (const auto& r : ha.ranges) {

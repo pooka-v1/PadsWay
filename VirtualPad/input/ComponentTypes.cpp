@@ -13,7 +13,8 @@
 static void applyVirtualTarget(const VirtualTarget& vt, float value,
                                 GamepadState& out,
                                 StickAccumulator& left, StickAccumulator& right,
-                                GyroAccumulator& gyro) {
+                                GyroAccumulator& gyro,
+                                float dirSign = 1.0f) {
     std::visit([&](const auto& v) {
         using T = std::decay_t<decltype(v)>;
 
@@ -57,7 +58,7 @@ static void applyVirtualTarget(const VirtualTarget& vt, float value,
                 case StickSlotId::RightYNeg: right.yNeg = std::max(right.yNeg, sv); break;
             }
         } else if constexpr (std::is_same_v<T, VirtualMouseMove>) {
-            float mv = value * v.speed;
+            float mv = value * dirSign * v.speed;
             if (v.axis == MouseAxis::X) out.mouseX += mv;
             else                        out.mouseY += mv;
         }
@@ -82,7 +83,8 @@ static void applyRangedHalfAxis(const RangedHalfAxis& rha, float value,
                                   PassthroughFn passthrough,
                                   GamepadState& out,
                                   StickAccumulator& left, StickAccumulator& right,
-                                  GyroAccumulator& gyro) {
+                                  GyroAccumulator& gyro,
+                                  float dirSign = 1.0f) {
     if (rha.ranges.empty()) {
         passthrough(value);
         return;
@@ -93,7 +95,7 @@ static void applyRangedHalfAxis(const RangedHalfAxis& rha, float value,
             passthrough(value);
         } else {
             float effective = isProportionalTarget(r.target) ? value : 1.0f;
-            applyVirtualTarget(r.target, effective, out, left, right, gyro);
+            applyVirtualTarget(r.target, effective, out, left, right, gyro, dirSign);
         }
         break;  // first matching range wins
     }
@@ -184,6 +186,12 @@ void PhysicalTrigger::process(float value, GamepadState& out,
 void PhysicalAnalogDir::process(float value, GamepadState& out,
                                   StickAccumulator& left, StickAccumulator& right,
                                   GyroAccumulator& gyro) const {
+    // Neg slots carry the magnitude of the negative direction (always [0,1]).
+    // VirtualMouseMove needs the signed value to know which way to move the cursor.
+    float dirSign = (slot == StickSlotId::LeftXNeg  || slot == StickSlotId::LeftYNeg ||
+                     slot == StickSlotId::RightXNeg || slot == StickSlotId::RightYNeg)
+                    ? -1.0f : 1.0f;
+
     auto passthrough = [&](float v) {
         switch (slot) {
             case StickSlotId::LeftXPos:  left.xPos  = std::max(left.xPos,  v); break;
@@ -196,7 +204,7 @@ void PhysicalAnalogDir::process(float value, GamepadState& out,
             case StickSlotId::RightYNeg: right.yNeg = std::max(right.yNeg, v); break;
         }
     };
-    applyRangedHalfAxis(axis, value, passthrough, out, left, right, gyro);
+    applyRangedHalfAxis(axis, value, passthrough, out, left, right, gyro, dirSign);
 }
 
 // ─── PhysicalTouchpad ────────────────────────────────────────────────────────

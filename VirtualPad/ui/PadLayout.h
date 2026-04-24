@@ -40,7 +40,7 @@ struct PadComponent {
 struct PadLayout {
     std::string id;
     float W      = 480.0f;
-    float FrontH = 160.0f;
-    float TopH   = 400.0f;
+    float FrontH = 200.0f;
+    float TopH   = 320.0f;
     std::vector<PadComponent> components;
 };
