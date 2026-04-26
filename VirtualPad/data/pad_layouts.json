@@ -2851,7 +2851,7 @@
                         0.9850000143051147,
                         0.44999998807907104
                     ],
-                    "state": "triggerL",
+                    "state": "btnLP",
                     "type": "button",
                     "view": "front",
                     "w": 50.0
@@ -2876,7 +2876,7 @@
                         1.0
                     ],
                     "cx": 376.0,
-                    "cy": 57.0,
+                    "cy": 56.0,
                     "h": 70.0,
                     "id": "triggerR",
                     "image": "buttons/R2ButtonLF310.png",
@@ -2891,7 +2891,7 @@
                         0.9850000143051147,
                         0.44999998807907104
                     ],
-                    "state": "triggerR",
+                    "state": "btnRP",
                     "type": "button",
                     "view": "front",
                     "w": 50.0
@@ -2980,7 +2980,7 @@
                     "view": "top"
                 }
             ],
-            "id": "f320"
+            "id": "f310 D mode"
         },
         {
             "canvas": {
@@ -3458,7 +3458,7 @@
                         0.9850000143051147,
                         0.44999998807907104
                     ],
-                    "state": "btnLP",
+                    "state": "triggerL",
                     "type": "button",
                     "view": "front",
                     "w": 50.0
@@ -3483,7 +3483,7 @@
                         1.0
                     ],
                     "cx": 376.0,
-                    "cy": 56.0,
+                    "cy": 57.0,
                     "h": 70.0,
                     "id": "triggerR",
                     "image": "buttons/R2ButtonLF310.png",
@@ -3498,7 +3498,7 @@
                         0.9850000143051147,
                         0.44999998807907104
                     ],
-                    "state": "btnRP",
+                    "state": "triggerR",
                     "type": "button",
                     "view": "front",
                     "w": 50.0
@@ -3587,7 +3587,7 @@
                     "view": "top"
                 }
             ],
-            "id": "f310 D mode"
+            "id": "f310 X mode"
         }
     ]
 }

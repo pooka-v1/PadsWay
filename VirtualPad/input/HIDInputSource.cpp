@@ -932,6 +932,9 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     // Guard: touchpad finger data must fit within the bytes actually received.
     // DS4 BT in simplified mode (report ~10 bytes) won't have this data.
     int off = m_config.touchpad.dataOffset;
+    if (m_readCount <= 5 || m_readCount % 240 == 0)
+        spdlog::debug("[TOUCH][{}] enabled={} offset={} bytesRead={} guard={}",
+            m_name, m_config.touchpad.enabled, off, (int)bytesRead, (off + 4 > (int)bytesRead) ? "FAIL" : "OK");
     if (off + 4 > static_cast<int>(bytesRead)) {
         state.touch1Active = false;
         state.touch2Active = false;
@@ -952,6 +955,7 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     // --- Finger 1 ---
     bool active = (b0 & 0x80) == 0;  // bit7 = 0 means touching
     state.touch1Active = active;
+    m_physicalState.touch1Active = active;
 
     if (active) {
         int   rawX  = b1 | ((b2 & 0x0F) << 8);
@@ -961,6 +965,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
 
         state.touch1X = normX;
         state.touch1Y = normY;
+        m_physicalState.touch1X = normX;
+        m_physicalState.touch1Y = normY;
 
         if (m_lastTouchActive) {
             // Delta in raw touchpad units — used for mouse routing
@@ -974,6 +980,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     } else {
         state.touch1X = 0.0f;
         state.touch1Y = 0.0f;
+        m_physicalState.touch1X = 0.0f;
+        m_physicalState.touch1Y = 0.0f;
     }
 
     m_lastTouchActive = active;
@@ -985,18 +993,25 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         BYTE c2 = static_cast<BYTE>(buf[off + 6]);
         BYTE c3 = static_cast<BYTE>(buf[off + 7]);
         state.touch2Active = (c0 & 0x80) == 0;
+        m_physicalState.touch2Active = state.touch2Active;
         if (state.touch2Active) {
             int rawX2 = c1 | ((c2 & 0x0F) << 8);
             int rawY2 = ((c2 & 0xF0) >> 4) | (c3 << 4);
             state.touch2X = static_cast<float>(rawX2) / static_cast<float>(m_config.touchpad.maxX);
             state.touch2Y = static_cast<float>(rawY2) / static_cast<float>(m_config.touchpad.maxY);
+            m_physicalState.touch2X = state.touch2X;
+            m_physicalState.touch2Y = state.touch2Y;
         } else {
             state.touch2X = 0.0f;
             state.touch2Y = 0.0f;
+            m_physicalState.touch2X = 0.0f;
+            m_physicalState.touch2Y = 0.0f;
         }
     } else {
         state.touch2Active = false;
         state.touch2X = state.touch2Y = 0.0f;
+        m_physicalState.touch2Active = false;
+        m_physicalState.touch2X = m_physicalState.touch2Y = 0.0f;
     }
 }
 
@@ -1023,6 +1038,10 @@ void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.gyroY     = std::clamp(rawY * m_config.imu.gyroScale, -1.0f, 1.0f);
     state.gyroZ     = std::clamp(rawZ * m_config.imu.gyroScale, -1.0f, 1.0f);
     state.gyroActive = true;
+    m_physicalState.gyroX     = state.gyroX;
+    m_physicalState.gyroY     = state.gyroY;
+    m_physicalState.gyroZ     = state.gyroZ;
+    m_physicalState.gyroActive = true;
 }
 
 void HIDInputSource::parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right) {

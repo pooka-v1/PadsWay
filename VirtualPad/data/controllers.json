@@ -499,7 +499,7 @@
           "target": "trigger_r"
         },
         "hid_rz": {
-          "invert": false,
+          "invert": true,
           "target": "right_y"
         },
         "hid_x": {

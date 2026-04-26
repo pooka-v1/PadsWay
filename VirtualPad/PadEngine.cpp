@@ -825,7 +825,6 @@ void PadEngine::threadFunc() {
 
     GamepadState state;
     bool         botBtnPrev    = false;
-    bool         btnAPrev      = false;
     bool         mouseWasMoving = false;
     float        mouseAccumX   = 0.0f;
     float        mouseAccumY   = 0.0f;
@@ -852,7 +851,6 @@ void PadEngine::threadFunc() {
             input->setConfig(*cfg);   // cfg == &effectiveCfg, now updated
             if (bot.isActive()) bot.toggle();
             botBtnPrev  = false;
-            btnAPrev    = false;
             mouseAccumX = 0.0f;
             mouseAccumY = 0.0f;
             initMacros();
@@ -943,10 +941,6 @@ void PadEngine::threadFunc() {
                         macro.stop();
                 prev = pressed;
             }
-
-            if (state.btnA && !btnAPrev)
-                spdlog::info("[MAN][{}] Manual A press", GetTickCount64()); // TODO: remove when no longer needed
-            btnAPrev = state.btnA;
 
             bool botPressed = bot.consumePressA();
             if (botPressed) state.btnA = true;
