@@ -7,9 +7,9 @@
 
 // Reads a controller in D-mode (DirectInput/WinMM) using a runtime config
 // that defines which WinMM buttons/axes map to which virtual gamepad outputs.
-class EightBitDoInputSource : public IInputSource {
+class WinMMInputSource : public IInputSource {
 public:
-    EightBitDoInputSource(UINT joyId, const ControllerConfig& config);
+    WinMMInputSource(UINT joyId, const ControllerConfig& config);
 
     bool        isConnected()       const override;
     bool        read(GamepadState& state) override;

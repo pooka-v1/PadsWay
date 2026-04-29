@@ -12,7 +12,7 @@
 #include <unordered_set>
 #include <string>
 
-#include "input/EightBitDoInputSource.h"
+#include "input/WinMMInputSource.h"
 #include "input/XInputInputSource.h"
 #include "input/HIDScanner.h"
 #include "input/HIDInputSource.h"
@@ -609,7 +609,7 @@ void PadEngine::threadFunc() {
         else if (cfg->mode == "xinput")
             input = std::make_unique<XInputInputSource>(selected.port, *cfg);
         else
-            input = std::make_unique<EightBitDoInputSource>(selected.port, *cfg);
+            input = std::make_unique<WinMMInputSource>(selected.port, *cfg);
 
         // Inject PhysicalController for component-system processing (P4)
         {

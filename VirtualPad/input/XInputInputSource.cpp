@@ -4,23 +4,29 @@
 #pragma comment(lib, "XInput.lib")
 
 XInputInputSource::XInputInputSource(UINT xInputSlot, const ControllerConfig& config)
-    : EightBitDoInputSource(0, config), m_xInputSlot(xInputSlot) {}
+    : WinMMInputSource(0, config), m_xInputSlot(xInputSlot) {}
 
 // Scan all XInput slots and return the index of the first connected one,
 // or XUSER_MAX_COUNT if none found. Caches result in m_xInputSlot.
+// Returns true if the WinMM bridge for this slot belongs to our ViGEm virtual pad (VID=0x5650).
+static bool isViGEmSlot(UINT slot) {
+    JOYCAPS caps = {};
+    return joyGetDevCaps(slot, &caps, sizeof(caps)) == JOYERR_NOERROR && caps.wMid == 0x5650;
+}
+
 UINT XInputInputSource::findActiveSlot() const {
     XINPUT_STATE s = {};
-    // Try cached slot first to avoid unnecessary polling
-    if (XInputGetState(m_xInputSlot, &s) == ERROR_SUCCESS)
+    // Try cached slot first; accept it only if it is not the ViGEm virtual pad.
+    if (XInputGetState(m_xInputSlot, &s) == ERROR_SUCCESS && !isViGEmSlot(m_xInputSlot))
         return m_xInputSlot;
     for (UINT i = 0; i < XUSER_MAX_COUNT; ++i) {
         if (i == m_xInputSlot) continue;
-        if (XInputGetState(i, &s) == ERROR_SUCCESS) {
-            m_xInputSlot = i;
-            return i;
-        }
+        if (XInputGetState(i, &s) != ERROR_SUCCESS) continue;
+        if (isViGEmSlot(i)) continue;
+        m_xInputSlot = i;
+        return i;
     }
-    return XUSER_MAX_COUNT;  // none found
+    return XUSER_MAX_COUNT;
 }
 
 bool XInputInputSource::isConnected() const {

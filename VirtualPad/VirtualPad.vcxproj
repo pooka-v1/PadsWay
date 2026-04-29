@@ -140,7 +140,7 @@
   <ItemGroup>
     <ClCompile Include="config\ConfigLoader.cpp" />
     <ClCompile Include="input\ComponentTypes.cpp" />
-    <ClCompile Include="input\EightBitDoInputSource.cpp" />
+    <ClCompile Include="input\WinMMInputSource.cpp" />
     <ClCompile Include="input\XInputInputSource.cpp" />
     <ClCompile Include="input\HIDScanner.cpp" />
     <ClCompile Include="input\HIDInputSource.cpp" />
@@ -173,7 +173,7 @@
     <ClInclude Include="input\ControllerConfig.h" />
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="input\IInputSource.h" />
-    <ClInclude Include="input\EightBitDoInputSource.h" />
+    <ClInclude Include="input\WinMMInputSource.h" />
     <ClInclude Include="input\XInputInputSource.h" />
     <ClInclude Include="input\HIDScanner.h" />
     <ClInclude Include="input\HIDInputSource.h" />

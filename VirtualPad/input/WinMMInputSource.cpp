@@ -1,20 +1,20 @@
-#include "EightBitDoInputSource.h"
+#include "WinMMInputSource.h"
 #include "StickSlotsHelper.h"
 #include <algorithm>
 
 #pragma comment(lib, "WinMM.lib")
 
-EightBitDoInputSource::EightBitDoInputSource(UINT joyId, const ControllerConfig& config)
+WinMMInputSource::WinMMInputSource(UINT joyId, const ControllerConfig& config)
     : m_joyId(joyId), m_config(config) {}
 
-bool EightBitDoInputSource::isConnected() const {
+bool WinMMInputSource::isConnected() const {
     JOYINFOEX info;
     info.dwSize  = sizeof(JOYINFOEX);
     info.dwFlags = JOY_RETURNBUTTONS;
     return joyGetPosEx(m_joyId, &info) == JOYERR_NOERROR;
 }
 
-bool EightBitDoInputSource::read(GamepadState& state) {
+bool WinMMInputSource::read(GamepadState& state) {
     JOYINFOEX info = {};
     info.dwSize  = sizeof(JOYINFOEX);
     info.dwFlags = JOY_RETURNALL;
@@ -25,7 +25,7 @@ bool EightBitDoInputSource::read(GamepadState& state) {
     return processJoyInfo(info, state);
 }
 
-bool EightBitDoInputSource::processJoyInfo(const JOYINFOEX& info, GamepadState& state) {
+bool WinMMInputSource::processJoyInfo(const JOYINFOEX& info, GamepadState& state) {
     if (m_hasPhysicalController) {
         // ── Component-system path ─────────────────────────────────────────────
         m_physicalState = {};
@@ -349,7 +349,7 @@ bool EightBitDoInputSource::processJoyInfo(const JOYINFOEX& info, GamepadState& 
 // Component-system path
 // ---------------------------------------------------------------------------
 
-void EightBitDoInputSource::buildPhysicalButtons(const JOYINFOEX& info) {
+void WinMMInputSource::buildPhysicalButtons(const JOYINFOEX& info) {
     m_lastButtonMask = info.dwButtons;
 
     auto setPhys = [&](const std::string& name, bool v) {
@@ -380,7 +380,7 @@ void EightBitDoInputSource::buildPhysicalButtons(const JOYINFOEX& info) {
     }
 }
 
-void EightBitDoInputSource::buildPhysicalAxes(const JOYINFOEX& info) {
+void WinMMInputSource::buildPhysicalAxes(const JOYINFOEX& info) {
     for (const auto& [source, mapping] : m_config.axes) {
         float v = normalizeAxis(getAxisValue(info, source));
         if (mapping.invert) v = -v;
@@ -400,7 +400,7 @@ void EightBitDoInputSource::buildPhysicalAxes(const JOYINFOEX& info) {
     }
 }
 
-void EightBitDoInputSource::applyAxesResidual(const JOYINFOEX& info, GamepadState& state) {
+void WinMMInputSource::applyAxesResidual(const JOYINFOEX& info, GamepadState& state) {
     auto setBtn = [&](const std::string& name, bool v) {
         if (!v) return;
         if      (name == "a")      state.btnA     = true;
@@ -477,7 +477,7 @@ void EightBitDoInputSource::applyAxesResidual(const JOYINFOEX& info, GamepadStat
 
 // ---------------------------------------------------------------------------
 
-DWORD EightBitDoInputSource::getAxisValue(const JOYINFOEX& info, const std::string& source) {
+DWORD WinMMInputSource::getAxisValue(const JOYINFOEX& info, const std::string& source) {
     if (source == "dwXpos") return info.dwXpos;
     if (source == "dwYpos") return info.dwYpos;
     if (source == "dwZpos") return info.dwZpos;
@@ -487,17 +487,17 @@ DWORD EightBitDoInputSource::getAxisValue(const JOYINFOEX& info, const std::stri
     return 32768; // center value as safe fallback
 }
 
-float EightBitDoInputSource::normalizeAxis(DWORD value) {
+float WinMMInputSource::normalizeAxis(DWORD value) {
     float normalized = (static_cast<float>(value) - 32767.5f) / 32767.5f;
     return std::clamp(normalized, -1.0f, 1.0f);
 }
 
-float EightBitDoInputSource::normalizeTrigger(DWORD value) {
+float WinMMInputSource::normalizeTrigger(DWORD value) {
     float normalized = static_cast<float>(value) / 65535.0f;
     return std::clamp(normalized, 0.0f, 1.0f);
 }
 
-void EightBitDoInputSource::parsePOV(DWORD pov, bool& up, bool& down, bool& left, bool& right) {
+void WinMMInputSource::parsePOV(DWORD pov, bool& up, bool& down, bool& left, bool& right) {
     if (pov == JOY_POVCENTERED) {
         up = down = left = right = false;
         return;
