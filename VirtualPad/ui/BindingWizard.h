@@ -7,7 +7,6 @@
 #include "PadView.h"
 #include "PadLayout.h"
 #include "../input/HIDScanner.h"
-#include "../PadScanner.h"
 #include "../input/RawHIDReader.h"
 #include "../imgui/imgui.h"
 
@@ -45,14 +44,12 @@ private:
 
     // ── Internal data types ──────────────────────────────────────────────────
     struct DetectedController {
-        enum class Source { HID, WinMM } source;
         WORD        vid            = 0;
         WORD        pid            = 0;
-        std::string name;           // display name (from config source_name or HID product string)
-        std::string productName;    // HID product string — for display only, not matching
-        std::string connectionType; // "usb" / "bt" / "" (WinMM)
-        std::string path;           // HID device path
-        UINT        port           = 0; // WinMM port
+        std::string name;
+        std::string productName;
+        std::string connectionType; // "usb" / "bt" / ""
+        std::string path;
     };
 
     struct StateMapEntry {
@@ -138,7 +135,6 @@ private:
     int    m_selectedCtrl  = -1;
 
     char   m_nameBuf[128]     = {};
-    bool   m_modeIsXInput     = false; // toggle dinput ↔ xinput for WinMM controllers
     bool   m_saveWithConnection = false; // save connection:"usb"/"bt" (specific) vs generic
 
     std::unordered_map<std::string, StateMapEntry> m_stateMap;
@@ -156,10 +152,8 @@ private:
 
     // Raw reader
     std::unique_ptr<RawHIDReader> m_hidReader;
-    UINT           m_winmmPort       = 0;
     DWORD          m_prevButtonMask  = 0;
     RawHIDState    m_axisBaseline    = {};
-    PadScanner::RawInput m_winmmBaseline = {};
 
     int  m_stepCooldown = 0;  // frames to wait after an axis/trigger commit before detecting again
     bool m_savedFlag    = false;

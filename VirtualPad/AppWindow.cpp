@@ -1,6 +1,5 @@
 ﻿#include "AppWindow.h"
-#include <xinput.h>
-#pragma comment(lib, "XInput.lib")
+#include "Log.h"
 
 #include <algorithm>
 #include <fstream>
@@ -236,27 +235,17 @@ void AppWindow::renderEngineTab() {
             const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid,
                                                      dev.connectionType);
             const char* displayName = cfg ? cfg->source_name.c_str() : dev.name.c_str();
-            const char* src = (dev.source == DeviceCandidate::Source::HID) ? "HID" : "WinMM";
-            char slotStr[8] = "";
-            if (dev.source == DeviceCandidate::Source::WinMM && cfg && cfg->mode == "xinput")
-                snprintf(slotStr, sizeof(slotStr), "[%u]", dev.port);
-
-            // Determine if this entry is the currently active device
             bool isActive = (dev.vid == activeDevice.vid && dev.pid == activeDevice.pid
-                          && dev.source == activeDevice.source);
-            if (isActive && dev.source == DeviceCandidate::Source::HID)
-                isActive = (dev.hidPath == activeDevice.hidPath);
-            if (isActive && dev.source == DeviceCandidate::Source::WinMM)
-                isActive = (dev.port == activeDevice.port);
+                          && dev.hidPath == activeDevice.hidPath);
 
             if (isActive) {
                 ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "  >");
                 ImGui::SameLine();
-                ImGui::Text("[%s]%s  %s    VID:%04X  PID:%04X", src, slotStr, displayName, dev.vid, dev.pid);
+                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", displayName, dev.vid, dev.pid);
             } else {
                 ImGui::Text("   ");
                 ImGui::SameLine();
-                ImGui::Text("[%s]%s  %s    VID:%04X  PID:%04X", src, slotStr, displayName, dev.vid, dev.pid);
+                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", displayName, dev.vid, dev.pid);
                 ImGui::SameLine();
 
                 char btnLabel[64];
@@ -318,13 +307,6 @@ void AppWindow::renderEngineTab() {
 // Scanner tab â€” helpers
 // ---------------------------------------------------------------------------
 
-// Converts a raw WinMM axis value [0..65535] to normalised float [-1..1].
-static float normalizeAxis(DWORD v) {
-    float n = (static_cast<float>(v) - 32767.5f) / 32767.5f;
-    if (n < -1.0f) n = -1.0f;
-    if (n >  1.0f) n =  1.0f;
-    return n;
-}
 
 // Returns a human-readable POV direction string.
 static const char* povDirection(DWORD pov) {
@@ -414,31 +396,7 @@ void AppWindow::renderScannerTab() {
     uint16_t  vVid = m_engine.getVirtualVid();
     uint16_t  vPid = m_engine.getVirtualPid();
 
-    auto buildScanDevices = [&]() {
-        auto all = PadScanner::scan();
-        m_scanDevices.clear();
-        for (auto& d : all) {
-            if (vVid && d.vid == vVid && d.pid == vPid) continue;
-            const ControllerConfig* dcfg = findConfig(m_controllerConfigs, d.vid, d.pid);
-            if (dcfg && dcfg->mode == "hid") continue;
-            // For XInput devices the WinMM port equals the XInput slot.
-            // Filter zombie bridge entries: real slots respond to XInputGetState.
-            if (dcfg && dcfg->mode == "xinput") {
-                XINPUT_STATE xs = {};
-                if (XInputGetState(d.port, &xs) != ERROR_SUCCESS) continue;
-            }
-            m_scanDevices.push_back(d);
-        }
-        if (m_scanSelected >= (int)m_scanDevices.size()) m_scanSelected = -1;
-    };
-
-    // WinMM scan — fast, runs synchronously every second
-    if (now - m_lastScanTime > 1000) {
-        buildScanDevices();
-        m_lastScanTime = now;
-    }
-
-    // HID scan â€” slow (opens every HID device), runs on a background thread
+    // HID scan — slow (opens every HID device), runs on a background thread
     auto kickHidScan = [&]() {
         if (!m_hidScanRunning.exchange(true)) {
             m_lastHidScanTime = now;
@@ -452,12 +410,9 @@ void AppWindow::renderScannerTab() {
     if (m_hidScanRunning && m_hidScanFuture.valid() &&
         m_hidScanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto raw = m_hidScanFuture.get();
-        // Remove virtual pad and devices already visible via WinMM
+        // Remove virtual pad
         raw.erase(std::remove_if(raw.begin(), raw.end(), [&](const HIDScanner::DeviceInfo& h) {
-            if (vVid && h.vid == vVid && h.pid == vPid) return true;
-            for (auto& w : m_scanDevices)
-                if (w.vid == h.vid && w.pid == h.pid) return true;
-            return false;
+            return vVid && h.vid == vVid && h.pid == vPid;
         }), raw.end());
         m_hidDevices = std::move(raw);
         if (m_hidSelected >= (int)m_hidDevices.size()) m_hidSelected = -1;
@@ -475,47 +430,15 @@ void AppWindow::renderScannerTab() {
     // â”€â”€ Left panel: device list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     ImGui::BeginChild("##DeviceList", { m_scanSplitX, 0.0f }, true);
 
-    ImGui::Text("WinMM (%zu)", m_scanDevices.size());
+    ImGui::Text("HID(% zu)", m_hidDevices.size());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh")) {
-        buildScanDevices();
-        m_lastScanTime = now;
+    if (ImGui::SmallButton("Refresh"))
         kickHidScan();
-    }
-    ImGui::Separator();
-
-    if (m_scanDevices.empty()) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("No WinMM devices found.");
-    } else {
-        for (int i = 0; i < (int)m_scanDevices.size(); ++i) {
-            const auto& dev = m_scanDevices[i];
-            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
-            char label[128];
-            if (cfg)
-                snprintf(label, sizeof(label), "[%u] %s", dev.port, cfg->source_name.c_str());
-            else
-                snprintf(label, sizeof(label), "[%u] %ls", dev.port, dev.name);
-
-            bool sel = (m_scanSelected == i);
-            if (ImGui::Selectable(label, sel, 0, { 0, 0 })) {
-                m_scanSelected = i;
-                m_hidSelected  = -1;
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("  VID:%04X PID:%04X  %uax %ubtn",
-                dev.vid, dev.pid, dev.axes, dev.buttons);
-        }
-    }
-
-    // â”€â”€ HID-only devices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    ImGui::Spacing();
-    ImGui::Text("HID-only (%zu)", m_hidDevices.size());
     ImGui::Separator();
 
     if (m_hidDevices.empty()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("No HID-only devices found.");
+        ImGui::TextDisabled("No HID devices found.");
     } else {
         for (int i = 0; i < (int)m_hidDevices.size(); ++i) {
             const auto& dev = m_hidDevices[i];
@@ -529,10 +452,8 @@ void AppWindow::renderScannerTab() {
                 snprintf(label, sizeof(label), "[HID] VID:%04X PID:%04X", dev.vid, dev.pid);
 
             bool sel = (m_hidSelected == i);
-            if (ImGui::Selectable(label, sel, 0, { 0, 0 })) {
-                m_hidSelected  = i;
-                m_scanSelected = -1;
-            }
+            if (ImGui::Selectable(label, sel, 0, { 0, 0 }))
+                m_hidSelected = i;
             ImGui::SameLine();
             ImGui::TextDisabled("  VID:%04X PID:%04X", dev.vid, dev.pid);
         }
@@ -574,11 +495,20 @@ void AppWindow::renderScannerTab() {
         ImGui::Separator();
         ImGui::Spacing();
 
-        // Read live state from the engine (avoids competing with it on Bluetooth HID)
-        if (!m_engine.isConnected()) {
-            ImGui::TextDisabled("Engine not running â€” start the engine to monitor inputs.");
-            ImGui::EndChild();
-            return;
+        // The scanner borrows the Engine's state to avoid competing for the HID handle.
+        // Only valid when the Engine is actively reading the same VID:PID device.
+        {
+            DeviceCandidate activeDevice = m_engine.getActiveDevice();
+            bool sameDevice = m_engine.isConnected() &&
+                activeDevice.vid == hdev.vid && activeDevice.pid == hdev.pid;
+            if (!sameDevice) {
+                if (m_engine.isConnected())
+                    ImGui::TextDisabled("Engine has a different device active.\nSelect this device in the Engine tab to monitor its inputs here.");
+                else
+                    ImGui::TextDisabled("Engine not running.\nStart the engine with this device to monitor its inputs here.");
+                ImGui::EndChild();
+                return;
+            }
         }
 
         m_hidScanState = m_engine.getLastState();
@@ -706,107 +636,11 @@ void AppWindow::renderScannerTab() {
         return;
     }
 
-    // â”€â”€ WinMM device input monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    if (m_scanSelected < 0 || m_scanSelected >= (int)m_scanDevices.size()) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("Select a device on the left to monitor its inputs.");
-        ImGui::EndChild();
-        return;
-    }
-
-    const auto& dev = m_scanDevices[m_scanSelected];
-    auto raw = PadScanner::readRaw(dev.port);
-
-    if (!raw.valid) {
-        ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "Read failed â€” device disconnected?");
-        ImGui::EndChild();
-        return;
-    }
-
-    // â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    ImGui::Text("Buttons (%u)", dev.buttons);
-    ImGui::Separator();
     ImGui::Spacing();
-
-    const UINT maxButtons = (dev.buttons < 32) ? dev.buttons : 32;
-    const int  buttonsPerRow = 8;
-
-    for (UINT i = 0; i < maxButtons; ++i) {
-        bool pressed = (raw.buttons & (1u << i)) != 0;
-
-        ImGui::PushStyleColor(ImGuiCol_Button,
-            pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f)
-                    : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-            pressed ? ImVec4(0.25f, 0.85f, 0.25f, 1.0f)
-                    : ImVec4(0.28f, 0.28f, 0.30f, 1.0f));
-
-        char label[6];
-        snprintf(label, sizeof(label), "%u", i + 1);
-        ImGui::Button(label, { 34.0f, 34.0f });
-        ImGui::PopStyleColor(2);
-
-        if ((i + 1) % buttonsPerRow != 0 && i + 1 < maxButtons)
-            ImGui::SameLine(0.0f, 4.0f);
-    }
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    // â”€â”€ Axes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    ImGui::Text("Axes (%u)", dev.axes);
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    struct { const char* name; DWORD value; } axes[] = {
-        { "X", raw.xpos }, { "Y", raw.ypos }, { "Z", raw.zpos },
-        { "R", raw.rpos }, { "U", raw.upos }, { "V", raw.vpos },
-    };
-
-    const UINT numAxes = (dev.axes < 6) ? dev.axes : 6;
-    const float barWidth = ImGui::GetContentRegionAvail().x - 40.0f;
-
-    for (UINT i = 0; i < numAxes; ++i) {
-        float v   = normalizeAxis(axes[i].value);
-        float bar = (v + 1.0f) * 0.5f;  // remap [-1,1] â†’ [0,1] for ProgressBar
-
-        // Colour: neutral grey at center, shifts toward orange as it deviates
-        float dev_f = fabsf(v);
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-            ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
-
-        ImGui::Text("%-2s", axes[i].name);
-        ImGui::SameLine();
-
-        char overlay[12];
-        snprintf(overlay, sizeof(overlay), "%+.3f", v);
-        ImGui::ProgressBar(bar, { barWidth, 18.0f }, overlay);
-        ImGui::PopStyleColor();
-    }
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    // â”€â”€ POV â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    ImGui::Text("POV");
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    drawPOVCompass(raw.pov);
-    ImGui::SameLine(0.0f, 16.0f);
-
-    // Text annotation next to the compass
-    ImGui::BeginGroup();
-    ImGui::Spacing();
-    if (raw.pov == JOY_POVCENTERED) {
-        ImGui::TextDisabled("Center");
-    } else {
-        ImGui::Text("%s  (%uÂ°)", povDirection(raw.pov), raw.pov / 100);
-    }
-    ImGui::EndGroup();
-
+    ImGui::TextDisabled("Select a HID device on the left to monitor its inputs.");
     ImGui::EndChild();
 }
+
 
 // ---------------------------------------------------------------------------
 // Window / D3D11 initialisation

@@ -6,7 +6,6 @@
 #include <fstream>
 #include <algorithm>
 #include <cstring>
-
 using json = nlohmann::json;
 
 // ── HID axis names by RawHIDState field index ────────────────────────────────
@@ -26,21 +25,6 @@ static float kHIDAxisValues(const RawHIDState& s, int i) {
     case 7: return s.axisAccel;
     }
     return 0.0f;
-}
-
-static const char* kWinMMAxisNames[] = {
-    "dwXpos", "dwYpos", "dwZpos", "dwRpos", "dwUpos", "dwVpos"
-};
-static DWORD kWinMMAxisValues(const PadScanner::RawInput& r, int i) {
-    switch (i) {
-    case 0: return r.xpos;
-    case 1: return r.ypos;
-    case 2: return r.zpos;
-    case 3: return r.rpos;
-    case 4: return r.upos;
-    case 5: return r.vpos;
-    }
-    return 32767;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +73,6 @@ void BindingWizard::start(const PadLayout& layout) {
     m_overlayLabels.clear();
     m_hasDpad  = false;
     m_dpadType.clear();
-    m_modeIsXInput      = false;
     m_saveWithConnection = false;
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
 
@@ -129,15 +112,10 @@ void BindingWizard::renderSelectController() {
         ImGui::BeginChild("##ctrlList", { 0.0f, 180.0f }, true);
         for (int i = 0; i < (int)m_controllers.size(); ++i) {
             const auto& c = m_controllers[i];
-            // Build transport label: "HID/USB", "HID/BT", or "WinMM"
             char transport[16];
-            if (c.source == DetectedController::Source::HID) {
-                if      (c.connectionType == "bt")  snprintf(transport, sizeof(transport), "HID/BT");
-                else if (c.connectionType == "usb") snprintf(transport, sizeof(transport), "HID/USB");
-                else                                snprintf(transport, sizeof(transport), "HID");
-            } else {
-                snprintf(transport, sizeof(transport), "WinMM");
-            }
+            if      (c.connectionType == "bt")  snprintf(transport, sizeof(transport), "HID/BT");
+            else if (c.connectionType == "usb") snprintf(transport, sizeof(transport), "HID/USB");
+            else                                snprintf(transport, sizeof(transport), "HID");
             char label[256];
             snprintf(label, sizeof(label), "%s  [%04X:%04X]  (%s)##ctrl%d",
                      c.name.c_str(), c.vid, c.pid, transport, i);
@@ -174,7 +152,7 @@ void BindingWizard::renderNameController() {
     ImGui::Text("VID:%04X  PID:%04X", c.vid, c.pid);
     if (!c.productName.empty())
         ImGui::Text("Nombre HID: %s", c.productName.c_str());
-    if (c.source == DetectedController::Source::HID) {
+    {
         const char* conn = c.connectionType == "bt"  ? "Bluetooth" :
                            c.connectionType == "usb" ? "USB" : "desconocida";
         ImGui::Text("Conexion detectada: %s", conn);
@@ -188,16 +166,6 @@ void BindingWizard::renderNameController() {
     ImGui::Text("Nombre para mostrar (editable):");
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputText("##cname", m_nameBuf, sizeof(m_nameBuf));
-
-    if (c.source == DetectedController::Source::WinMM) {
-        ImGui::Spacing();
-        ImGui::Text("Modo WinMM:");
-        ImGui::SameLine();
-        if (ImGui::RadioButton("D-input", !m_modeIsXInput)) m_modeIsXInput = false;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("X-input", m_modeIsXInput))  m_modeIsXInput = true;
-        ImGui::TextDisabled("  D-input: gatillos independientes.  X-input: gatillos compartidos en un eje.");
-    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -503,46 +471,20 @@ void BindingWizard::scanControllers() {
         }
     } catch (...) {}
 
-    // HID devices — skip the ViGEm virtual controller (VID:5650 PID:0001)
+    // HID scan — all physical controllers use HID
     for (const auto& h : HIDScanner::scan()) {
-        if (h.vid == 0x5650 && h.pid == 0x0001) continue;
+        if (h.vid == 0x5650 && h.pid == 0x0001) continue;  // skip ViGEm
+        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
+                                                       h.connectionType);
         DetectedController c;
-        c.source         = DetectedController::Source::HID;
         c.vid            = h.vid;
         c.pid            = h.pid;
         c.productName    = h.productName;
         c.connectionType = h.connectionType;
         c.path           = h.path;
-        // Pre-fill display name from existing config; fall back to HID product string
-        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
-                                                       h.connectionType);
         c.name = (existing && !existing->source_name.empty())
                  ? existing->source_name
                  : (h.productName.empty() ? "HID device" : h.productName);
-        m_controllers.push_back(std::move(c));
-    }
-
-    // WinMM devices — skip ViGEm virtual and devices already listed as HID
-    for (const auto& w : PadScanner::scan()) {
-        if (w.vid == 0x5650 && w.pid == 0x0001) continue;
-        bool alreadyHID = false;
-        for (const auto& c : m_controllers)
-            if (c.vid == w.vid && c.pid == w.pid) { alreadyHID = true; break; }
-        if (alreadyHID) continue;
-
-        char narrow[MAXPNAMELEN] = {};
-        WideCharToMultiByte(CP_UTF8, 0, w.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-
-        DetectedController c;
-        c.source = DetectedController::Source::WinMM;
-        c.vid    = w.vid;
-        c.pid    = w.pid;
-        c.port   = w.port;
-        // Pre-fill display name from existing config; fall back to WinMM name
-        const ControllerConfig* existing = findConfig(existingConfigs, w.vid, w.pid);
-        c.name = (existing && !existing->source_name.empty())
-                 ? existing->source_name
-                 : ((narrow[0] != '\0') ? narrow : "WinMM device");
         m_controllers.push_back(std::move(c));
     }
 }
@@ -793,16 +735,10 @@ void BindingWizard::cancel() {
 // ---------------------------------------------------------------------------
 
 bool BindingWizard::captureButton(int& outIndex) {
-    DWORD mask = 0;
-    if (m_hidReader && m_hidReader->isOpen()) {
-        RawHIDState s{};
-        m_hidReader->read(s);
-        mask = s.buttonMask;
-    } else {
-        auto r = PadScanner::readRaw(m_winmmPort);
-        if (!r.valid) return false;
-        mask = r.buttons;
-    }
+    if (!m_hidReader || !m_hidReader->isOpen()) return false;
+    RawHIDState s{};
+    m_hidReader->read(s);
+    DWORD mask = s.buttonMask;
 
     DWORD newBits = mask & ~m_prevButtonMask;
     m_prevButtonMask = mask;
@@ -845,26 +781,8 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
         outSource = kHIDAxisNames[bestAxis];
         outInvert = invertIfPositive ? (deltaSigned > 0.0f) : (deltaSigned < 0.0f);
         return true;
-    } else {
-        auto cur = PadScanner::readRaw(m_winmmPort);
-        if (!cur.valid) return false;
-        DWORD bestDelta = 0;
-        int   bestAxis  = -1;
-        for (int i = 0; i < 6; ++i) {
-            if (alreadyBound(kWinMMAxisNames[i])) continue;
-            DWORD base = kWinMMAxisValues(m_winmmBaseline, i);
-            DWORD now  = kWinMMAxisValues(cur, i);
-            DWORD delta = (now > base) ? (now - base) : (base - now);
-            if (delta > bestDelta) { bestDelta = delta; bestAxis = i; }
-        }
-        if (bestDelta < kWinmmThreshold || bestAxis < 0) return false;
-        DWORD val  = kWinMMAxisValues(cur, bestAxis);
-        // Normalize: center ~32768
-        float norm = (static_cast<float>(val) - 32767.5f) / 32767.5f;
-        outSource = kWinMMAxisNames[bestAxis];
-        outInvert = invertIfPositive ? (norm > 0.0f) : (norm < 0.0f);
-        return true;
     }
+    return false;
 }
 
 bool BindingWizard::captureDpad(std::string& outDpadType) {
@@ -877,9 +795,6 @@ bool BindingWizard::captureDpad(std::string& outDpadType) {
         RawHIDState s{};
         m_hidReader->read(s);
         if (s.hat != 0xFFFFFFFF) { outDpadType = "hid_hat"; return true; }
-    } else {
-        auto r = PadScanner::readRaw(m_winmmPort);
-        if (r.valid && r.pov != JOY_POVCENTERED) { outDpadType = "pov"; return true; }
     }
     return false;
 }
@@ -887,13 +802,7 @@ bool BindingWizard::captureDpad(std::string& outDpadType) {
 void BindingWizard::openReader() {
     closeReader();
     const auto& c = m_controllers[m_selectedCtrl];
-    if (c.source == DetectedController::Source::HID) {
-        m_hidReader = std::make_unique<RawHIDReader>(c.path);
-        m_winmmPort = 0;
-    } else {
-        m_hidReader.reset();
-        m_winmmPort = c.port;
-    }
+    m_hidReader = std::make_unique<RawHIDReader>(c.path);
     m_prevButtonMask = 0;
 }
 
@@ -957,9 +866,6 @@ void BindingWizard::snapshotBaseline() {
         m_hidReader->read(s);
         m_axisBaseline   = s;
         m_prevButtonMask = s.buttonMask;
-    } else {
-        auto r = PadScanner::readRaw(m_winmmPort);
-        if (r.valid) { m_winmmBaseline = r; m_prevButtonMask = r.buttons; }
     }
 }
 
@@ -970,12 +876,7 @@ void BindingWizard::snapshotBaseline() {
 void BindingWizard::saveResult() {
     const auto& ctrl = m_controllers[m_selectedCtrl];
 
-    // Determine mode string
-    std::string mode;
-    if (ctrl.source == DetectedController::Source::HID)
-        mode = "hid";
-    else
-        mode = m_modeIsXInput ? "xinput" : "dinput";
+    const std::string mode = "hid";
 
     // Build the new entry as JSON
     json entry;

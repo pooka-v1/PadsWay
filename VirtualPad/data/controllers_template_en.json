@@ -6,7 +6,7 @@
       "pid": "YYYY",
       "source_name": "Controller name",
       "mode": "hid",
-      "layout_id": "pro3_ps",
+      "layout_id": "8BitDo-Pro3",
 
       "axes": {
         "hid_x":     { "invert": false, "target": "left_x"    },

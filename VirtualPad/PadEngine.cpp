@@ -6,14 +6,11 @@
 #include <memory>
 #include <optional>
 #include <windows.h>
-#include <mmsystem.h>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
 
-#include "input/WinMMInputSource.h"
-#include "input/XInputInputSource.h"
 #include "input/HIDScanner.h"
 #include "input/HIDInputSource.h"
 #include "output/ViGEmOutputAdapter.h"
@@ -27,44 +24,6 @@
 #pragma comment(lib, "cfgmgr32.lib")
 #pragma comment(lib, "hid.lib")
 
-// ---------------------------------------------------------------------------
-// Internal helpers (not exposed in the header)
-// ---------------------------------------------------------------------------
-
-struct JoyEntry {
-    UINT    id;
-    UINT    axes;
-    UINT    buttons;
-    WORD    wMid;
-    WORD    wPid;
-    wchar_t name[MAXPNAMELEN];
-};
-
-static std::vector<JoyEntry> scanPorts() {
-    std::vector<JoyEntry> result;
-    UINT numDevs = joyGetNumDevs();
-    for (UINT id = 0; id < numDevs; ++id) {
-        JOYINFOEX info = {};
-        info.dwSize  = sizeof(JOYINFOEX);
-        info.dwFlags = JOY_RETURNBUTTONS;
-        if (joyGetPosEx(id, &info) != JOYERR_NOERROR) continue;
-
-        JoyEntry e = {};
-        e.id = id;
-        JOYCAPS caps = {};
-        if (joyGetDevCaps(id, &caps, sizeof(caps)) == JOYERR_NOERROR) {
-            e.axes    = caps.wNumAxes;
-            e.buttons = caps.wNumButtons;
-            e.wMid    = caps.wMid;
-            e.wPid    = caps.wPid;
-            wcsncpy_s(e.name, caps.szPname, MAXPNAMELEN);
-        } else {
-            wcscpy_s(e.name, L"(unknown)");
-        }
-        result.push_back(e);
-    }
-    return result;
-}
 
 // ---------------------------------------------------------------------------
 // Keyboard / mouse helpers
@@ -323,8 +282,7 @@ void PadEngine::setStatus(const std::string& s) {
 
 void PadEngine::monitorFunc() {
     while (m_running) {
-        auto winmmEntries = scanPorts();
-        auto hidEntries   = HIDScanner::scan();
+        auto hidEntries = HIDScanner::scan();
 
         std::vector<ControllerConfig> configs;
         uint16_t vVid = 0, vPid = 0;
@@ -336,40 +294,11 @@ void PadEngine::monitorFunc() {
         }
 
         std::vector<DeviceCandidate> candidates;
-
-        for (auto& e : winmmEntries) {
-            if (vVid && e.wMid == vVid && e.wPid == vPid) continue;  // skip virtual pad
-            const ControllerConfig* cfg = findConfig(configs, e.wMid, e.wPid);
-            if (cfg && cfg->mode == "hid") continue;
-            // XInput devices can appear as multiple WinMM bridge entries (one per slot).
-            // Keep only the first entry per VID/PID so a single physical device is one candidate.
-            // For XInput devices the WinMM port equals the XInput slot.
-            // Filter zombie bridge entries: real slots respond to XInputGetState.
-            if (cfg && cfg->mode == "xinput") {
-                XINPUT_STATE xs = {};
-                if (XInputGetState(e.id, &xs) != ERROR_SUCCESS) continue;
-            }
-
-            DeviceCandidate c;
-            c.source  = DeviceCandidate::Source::WinMM;
-            c.port    = e.id;
-            c.vid     = e.wMid;
-            c.pid     = e.wPid;
-            c.axes    = e.axes;
-            c.buttons = e.buttons;
-            char narrow[MAXPNAMELEN];
-            WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-            c.name = narrow;
-            candidates.push_back(c);
-        }
-
         for (auto& h : hidEntries) {
-            if (vVid && h.vid == vVid && h.pid == vPid) continue;  // skip virtual pad
+            if (vVid && h.vid == vVid && h.pid == vPid) continue;
             const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType);
             if (!cfg || cfg->mode != "hid") continue;
-
             DeviceCandidate c;
-            c.source         = DeviceCandidate::Source::HID;
             c.hidPath        = h.path;
             c.vid            = h.vid;
             c.pid            = h.pid;
@@ -470,42 +399,14 @@ void PadEngine::threadFunc() {
             while (m_running && selected.vid == 0) {
                 // Pick up any config updates written by the BindingWizard
                 { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
-                auto winmmEntries = scanPorts();
-                auto hidEntries   = HIDScanner::scan();
+                auto hidEntries = HIDScanner::scan();
 
                 std::vector<DeviceCandidate> allCandidates;
-
-                for (auto& e : winmmEntries) {
-                    if (vpCfg.vid && e.wMid == vpCfg.vid && e.wPid == vpCfg.pid) continue;
-                    const ControllerConfig* c = findConfig(configs, e.wMid, e.wPid);
-                    if (c && c->mode == "hid") continue;
-                    // XInput devices can appear as multiple WinMM bridge entries (one per slot).
-                    // Keep only the first entry per VID/PID so a single physical device is one candidate.
-                    // For XInput devices the WinMM port equals the XInput slot.
-                    // Filter zombie bridge entries: real slots respond to XInputGetState.
-                    if (c && c->mode == "xinput") {
-                        XINPUT_STATE xs = {};
-                        if (XInputGetState(e.id, &xs) != ERROR_SUCCESS) continue;
-                    }
-                    DeviceCandidate dc;
-                    dc.source  = DeviceCandidate::Source::WinMM;
-                    dc.port    = e.id;
-                    dc.vid     = e.wMid;
-                    dc.pid     = e.wPid;
-                    dc.axes    = e.axes;
-                    dc.buttons = e.buttons;
-                    char narrow[MAXPNAMELEN];
-                    WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-                    dc.name = narrow;
-                    allCandidates.push_back(dc);
-                }
-
                 for (auto& h : hidEntries) {
                     if (vpCfg.vid && h.vid == vpCfg.vid && h.pid == vpCfg.pid) continue;
                     const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType);
                     if (!c || c->mode != "hid") continue;
                     DeviceCandidate dc;
-                    dc.source         = DeviceCandidate::Source::HID;
                     dc.hidPath        = h.path;
                     dc.vid            = h.vid;
                     dc.pid            = h.pid;
@@ -516,15 +417,9 @@ void PadEngine::threadFunc() {
                     allCandidates.push_back(dc);
                 }
 
-                spdlog::debug("[Scan] WinMM: {} HID: {} Candidates: {}",
-                    winmmEntries.size(), hidEntries.size(), allCandidates.size());
-                for (auto& h : hidEntries)
-                    spdlog::debug("[HID found] VID:{:04X} PID:{:04X} '{}' path={}",
-                        h.vid, h.pid, h.productName, h.path);
+                spdlog::debug("[Scan] HID: {} Candidates: {}", hidEntries.size(), allCandidates.size());
                 for (auto& dc : allCandidates)
-                    spdlog::debug("[Candidate] [{}] VID:{:04X} PID:{:04X} '{}'",
-                        dc.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
-                        dc.vid, dc.pid, dc.name);
+                    spdlog::debug("[Candidate] VID:{:04X} PID:{:04X} '{}'", dc.vid, dc.pid, dc.name);
 
                 if (allCandidates.empty()) {
                     setStatus("No device found — connect controller");
@@ -534,8 +429,7 @@ void PadEngine::threadFunc() {
 
                 if (allCandidates.size() == 1) {
                     selected = allCandidates[0];
-                    spdlog::info("Auto-selected [{}]: {} [VID={:04X} PID={:04X}]",
-                        selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                    spdlog::info("Auto-selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
                     setStatus(std::string("Auto-selected: ") + selected.name);
                 } else {
@@ -556,8 +450,7 @@ void PadEngine::threadFunc() {
                         continue;
                     }
                     selected = allCandidates[idx];
-                    spdlog::info("User selected [{}]: {} [VID={:04X} PID={:04X}]",
-                        selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                    spdlog::info("User selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
                 }
             }
@@ -603,13 +496,7 @@ void PadEngine::threadFunc() {
         }
         const ControllerConfig* cfg = &effectiveCfg;
 
-        std::unique_ptr<IInputSource> input;
-        if (selected.source == DeviceCandidate::Source::HID)
-            input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
-        else if (cfg->mode == "xinput")
-            input = std::make_unique<XInputInputSource>(selected.port, *cfg);
-        else
-            input = std::make_unique<WinMMInputSource>(selected.port, *cfg);
+        auto input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
 
         // Inject PhysicalController for component-system processing (P4)
         {

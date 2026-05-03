@@ -18,7 +18,7 @@ struct ButtonAction {
     ButtonActionType     type      = ButtonActionType::VirtualButton;
     std::string          name;        // virtual button ("a","b",...), bot/macro name
     std::string          physical;    // physical button id ("a","l4","rp"...) — never overwritten by profiles
-    std::string          axis;        // trigger only: WinMM source ("dwUpos", "dwVpos")
+    std::string          axis;        // trigger only: HID source axis name
     std::string          target;      // trigger only: "l2" or "r2"
     std::string          execution;   // macro only: compact execution string
     std::vector<std::string> keys;    // keyboard only: e.g. ["alt","tab"]
@@ -97,7 +97,7 @@ struct ControllerConfig {
     std::string connection;    // "usb" / "bt" / "" = match any
 
     std::unordered_map<int, ButtonAction>           buttons;       // physical bit (1-indexed) -> action
-    std::unordered_map<std::string, AxisMapping>    axes;          // WinMM/HID source name -> whole-axis mapping
+    std::unordered_map<std::string, AxisMapping>    axes;          // HID source name -> whole-axis mapping
     std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "left_x_pos"/"right_y_neg"/... -> per-direction action
     std::unordered_map<std::string, std::string>    dpadRemap;     // "up"/"down"/"left"/"right" -> virtual short name
     std::unordered_map<std::string, ButtonAction>   dpadActions;   // "up"/"down"/"left"/"right" -> keyboard/mouse/macro action

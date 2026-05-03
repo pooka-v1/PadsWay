@@ -7,7 +7,6 @@
 #include <atomic>
 #include <unordered_map>
 #include "PadEngine.h"
-#include "PadScanner.h"
 #include "input/HIDScanner.h"
 #include "config/ConfigLoader.h"
 #include "GamepadState.h"
@@ -57,12 +56,9 @@ private:
     bool                    m_swapChainOccluded = false;
 
     // --- Scanner state (used only on the main/render thread) ---
-    std::vector<PadScanner::DeviceInfo> m_scanDevices;
     std::vector<HIDScanner::DeviceInfo> m_hidDevices;
-    int       m_scanSelected  = -1;   // index into m_scanDevices (-1 = none)
-    int       m_hidSelected   = -1;   // index into m_hidDevices  (-1 = none)
-    ULONGLONG m_lastScanTime  = 0;    // tick of last WinMM refresh
-    ULONGLONG m_lastHidScanTime = 0;  // tick of last HID scan kick-off
+    int       m_hidSelected     = -1;   // index into m_hidDevices (-1 = none)
+    ULONGLONG m_lastHidScanTime = 0;    // tick of last HID scan kick-off
     float     m_scanSplitX    = 340.0f; // width of the left (device list) panel
 
     // --- Async HID scan (runs on a background thread to avoid blocking render) ---
