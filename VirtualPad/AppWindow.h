@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include "PadEngine.h"
 #include "input/HIDScanner.h"
+#include "input/RawHIDReader.h"
+#include <memory>
 #include "config/ConfigLoader.h"
 #include "GamepadState.h"
 #include "ui/PadView.h"
@@ -78,9 +80,11 @@ private:
     std::vector<std::string> m_profileNames;   // profile_name from each JSON
     int                      m_profileSelected = 0;  // 0 = none, 1+ = index into lists
 
-    // --- HID live monitor (scanner right panel for HID devices) ---
-    // Uses the engine's last read state — avoids competing with the engine on BT HID.
-    GamepadState m_hidScanState = {};
+    // --- HID live monitor (scanner right panel) ---
+    // m_scanDevice holds its own handle — independent of the Engine.
+    std::unique_ptr<RawHIDReader> m_scanDevice;
+    RawHIDState  m_scanRawState  = {};
+    int          m_scanDeviceIdx = -1;  // index of the device currently open in m_scanDevice
 
     // --- Pad layouts ---
     std::vector<PadLayout> m_padLayouts;

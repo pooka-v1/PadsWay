@@ -27,6 +27,48 @@ Cuando hagamos la UI de creación de macros, añadir soporte para pasos de tipo 
 
 ## Hardware adicional
 
+### DualSense / DualSense Edge (PS5)
+- DualSense estándar: VID 054C / PID 0CE6
+- DualSense Edge: VID 054C / PID 0DF2
+- Ambos exponen HID raw — protocolo bien documentado por la comunidad
+- Touchpad (más grande que DS4) + giroscopio: mismo trabajo que H8
+- Gatillos adaptativos: el eje se lee normal; la resistencia háptica requiere output propietario (irrelevante para VirtualPad — solo leemos)
+- Pendiente: adquirir hardware para implementar y probar
+
+### Steam Controller 2 (lanzamiento 2026/05/04)
+- Cruceta, 2 analógicos, gatillos, muchos botones, 2 touchpads
+- Diseño ergonómico en 3 alturas (pad / botones / analógicos)
+- Si expone HID raw: soporte sencillo (VID/PID + descriptor + layout)
+- Riesgo: Valve puede usar protocolo propietario como hizo con SC1 (requería driver Steam)
+- Verificar en Device Manager al conectar: ¿aparece como HID genérico?
+- Los 2 touchpads necesitarán diseño equivalente al DS4 (H8 es el precedente)
+
+### Nintendo Joy-Con (L+R)
+- VID 057E / PID 2006 (L), 2007 (R) — Bluetooth HID
+- Protocolo propietario pero completamente documentado (dekuNukem/Nintendo_Switch_Reverse_Engineering en GitHub)
+- IMU 6 ejes en cada mitad, HD rumble, IR camera (R), NFC (R)
+- **Reto 1**: Bluetooth HID — hidapi lo soporta en Windows, verificar que el OS lo presenta como HID device
+- **Reto 2**: Parser de reports custom (no es gamepad HID estándar) — documentación completa disponible
+- **Reto 3** (arquitectónico): dos dispositivos HID separados → un único GamepadState. Misma arquitectura que "jugador en prácticas" (ver sección Multijugador) — implementar una facilita la otra
+- **Reto 4**: calibración de fábrica en flash SPI interna, legible por subcomandos HID — el wizard tendría que entenderlo
+- Proyecto de varios días pero resultado muy llamativo
+
+### Wii U Pro Controller
+- VID 057E / PID 0330, Bluetooth HID, protocolo documentado
+- Layout completo: 2 analógicos, cruceta, 4 botones, +/-/Home, ZL/ZR
+- ZL/ZR son digitales (no analógicos) — diferente de triggers modernos
+- Sin IMU ni sensores especiales — el más sencillo de los Nintendo de esta lista
+- Complejidad similar a Joy-Con (BT + custom protocol) pero sin el reto de fusión L+R
+
+### Wiimote / Wiimote Plus
+- VID 057E / PID 0306 (ambas versiones), Bluetooth HID
+- Wiimote: acelerómetro 3 ejes, cámara IR (apuntado), rumble, altavoz — sin analógicos
+- Wiimote Plus: añade giroscopio 3 ejes integrado (MotionPlus built-in)
+- La cámara IR requiere sensor bar (barra LEDs IR) para funcionar
+- **Sin extensión es inútil como gamepad** — necesita Nunchuk (stick + accel) o Classic Controller (layout completo)
+- El sistema de extensiones requiere detección dinámica y parseo adicional
+- El más complejo de la lista: IR + extensiones + motion — proyecto largo
+
 ### 8BitDo GBros adapter
 - VID/PID compartido GameCube/Classic Controller
 - Discriminar por nº de ejes o selección manual al emparejar
@@ -56,6 +98,7 @@ Cuando hagamos la UI de creación de macros, añadir soporte para pasos de tipo 
 - Mando físico 2 puede tomar el control del mando virtual compartido
 - Caso de uso: jugador veterano ayuda a novato (o padre con niño)
 - El mando "auxiliar" tiene prioridad temporal mientras mantiene pulsado un botón de "tomar control"
+- **Arquitectura compartida con Joy-Con**: ambas ideas requieren N fuentes físicas → 1 GamepadState virtual. Implementar una facilita la otra.
 
 ---
 

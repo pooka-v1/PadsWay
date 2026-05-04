@@ -6,10 +6,7 @@
 #include <algorithm>
 #include <vector>
 
-#pragma comment(lib, "hid.lib")
-
-// Convenience cast — m_preparsed is stored as void* to keep hidsdi.h out of the header.
-#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_preparsed))
+#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_hid.preparsed()))
 
 // HID Generic Desktop axis usage IDs
 static constexpr USHORT kUsageX   = 0x30;
@@ -37,176 +34,48 @@ HIDInputSource::AxisUsage HIDInputSource::usageFromAxisName(const std::string& n
 // ---------------------------------------------------------------------------
 
 HIDInputSource::HIDInputSource(const std::string& devicePath, const ControllerConfig& config)
-    : m_config(config), m_name(config.source_name)
+    : m_hid(devicePath, config.source_name), m_config(config), m_name(config.source_name)
 {
-    m_device = CreateFileA(devicePath.c_str(),
-        GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-        nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-
-    if (m_device == INVALID_HANDLE_VALUE) {
-        spdlog::error("[HID] Failed to open device (error {})", GetLastError());
-        return;
-    }
-
-    m_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
-    if (!m_event) {
-        CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE;
-        return;
-    }
-
-    // Get preparsed data and store as void* (hidsdi.h stays out of the header)
-    PHIDP_PREPARSED_DATA preparsed = nullptr;
-    if (!HidD_GetPreparsedData(m_device, &preparsed)) {
-        spdlog::error("[HID] Failed to get preparsed data");
-        CloseHandle(m_event);  m_event  = nullptr;
-        CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE;
-        return;
-    }
-    m_preparsed = preparsed;
-
-    HIDP_CAPS caps = {};
-    if (HidP_GetCaps(PREPARSED, &caps) != HIDP_STATUS_SUCCESS) {
-        HidD_FreePreparsedData(PREPARSED); m_preparsed = nullptr;
-        CloseHandle(m_event);  m_event  = nullptr;
-        CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE;
-        return;
-    }
-
-    m_inputReportLen = caps.InputReportByteLength;
-    m_reportBuf.resize(m_inputReportLen, 0);
-
-    // Cache logical min/max for all value caps so we can normalise axes.
-    // Some devices (e.g. 8BitDo Pro 3 D-mode) declare generic axes as a range cap
-    // (IsRange=true, UsageMin=0x30..UsageMax=0x35) instead of individual caps.
-    // We expand range caps so every usage in the range gets an entry.
-    //
-    // Collision rule: when the same usage number appears on multiple pages (e.g. DS4 BT
-    // exposes usage 0x30 on both page 0x01 and vendor page 0xFF00), prefer the standard
-    // page (< 0xFF00) over vendor-specific pages.  Without this, the vendor entry can
-    // overwrite the standard one and cause HIDP_STATUS_INCOMPATIBLE_REPORT_ID on reads.
-    std::vector<HIDP_VALUE_CAPS> valueCaps(caps.NumberInputValueCaps);
-    USHORT numCaps = caps.NumberInputValueCaps;
-    HidP_GetValueCaps(HidP_Input, valueCaps.data(), &numCaps, PREPARSED);
-
-    auto insertCap = [&](USHORT u, USHORT page, const ValueRange& vr) {
-        auto it = m_usagePage.find(u);
-        if (it == m_usagePage.end()) {
-            m_valueCaps.emplace(u, vr);
-            m_usagePage.emplace(u, page);
-        } else {
-            // Collision: same usage on multiple pages — prefer standard over vendor-specific.
-            bool existingIsStandard = (it->second < 0xFF00);
-            bool newIsStandard      = (page       < 0xFF00);
-            if (newIsStandard && !existingIsStandard) {
-                m_valueCaps[u] = vr;
-                m_usagePage[u] = page;
-            }
-            // else keep existing (existing standard beats new vendor; or keep first of same class)
-        }
-    };
-
-    for (USHORT ci = 0; ci < numCaps; ++ci) {
-        ValueRange vr = { valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax, valueCaps[ci].BitSize };
-        USHORT     page = valueCaps[ci].UsagePage;
-        if (valueCaps[ci].IsRange) {
-            for (USHORT u = valueCaps[ci].Range.UsageMin; u <= valueCaps[ci].Range.UsageMax; ++u)
-                insertCap(u, page, vr);
-        } else {
-            insertCap(valueCaps[ci].NotRange.Usage, page, vr);
-        }
-    }
-
-    // Find report ID used for buttons (may differ from the report ID the device sends)
-    USHORT numBtnCaps = caps.NumberInputButtonCaps;
-    spdlog::info("[HID] Opened: {}  ReportLen={}  ValueCaps={}  BtnCaps={}",
-        m_name, m_inputReportLen, numCaps, numBtnCaps);
-    if (numBtnCaps > 0) {
-        std::vector<HIDP_BUTTON_CAPS> btnCaps(numBtnCaps);
-        if (HidP_GetButtonCaps(HidP_Input, btnCaps.data(), &numBtnCaps, PREPARSED) == HIDP_STATUS_SUCCESS && numBtnCaps > 0) {
-            m_buttonReportId = btnCaps[0].ReportID;
-            spdlog::debug("[HID] Button ReportID in descriptor: {}", m_buttonReportId);
-        }
-    }
-    // Log all value caps for diagnosis (both range and individual)
-    for (USHORT ci = 0; ci < numCaps; ++ci) {
-        if (valueCaps[ci].IsRange)
-            spdlog::debug("[HID] ValCap(range): ReportID={} Page=0x{:02X} Usage=0x{:02X}..0x{:02X} range=[{},{}]",
-                valueCaps[ci].ReportID, valueCaps[ci].UsagePage,
-                valueCaps[ci].Range.UsageMin, valueCaps[ci].Range.UsageMax,
-                valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax);
-        else
-            spdlog::debug("[HID] ValCap: ReportID={} Page=0x{:02X} Usage=0x{:02X} range=[{},{}]",
-                valueCaps[ci].ReportID, valueCaps[ci].UsagePage,
-                valueCaps[ci].NotRange.Usage,
-                valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax);
-    }
-
-    m_connected = true;
 }
 
 HIDInputSource::~HIDInputSource() {
-    if (m_preparsed)                        HidD_FreePreparsedData(PREPARSED);
-    if (m_event)                          { CloseHandle(m_event);  m_event  = nullptr; }
-    if (m_device != INVALID_HANDLE_VALUE) { CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE; }
 }
 
 // ---------------------------------------------------------------------------
 
 bool HIDInputSource::isConnected() const {
-    return m_connected;
+    return m_hid.isConnected();
 }
 
 bool HIDInputSource::read(GamepadState& state) {
-    if (!m_connected || m_device == INVALID_HANDLE_VALUE) return false;
-
-    ResetEvent(m_event);
-    OVERLAPPED ov = {};
-    ov.hEvent = m_event;
-
-    DWORD bytesRead = 0;
-    BOOL  readOk    = ReadFile(m_device, m_reportBuf.data(), m_inputReportLen, &bytesRead, &ov);
-
-    if (!readOk) {
-        DWORD err = GetLastError();
-        if (err != ERROR_IO_PENDING) {
-            m_connected = false;
-            return false;
-        }
-        DWORD wait = WaitForSingleObject(m_event, 20);
-        if (wait != WAIT_OBJECT_0) {
-            // Timeout — no new data, keep last state (but clear per-frame deltas)
-            CancelIo(m_device);
-            WaitForSingleObject(m_event, INFINITE); // drain the cancelled I/O
-            state.touchDeltaX = 0.0f;
-            state.touchDeltaY = 0.0f;
-            if (++m_readCount % 240 == 0) {
-                spdlog::debug("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X} (no report)",
-                       m_name,
-                       state.leftX, state.leftY, state.rightX, state.rightY,
-                       state.triggerL, state.triggerR, m_lastButtonMask);
-            }
-            return true;
-        }
-        if (!GetOverlappedResult(m_device, &ov, &bytesRead, FALSE)) {
-            m_connected = false;
-            return false;
-        }
+    auto result = m_hid.read(20);
+    if (result == HIDDevice::ReadResult::Disconnected) return false;
+    if (result == HIDDevice::ReadResult::Timeout) {
+        state.touchDeltaX = 0.0f;
+        state.touchDeltaY = 0.0f;
+        if (++m_readCount % 240 == 0)
+            spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X} (no report)",
+                   m_name,
+                   state.leftX, state.leftY, state.rightX, state.rightY,
+                   state.triggerL, state.triggerR, m_lastButtonMask);
+        return true;
     }
 
-    PCHAR buf    = reinterpret_cast<PCHAR>(m_reportBuf.data());
-    ULONG bufLen = m_inputReportLen;
+    PCHAR buf      = reinterpret_cast<PCHAR>(const_cast<BYTE*>(m_hid.reportBuf().data()));
+    ULONG bufLen   = m_hid.reportLen();
+    ULONG bytesRead = m_hid.lastBytesRead();
 
     // Diagnostic: log raw bytes every ~2 seconds (240 reads * 8ms = ~2s)
     if (++m_readCount % 240 == 0) {
-        ULONG dumpLen = (m_inputReportLen < 20) ? m_inputReportLen : 20;
+        ULONG dumpLen = (bufLen < 20) ? bufLen : 20;
         std::string raw;
         raw.reserve(dumpLen * 3);
         for (ULONG i = 0; i < dumpLen; ++i) {
             char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)m_reportBuf[i]);
+            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
             raw += tmp;
         }
-        spdlog::debug("[HID][raw] {}", raw);
+        spdlog::trace("[HID][raw] {}", raw);
     }
 
     bool hasAxisDpad = false;
@@ -224,16 +93,16 @@ bool HIDInputSource::read(GamepadState& state) {
             ULONG hatValue = 0xFFFFFFFF;
             NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
                                                     &hatValue, PREPARSED, buf, bufLen);
-            if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+            if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
                 char savedId = buf[0];
-                buf[0] = static_cast<char>(m_buttonReportId);
+                buf[0] = static_cast<char>(m_hid.buttonReportId());
                 HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
                                    &hatValue, PREPARSED, buf, bufLen);
                 buf[0] = savedId;
             }
             bool hatUp = false, hatDown = false, hatLeft = false, hatRight = false;
-            auto hatCapIt = m_valueCaps.find(kUsageHat);
-            if (hatCapIt != m_valueCaps.end()) {
+            auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
+            if (hatCapIt != m_hid.valueCaps().end()) {
                 ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
                 ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
                 if (hatValue >= hatMin && hatValue <= hatMax)
@@ -251,7 +120,7 @@ bool HIDInputSource::read(GamepadState& state) {
         m_physicalController.process(m_physicalState, state);
         applyAxesResidual(buf, bufLen, state);
 
-        spdlog::debug("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
+        spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
                m_name, state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
     } else {
@@ -263,16 +132,16 @@ bool HIDInputSource::read(GamepadState& state) {
             ULONG hatValue = 0xFFFFFFFF;
             NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
                                                     &hatValue, PREPARSED, buf, bufLen);
-            if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+            if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
                 char savedId = buf[0];
-                buf[0] = static_cast<char>(m_buttonReportId);
+                buf[0] = static_cast<char>(m_hid.buttonReportId());
                 HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
                                    &hatValue, PREPARSED, buf, bufLen);
                 buf[0] = savedId;
             }
             bool hatUp = false, hatDown = false, hatLeft = false, hatRight = false;
-            auto hatCapIt = m_valueCaps.find(kUsageHat);
-            if (hatCapIt != m_valueCaps.end()) {
+            auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
+            if (hatCapIt != m_hid.valueCaps().end()) {
                 ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
                 ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
                 if (hatValue >= hatMin && hatValue <= hatMax)
@@ -340,7 +209,7 @@ bool HIDInputSource::read(GamepadState& state) {
 
         applyStickSlots(m_config, m_physicalState, state);
 
-        spdlog::debug("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
+        spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
                m_name, state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
     }
@@ -362,9 +231,9 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
 
     // If the device sends a different Report ID than the one in the descriptor,
     // temporarily swap it so HidP can parse the same data layout.
-    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
         char savedId = buf[0];
-        buf[0] = static_cast<char>(m_buttonReportId);
+        buf[0] = static_cast<char>(m_hid.buttonReportId());
         usageCount = 128;
         btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
                                    usages, &usageCount, PREPARSED, buf, bufLen);
@@ -508,7 +377,6 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
         else if (name == "r3")        state.btnR3    = true;
     };
 
-    // Log first raw report bytes once to diagnose BT vs USB report format
     if (m_readCount == 1) {
         ULONG dumpLen = (bufLen < 24) ? bufLen : 24;
         std::string raw;
@@ -518,7 +386,7 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
             snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
             raw += tmp;
         }
-        spdlog::info("[HID][{}] First report ({} bytes): {}", m_name, bufLen, raw);
+        spdlog::debug("[HID][{}] First report ({} bytes): {}", m_name, bufLen, raw);
     }
 
     for (const auto& [source, mapping] : m_config.axes) {
@@ -527,32 +395,24 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
 
         // Use the page from the device descriptor when available — handles devices
         // that put axes on a non-standard page (e.g. triggers on page 0x01 instead of 0x02).
-        auto pit = m_usagePage.find(au.usage);
-        USHORT page = (pit != m_usagePage.end()) ? pit->second : au.page;
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
 
         ULONG rawValue = 0;
         NTSTATUS axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                                au.usage, &rawValue, PREPARSED, buf, bufLen);
-        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
             char savedId = buf[0];
-            buf[0] = static_cast<char>(m_buttonReportId);
+            buf[0] = static_cast<char>(m_hid.buttonReportId());
             axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                           au.usage, &rawValue, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
 
-        // Log axis status for first few reads to diagnose BT issues
-        if (m_readCount <= 3) {
-            float normDbg = (axStatus == HIDP_STATUS_SUCCESS) ? normalizeHIDAxis(au.usage, rawValue) : 0.0f;
-            spdlog::info("[HID][{}] axis {} page=0x{:02X} usage=0x{:02X} reportId={} status=0x{:08X} raw={} norm={:.3f}",
-                m_name, source, page, au.usage, (unsigned char)buf[0],
-                (unsigned)axStatus, rawValue, normDbg);
-        }
-
         if (axStatus != HIDP_STATUS_SUCCESS)
             continue;
 
-        float v = normalizeHIDAxis(au.usage, rawValue);
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
         if (mapping.invert) v = -v;
 
         // Physical display: write to stickId position (physical axis), not target (virtual axis).
@@ -608,13 +468,13 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
 
         AxisUsage au = usageFromAxisName(source);
         if (au.usage == 0) continue;
-        auto pit = m_usagePage.find(au.usage);
-        USHORT page = (pit != m_usagePage.end()) ? pit->second : au.page;
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
         ULONG rawValue = 0;
         if (HidP_GetUsageValue(HidP_Input, page, 0, au.usage, &rawValue, PREPARSED, buf, bufLen)
             != HIDP_STATUS_SUCCESS) continue;
 
-        float v = normalizeHIDAxis(au.usage, rawValue);
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
         if (mapping.invert) v = -v;
 
         auto processHalf = [&](const std::string& key, float halfV) {
@@ -714,9 +574,9 @@ void HIDInputSource::buildPhysicalButtons(PCHAR buf, ULONG bufLen) {
 
     NTSTATUS btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
                                         usages, &usageCount, PREPARSED, buf, bufLen);
-    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
         char savedId = buf[0];
-        buf[0] = static_cast<char>(m_buttonReportId);
+        buf[0] = static_cast<char>(m_hid.buttonReportId());
         usageCount = 128;
         btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
                                    usages, &usageCount, PREPARSED, buf, bufLen);
@@ -768,22 +628,22 @@ void HIDInputSource::buildPhysicalAxes(PCHAR buf, ULONG bufLen) {
         AxisUsage au = usageFromAxisName(source);
         if (au.usage == 0) continue;
 
-        auto pit = m_usagePage.find(au.usage);
-        USHORT page = (pit != m_usagePage.end()) ? pit->second : au.page;
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
 
         ULONG rawValue = 0;
         NTSTATUS axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                                au.usage, &rawValue, PREPARSED, buf, bufLen);
-        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
             char savedId = buf[0];
-            buf[0] = static_cast<char>(m_buttonReportId);
+            buf[0] = static_cast<char>(m_hid.buttonReportId());
             axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                           au.usage, &rawValue, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
         if (axStatus != HIDP_STATUS_SUCCESS) continue;
 
-        float v = normalizeHIDAxis(au.usage, rawValue);
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
         if (mapping.invert) v = -v;
 
         // Physical position (stickId): write signed value so process() can decompose pos/neg halves.
@@ -829,22 +689,22 @@ void HIDInputSource::applyAxesResidual(PCHAR buf, ULONG bufLen, GamepadState& st
         AxisUsage au = usageFromAxisName(source);
         if (au.usage == 0) continue;
 
-        auto pit = m_usagePage.find(au.usage);
-        USHORT page = (pit != m_usagePage.end()) ? pit->second : au.page;
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
 
         ULONG rawValue = 0;
         NTSTATUS axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                                au.usage, &rawValue, PREPARSED, buf, bufLen);
-        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
             char savedId = buf[0];
-            buf[0] = static_cast<char>(m_buttonReportId);
+            buf[0] = static_cast<char>(m_hid.buttonReportId());
             axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                           au.usage, &rawValue, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
         if (axStatus != HIDP_STATUS_SUCCESS) continue;
 
-        float v = normalizeHIDAxis(au.usage, rawValue);
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
         if (mapping.invert) v = -v;
 
         // Targets not handled by PhysicalController::process() — write directly to state.
@@ -906,29 +766,6 @@ void HIDInputSource::applyAxesResidual(PCHAR buf, ULONG bufLen, GamepadState& st
 }
 
 // ---------------------------------------------------------------------------
-
-float HIDInputSource::normalizeHIDAxis(USHORT usage, ULONG rawValue) const {
-    auto it = m_valueCaps.find(usage);
-    if (it == m_valueCaps.end()) return 0.0f;
-
-    LONG logMin = it->second.logMin;
-    LONG logMax = it->second.logMax;
-
-    // Unsigned range: descriptor reports [0, -1] meaning [0, 2^BitSize - 1]
-    if (logMax < logMin) {
-        USHORT bits = it->second.bitSize;
-        ULONG uMax = (bits > 0 && bits < 32) ? (1UL << bits) - 1 : 0xFFFFFFFFUL;
-        if (uMax == 0) return 0.0f;
-        float norm = static_cast<float>(rawValue) / static_cast<float>(uMax) * 2.0f - 1.0f;
-        return std::clamp(norm, -1.0f, 1.0f);
-    }
-
-    LONG range = logMax - logMin;
-    if (range <= 0) return 0.0f;
-
-    float norm = (static_cast<float>(static_cast<LONG>(rawValue) - logMin) / range) * 2.0f - 1.0f;
-    return std::clamp(norm, -1.0f, 1.0f);
-}
 
 void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.touchDeltaX = 0.0f;

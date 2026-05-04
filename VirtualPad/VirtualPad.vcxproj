@@ -141,6 +141,7 @@
     <ClCompile Include="config\ConfigLoader.cpp" />
     <ClCompile Include="input\ComponentTypes.cpp" />
     <ClCompile Include="input\HIDScanner.cpp" />
+    <ClCompile Include="input\HIDDevice.cpp" />
     <ClCompile Include="input\HIDInputSource.cpp" />
     <ClCompile Include="bots\LightningBot.cpp" />
     <ClCompile Include="input\RawHIDReader.cpp" />
@@ -171,6 +172,7 @@
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="input\IInputSource.h" />
     <ClInclude Include="input\HIDScanner.h" />
+    <ClInclude Include="input\HIDDevice.h" />
     <ClInclude Include="input\HIDInputSource.h" />
     <ClInclude Include="bots\LightningBot.h" />
     <ClInclude Include="input\RawHIDReader.h" />
