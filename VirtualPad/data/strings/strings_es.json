@@ -1,4 +1,4 @@
-﻿{
+{
     "tab": {
         "engine":  "Motor",
         "scanner": "Escaner",
@@ -94,8 +94,12 @@
     "layout": {
         "title":          "Layouts",
         "tint":           "Tinte:",
-        "state":          "State",
-        "states":         "States",,
+        "state":          "Estado",
+        "states":         "Estados",
+        "label_type":     "Tipo",
+        "label_view":     "Vista",
+        "view_front":     "Frontal",
+        "view_top":       "Superior",
         "elements":       "Elementos",
         "confirm_switch": "¿Seguro que quieres cambiar de layout?",
         "unsaved":        "Se perderan los cambios no guardados.",
@@ -131,6 +135,11 @@
         "no_image":       "(ninguna)",
         "custom":         "Personalizado:",
         "no_state":       "(ninguno)",
-        "backup_warning": "AVISO: pad_layouts.json fallo al cargar. Usando copia de seguridad (.bak)."
+        "backup_warning":    "AVISO: pad_layouts.json fallo al cargar. Usando copia de seguridad (.bak.).",
+        "toast_deleted":     "Layout borrado.",
+        "toast_saved":       "Guardado correctamente.",
+        "toast_saved_new":   "Nuevo layout guardado: ",
+        "toast_err_delete":  "Error al borrar: ",
+        "toast_err_save":    "Error al guardar: "
     }
 }

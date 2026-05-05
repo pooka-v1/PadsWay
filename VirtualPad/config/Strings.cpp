@@ -1,5 +1,6 @@
 #include "Strings.h"
 #include "../nlohmann/json.hpp"
+#include "../Log.h"
 #include <fstream>
 #include <unordered_map>
 
@@ -23,11 +24,17 @@ void Strings::load(const std::string& locale) {
     s_map.clear();
     std::string path = "data/strings/strings_" + locale + ".json";
     std::ifstream f(path);
-    if (!f.is_open()) return;
+    if (!f.is_open()) {
+        spdlog::debug("Strings: file not found: {}", path);
+        return;
+    }
     try {
         json root = json::parse(f);
         flatten(root, "");
-    } catch (...) {}
+        spdlog::debug("Strings: loaded {} keys from {}", s_map.size(), path);
+    } catch (const std::exception& e) {
+        spdlog::error("Strings: parse error in {}: {}", path, e.what());
+    }
 }
 
 const char* tr(const std::string& key) {

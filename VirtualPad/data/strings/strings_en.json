@@ -1,4 +1,4 @@
-﻿{
+{
     "tab": {
         "engine":  "Engine",
         "scanner": "Scanner",
@@ -95,7 +95,11 @@
         "title":          "Layouts",
         "tint":           "Tint:",
         "state":          "State",
-        "states":         "States",,
+        "states":         "States",
+        "label_type":     "Type",
+        "label_view":     "View",
+        "view_front":     "Front",
+        "view_top":       "Top",
         "elements":       "Elements",
         "confirm_switch": "Are you sure you want to switch layout?",
         "unsaved":        "Unsaved changes will be lost.",
@@ -131,6 +135,11 @@
         "no_image":       "(none)",
         "custom":         "Custom:",
         "no_state":       "(none)",
-        "backup_warning": "WARNING: pad_layouts.json failed to load. Using backup (.bak)."
+        "backup_warning":    "WARNING: pad_layouts.json failed to load. Using backup (.bak).",
+        "toast_deleted":     "Layout deleted.",
+        "toast_saved":       "Saved successfully.",
+        "toast_saved_new":   "New layout saved: ",
+        "toast_err_delete":  "Error deleting: ",
+        "toast_err_save":    "Error saving: "
     }
 }

@@ -417,9 +417,9 @@ void PadEngine::threadFunc() {
                     allCandidates.push_back(dc);
                 }
 
-                spdlog::debug("[Scan] HID: {} Candidates: {}", hidEntries.size(), allCandidates.size());
+                spdlog::trace("[Scan] HID: {} Candidates: {}", hidEntries.size(), allCandidates.size());
                 for (auto& dc : allCandidates)
-                    spdlog::debug("[Candidate] VID:{:04X} PID:{:04X} '{}'", dc.vid, dc.pid, dc.name);
+                    spdlog::trace("[Candidate] VID:{:04X} PID:{:04X} '{}'", dc.vid, dc.pid, dc.name);
 
                 if (allCandidates.empty()) {
                     setStatus("No device found — connect controller");

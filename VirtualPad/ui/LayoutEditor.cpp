@@ -170,9 +170,9 @@ void LayoutEditor::renderLeftPanel(float w) {
                 m_layouts->erase(m_layouts->begin() + m_selectedLayout);
                 try {
                     savePadLayouts(m_layoutsPath, *m_layouts);
-                    showToast("Layout borrado.");
+                    showToast(tr("layout.toast_deleted"));
                 } catch (const std::exception& e) {
-                    showToast(std::string("Error al borrar: ") + e.what(), true);
+                    showToast(std::string(tr("layout.toast_err_delete")) + e.what(), true);
                 }
                 m_selectedLayout = -1;
                 m_isEditing      = false;
@@ -349,8 +349,8 @@ void LayoutEditor::renderRightPanel(float w) {
     ImGui::Spacing();
     ImGui::Text(tr("layout.element_n"), m_selectedComp);
     ImGui::Separator();
-    ImGui::LabelText("type", "%s", c.type.c_str());
-    ImGui::LabelText("view", "%s", c.view.c_str());
+    ImGui::LabelText(tr("layout.label_type"), "%s", c.type.c_str());
+    ImGui::LabelText(tr("layout.label_view"), "%s", c.view.c_str());
 
     // Templates: only image + tint color, no position/size controls
     if (c.type == "template") {
@@ -412,7 +412,8 @@ void LayoutEditor::renderRightPanel(float w) {
 
     // View
     int viewIdx = (c.view == "front") ? 0 : 1;
-    if (ImGui::Combo("Vista", &viewIdx, "front\0top\0"))
+    const char* viewItems[] = { tr("layout.view_front"), tr("layout.view_top") };
+    if (ImGui::Combo(tr("layout.label_view"), &viewIdx, viewItems, 2))
         c.view = (viewIdx == 0) ? "front" : "top";
 
     // Position
@@ -638,9 +639,9 @@ void LayoutEditor::renderSavePopup() {
             try {
                 savePadLayouts(m_layoutsPath, *m_layouts);
                 m_layoutSaved = true;
-                showToast("Nuevo layout guardado: " + newId);
+                showToast(std::string(tr("layout.toast_saved_new")) + newId);
             } catch (const std::exception& e) {
-                showToast(std::string("Error al guardar: ") + e.what(), true);
+                showToast(std::string(tr("layout.toast_err_save")) + e.what(), true);
             }
             m_isNew  = false;
             m_dirty  = false;
@@ -769,11 +770,11 @@ void LayoutEditor::trySave() {
 
     try {
         savePadLayouts(m_layoutsPath, *m_layouts);
-        showToast("Guardado correctamente.");
+        showToast(tr("layout.toast_saved"));
         m_dirty       = false;
         m_layoutSaved = true;
     } catch (const std::exception& e) {
-        showToast(std::string("Error al guardar: ") + e.what(), true);
+        showToast(std::string(tr("layout.toast_err_save")) + e.what(), true);
     }
 }
 
@@ -865,7 +866,7 @@ void LayoutEditor::loadImageList() {
 bool LayoutEditor::comboImage(const char* label, std::string& value,
                               const char* preferredFolder) {
     bool changed = false;
-    const char* preview = value.empty() ? "(ninguna)" : value.c_str();
+    const char* preview = value.empty() ? tr("layout.no_image") : value.c_str();
 
     if (ImGui::BeginCombo(label, preview, ImGuiComboFlags_HeightLarge)) {
         if (ImGui::Selectable(tr("layout.no_image"), value.empty())) { value = ""; changed = true; }
@@ -902,7 +903,7 @@ bool LayoutEditor::comboImage(const char* label, std::string& value,
 
 bool LayoutEditor::stateCombo(const char* label, std::string& value) {
     bool changed = false;
-    const char* preview = value.empty() ? "(ninguno)" : value.c_str();
+    const char* preview = value.empty() ? tr("layout.no_state") : value.c_str();
 
     if (ImGui::BeginCombo(label, preview, ImGuiComboFlags_HeightLarge)) {
         if (ImGui::Selectable(tr("layout.no_state"), value.empty())) { value = ""; changed = true; }

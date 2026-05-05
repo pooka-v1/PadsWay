@@ -66,13 +66,15 @@ int AppWindow::run() {
         m_controllerConfigs = loadControllerConfigs("data/controllers.json");
     } catch (...) {}   // optional â€" scanner falls back to WinMM names if missing
 
+    std::string locale = "en";
     try {
         VirtualPadConfig vpCfg = loadVirtualPadConfig("data/virtualpad.json");
         m_acceptedXboxButtons  = vpCfg.acceptedXboxButtons;
         m_stickSelectThreshold = vpCfg.stickSelectThreshold;
         m_stickHoldMs          = vpCfg.stickHoldMs;
-        Strings::load(vpCfg.locale);
+        locale = vpCfg.locale;
     } catch (...) {}  // struct defaults apply if file is missing or malformed
+    Strings::load(locale);
 
     try { m_padLayouts = loadPadLayouts("data/pad_layouts.json"); } catch (...) {}
     if (m_padLayouts.empty()) {
