@@ -551,7 +551,7 @@ void AppWindow::renderScannerTab() {
         char lbl[4]; snprintf(lbl, sizeof(lbl), "%d", i + 1);
         ImGui::Button(lbl, { 34.0f, 34.0f });
         ImGui::PopStyleColor(2);
-        if ((i + 1) % 8 != 0) ImGui::SameLine(0.0f, 4.0f);
+        if ((i + 1) % 16 != 0) ImGui::SameLine(0.0f, 4.0f);
     }
 
     // Axes — raw HID axis values [-1, 1]
