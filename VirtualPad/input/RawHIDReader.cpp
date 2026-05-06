@@ -111,6 +111,23 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
         out.hat = hat;
     }
 
+    // ── Raw gyro (DS4 USB: 3×int16 LE at byte offset 13) ────────────────────
+    static constexpr int  kGyroOffset = 13;
+    static constexpr float kGyroScale = 1.0f / 32768.0f;
+    const auto& rb = m_hid.reportBuf();
+    if (m_hid.lastBytesRead() >= kGyroOffset + 6 && rb.size() >= kGyroOffset + 6u) {
+        auto readI16 = [&](int o) -> int16_t {
+            return static_cast<int16_t>(
+                static_cast<uint8_t>(rb[o]) | (static_cast<uint16_t>(rb[o + 1]) << 8));
+        };
+        out.gyroRawX     = readI16(kGyroOffset)     * kGyroScale;
+        out.gyroRawY     = readI16(kGyroOffset + 2) * kGyroScale;
+        out.gyroRawZ     = readI16(kGyroOffset + 4) * kGyroScale;
+        out.gyroRawValid = true;
+    } else {
+        out.gyroRawValid = false;
+    }
+
     out.valid = true;
     return true;
 }

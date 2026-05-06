@@ -158,13 +158,20 @@ private:
     int  m_stepCooldown = 0;  // frames to wait after an axis/trigger commit before detecting again
     bool m_savedFlag    = false;
 
+    // Axis confirmation state — require sustained movement before committing
+    int   m_axisConfirmCount = 0;
+    int   m_axisConfirmBest  = -1;
+    float m_axisConfirmSum   = 0.0f;  // sum of signed deltas for direction averaging
+
     // Directional arrow textures for axis step feedback
     PadTexture m_arrowLeft;
     PadTexture m_arrowRight;
     PadTexture m_arrowUp;
     PadTexture m_arrowDown;
 
-    static constexpr float kAxisThreshold  = 0.45f;  // normalized [-1,1]
+    static constexpr float kAxisNoiseFloor = 0.30f;  // below this is drift/noise — resets confirmation
+    static constexpr float kAxisThreshold  = 0.45f;  // must exceed this to commit
     static constexpr DWORD kWinmmThreshold = 12000;  // out of 65535
     static constexpr int   kAxisCooldown   = 45;     // ~750ms at 60fps
+    static constexpr int   kAxisConfirm    = 6;      // frames axis must dominate before commit (~100ms)
 };

@@ -581,6 +581,30 @@ void AppWindow::renderScannerTab() {
         ImGui::PopStyleColor();
     }
 
+    // Gyro (raw bytes offset 13 — DS4 USB only; other controllers may show noise)
+    if (m_scanRawState.gyroRawValid) {
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::Text("Gyro (IMU)");
+        ImGui::Separator();
+        ImGui::Spacing();
+        struct { const char* name; float v; } gyros[] = {
+            { "Gx", m_scanRawState.gyroRawX },
+            { "Gy", m_scanRawState.gyroRawY },
+            { "Gz", m_scanRawState.gyroRawZ },
+        };
+        for (auto& g : gyros) {
+            float dev_f = fabsf(g.v);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
+            ImGui::Text("%-5s", g.name);
+            ImGui::SameLine();
+            char ov[12]; snprintf(ov, sizeof(ov), "%+.3f", g.v);
+            ImGui::ProgressBar((g.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
+            ImGui::PopStyleColor();
+        }
+    }
+
     // Hat switch — raw hat value → compass widget
     ImGui::Spacing();
     ImGui::Spacing();

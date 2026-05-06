@@ -786,12 +786,37 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
             float delta = std::abs(kHIDAxisValues(cur, i) - kHIDAxisValues(m_axisBaseline, i));
             if (delta > bestDelta) { bestDelta = delta; bestAxis = i; }
         }
-        if (bestDelta < kAxisThreshold || bestAxis < 0) return false;
-        // Use delta direction (not absolute value) so triggers that rest at -1.0
-        // are correctly identified: pressing increases the value (positive delta) → no invert.
-        float deltaSigned = kHIDAxisValues(cur, bestAxis) - kHIDAxisValues(m_axisBaseline, bestAxis);
+        float deltaSigned = (bestAxis >= 0)
+            ? kHIDAxisValues(cur, bestAxis) - kHIDAxisValues(m_axisBaseline, bestAxis)
+            : 0.0f;
+
+        if (bestDelta < kAxisNoiseFloor || bestAxis < 0) {
+            // Below noise floor: drift or noise — reset confirmation state.
+            m_axisConfirmCount = 0;
+            m_axisConfirmBest  = -1;
+            m_axisConfirmSum   = 0.0f;
+            return false;
+        }
+
+        // Require the same axis to dominate for kAxisConfirm consecutive frames.
+        // Prevents committing on fast swipes caught during the release phase or cross-axis drift.
+        if (bestAxis != m_axisConfirmBest) {
+            m_axisConfirmBest  = bestAxis;
+            m_axisConfirmCount = 0;
+            m_axisConfirmSum   = 0.0f;
+        }
+        m_axisConfirmSum += deltaSigned;
+        ++m_axisConfirmCount;
+        if (m_axisConfirmCount < kAxisConfirm || bestDelta < kAxisThreshold) return false;
+
+        // Commit: derive direction from average signed delta over the confirmation window.
+        float avgDelta = m_axisConfirmSum / m_axisConfirmCount;
+        m_axisConfirmCount = 0;
+        m_axisConfirmBest  = -1;
+        m_axisConfirmSum   = 0.0f;
+
         outSource = kHIDAxisNames[bestAxis];
-        outInvert = invertIfPositive ? (deltaSigned > 0.0f) : (deltaSigned < 0.0f);
+        outInvert = invertIfPositive ? (avgDelta > 0.0f) : (avgDelta < 0.0f);
         return true;
     }
     return false;
@@ -872,7 +897,10 @@ GamepadState BindingWizard::buildFakeState() const {
 }
 
 void BindingWizard::snapshotBaseline() {
-    m_prevButtonMask = 0;
+    m_prevButtonMask   = 0;
+    m_axisConfirmCount = 0;
+    m_axisConfirmBest  = -1;
+    m_axisConfirmSum   = 0.0f;
     if (m_hidReader && m_hidReader->isOpen()) {
         RawHIDState s{};
         m_hidReader->read(s);

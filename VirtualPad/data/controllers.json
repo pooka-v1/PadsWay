@@ -533,11 +533,11 @@
           "target": "left_x"
         },
         "hid_y": {
-          "invert": false,
+          "invert": true,
           "target": "left_y"
         },
         "hid_z": {
-          "invert": true,
+          "invert": false,
           "target": "right_x"
         }
       },
@@ -591,6 +591,11 @@
         }
       },
       "dpad": "hid_hat",
+      "imu": {
+        "enabled": true,
+        "gyro_offset": 13,
+        "gyro_scale": 0.0001
+      },
       "layout_id": "dualshock4",
       "mode": "hid",
       "pid": "09CC",
