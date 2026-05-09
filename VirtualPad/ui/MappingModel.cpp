@@ -9,8 +9,8 @@ using json = nlohmann::json;
 // ---------------------------------------------------------------------------
 void MappingModel::clear() {
     buttonEdits.clear();
-    h5ActionEdits.clear();
-    h6AxisEdits.clear();
+    actionEdits.clear();
+    axisEdits.clear();
     axisActionEdits.clear();
     trigActionEdits.clear();
     trigLRangeEdits.clear();
@@ -36,7 +36,7 @@ void MappingModel::reload(const std::vector<ControllerConfig>& configs) {
             case ButtonActionType::MouseClick:
             case ButtonActionType::Macro:
             case ButtonActionType::Trigger:
-                h5ActionEdits[action.physical] = action;
+                actionEdits[action.physical] = action;
                 break;
             default: break;
             }
@@ -45,7 +45,7 @@ void MappingModel::reload(const std::vector<ControllerConfig>& configs) {
         for (const auto& [dir, vShort] : cfg.dpadRemap)
             buttonEdits["dpad_" + dir] = vShort;
         for (const auto& [dir, action] : cfg.dpadActions)
-            h5ActionEdits["dpad_" + dir] = action;
+            actionEdits["dpad_" + dir] = action;
         // Dpad sources assigned to stick slots are in stickSlots (not dpadRemap).
         for (const auto& [slotDir, srcs] : cfg.stickSlots)
             for (const auto& src : srcs)
@@ -119,8 +119,8 @@ void MappingModel::save(const std::string& path) {
             if (!btn.is_object()) newBtn["physical"] = physShort;
             bool changed = false;
 
-            auto h5it = h5ActionEdits.find(physShort);
-            if (h5it != h5ActionEdits.end()) {
+            auto h5it = actionEdits.find(physShort);
+            if (h5it != actionEdits.end()) {
                 const ButtonAction& act = h5it->second;
                 newBtn.erase("virtual");
                 if (act.type == ButtonActionType::Keyboard) {
@@ -166,8 +166,8 @@ void MappingModel::save(const std::string& path) {
             json dpadRemapJson = json::object();
             for (const char* dir : {"up", "down", "left", "right"}) {
                 std::string key = std::string("dpad_") + dir;
-                auto h5it = h5ActionEdits.find(key);
-                if (h5it != h5ActionEdits.end()) {
+                auto h5it = actionEdits.find(key);
+                if (h5it != actionEdits.end()) {
                     const ButtonAction& act = h5it->second;
                     json actJson = json::object();
                     actJson["physical"] = key;
@@ -199,7 +199,7 @@ void MappingModel::save(const std::string& path) {
                 ctrl["dpad_remap"] = std::move(dpadRemapJson);
         }
 
-        // --- Trigger actions (H7) ---
+        // --- Trigger actions ---
         {
             auto actToJson = [](const ButtonAction& act) {
                 json j = json::object();
@@ -266,8 +266,8 @@ void MappingModel::save(const std::string& path) {
                 ctrl["trigger_actions"] = taJson;
         }
 
-        // --- Axis remapping (H6) ---
-        if (!h6AxisEdits.empty() && ctrl.contains("axes")) {
+        // --- Axis remapping ---
+        if (!axisEdits.empty() && ctrl.contains("axes")) {
             for (auto& [source, axisJson] : ctrl["axes"].items()) {
                 std::string sid = axisJson.value("stick_id", std::string{});
                 if (sid.empty()) {
@@ -275,8 +275,8 @@ void MappingModel::save(const std::string& path) {
                     if (t == "left_x"  || t == "left_y"  ||
                         t == "right_x" || t == "right_y") sid = t;
                 }
-                auto eit = h6AxisEdits.find(sid);
-                if (eit == h6AxisEdits.end()) continue;
+                auto eit = axisEdits.find(sid);
+                if (eit == axisEdits.end()) continue;
                 const AxisMapping& em = eit->second;
                 axisJson["target"]   = em.target;
                 axisJson["stick_id"] = em.stickId;

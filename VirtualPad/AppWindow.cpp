@@ -804,12 +804,15 @@ void AppWindow::renderPadsTab() {
         if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
             m_mappingEditor.setConfigs(m_controllerConfigs);
             m_mappingEditor.activate();
+            m_engine.setEditorOpen(true);
         }
       } // !m_mappingEditor.isActive()
     }
 
     if (m_mappingEditor.isActive()) {
         m_mappingEditor.render(m_padView, m_virtualPadView);
+        if (!m_mappingEditor.isActive())
+            m_engine.setEditorOpen(false);
         if (m_mappingEditor.pollConfigsSaved()) {
             m_controllerConfigs = loadControllerConfigs("data/controllers.json");
             m_mappingEditor.setConfigs(m_controllerConfigs);
