@@ -463,13 +463,19 @@
           "physical": "r1",
           "virtual": "r1"
         },
+        "7": {
+          "physical": "lp"
+        },
+        "8": {
+          "physical": "rp"
+        },
         "9": {
           "physical": "select",
           "virtual": "select"
         }
       },
       "dpad": "hid_hat",
-      "layout_id": "Logitech-F310",
+      "layout_id": "Logitech-F310-Dmode",
       "mode": "hid",
       "pid": "C216",
       "source_name": "Logitech F310 (D-mode)",
@@ -541,7 +547,7 @@
         }
       },
       "dpad": "hid_hat",
-      "layout_id": "Logitech-F310",
+      "layout_id": "Logitech-F310-Xmode",
       "mode": "hid",
       "pid": "C21D",
       "source_name": "Logitech F310 (x-mode)",

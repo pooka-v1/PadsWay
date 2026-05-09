@@ -714,6 +714,10 @@ void AppWindow::renderPadsTab() {
       if (!m_mappingEditor.isActive()) {
         ImGui::Spacing();
 
+        if (!m_engine.isConnected()) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("%s", tr("engine.waiting"));
+        } else {
         ImGui::BeginGroup();
         m_padView.render(m_engine.getLastState());
         ImGui::EndGroup();
@@ -736,6 +740,7 @@ void AppWindow::renderPadsTab() {
         ImGui::BeginGroup();
         m_virtualPadView.render(m_engine.getLastVirtualState());
         ImGui::EndGroup();
+        } // isConnected
 
             // â"€â"€ Marquee â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 

@@ -754,9 +754,11 @@ void PadEngine::threadFunc() {
 
     GamepadState state;
     bool         botBtnPrev    = false;
-    bool         mouseWasMoving = false;
-    float        mouseAccumX   = 0.0f;
-    float        mouseAccumY   = 0.0f;
+    bool         mouseWasMoving    = false;
+    float        mouseAccumX       = 0.0f;
+    float        mouseAccumY       = 0.0f;
+    bool         lostDevice        = false;  // set when device disconnects unexpectedly
+    int          reconnectTries    = 0;
 
     while (m_running && !m_switchPending.load()) {
         // Profile hot-swap: detect change and re-apply without reopening the device
@@ -819,13 +821,20 @@ void PadEngine::threadFunc() {
 
         if (!input->isConnected()) {
             if (m_connected) {
-                spdlog::warn("[{}] disconnected. Waiting...", cfg->source_name);
+                spdlog::warn("[{}] disconnected. Reconnecting...", cfg->source_name);
                 m_connected = false;
-                setStatus("Device disconnected — waiting...");
+                { std::lock_guard<std::mutex> lock(m_mutex); m_activeLayoutId.clear(); }
+                setStatus("Device disconnected — reconnecting...");
             }
-            Sleep(500);
-            continue;
+            if (++reconnectTries <= 3) {
+                Sleep(500);
+                continue;
+            }
+            lostDevice = true;
+            reconnectTries = 0;
+            break;
         }
+        reconnectTries = 0;
 
         if (!m_connected) {
             m_connected = true;
@@ -1345,20 +1354,28 @@ void PadEngine::threadFunc() {
 
         if (!m_running) break;  // normal stop — exit outer loop
 
-        // Switch was requested: read the target and pre-select it for next iteration
-        DeviceCandidate target;
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            target = m_switchTarget;
-        }
-        m_switchPending.store(false);
-
-        if (target.vid == 0) {
-            spdlog::warn("[Switch] Target device no longer valid — rescanning.");
+        if (lostDevice) {
+            // Device disconnected unexpectedly — rescan to find it again (path may have changed).
+            lostDevice = false;
+            spdlog::info("[Reconnect] Scanning for device...");
+            setStatus("Device disconnected — scanning...");
+            // preSelected stays empty → outer loop rescans normally
         } else {
-            spdlog::info("[Switch] Switching to: {} [VID={:04X} PID={:04X}]",
-                target.name, target.vid, target.pid);
-            preSelected = target;
+            // Switch was requested: read the target and pre-select it for next iteration
+            DeviceCandidate target;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                target = m_switchTarget;
+            }
+            m_switchPending.store(false);
+
+            if (target.vid == 0) {
+                spdlog::warn("[Switch] Target device no longer valid — rescanning.");
+            } else {
+                spdlog::info("[Switch] Switching to: {} [VID={:04X} PID={:04X}]",
+                    target.name, target.vid, target.pid);
+                preSelected = target;
+            }
         }
         // Loop back to outer while — preSelected drives the next configure phase
     }
