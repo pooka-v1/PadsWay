@@ -228,8 +228,37 @@
         }
       },
       "axis_actions": {
+        "left_x_neg": {
+          "virtual": "left_x_neg"
+        },
+        "left_x_pos": {
+          "virtual": "left_x_pos"
+        },
+        "left_y_neg": {
+          "ranges": [
+            {
+              "action": {
+                "virtual": "left_y_neg"
+              },
+              "from": 0.10000000149011612,
+              "to": 1.0
+            }
+          ]
+        },
+        "left_y_pos": {
+          "virtual": "left_y_pos"
+        },
+        "right_x_neg": {
+          "virtual": "right_x_neg"
+        },
         "right_x_pos": {
           "virtual": "right_x_pos"
+        },
+        "right_y_neg": {
+          "virtual": "right_y_neg"
+        },
+        "right_y_pos": {
+          "virtual": "right_y_pos"
         }
       },
       "buttons": {
@@ -287,8 +316,8 @@
       "dpad": "hid_hat",
       "dpad_remap": {
         "down": "dpad_down",
-        "right": "dpad_right",
-        "up": "dpad_up"
+        "left": "dpad_left",
+        "right": "dpad_right"
       },
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
@@ -297,6 +326,10 @@
       "trigger_actions": {
         "l2": {
           "target": "l2",
+          "type": "trigger_passthrough"
+        },
+        "r2": {
+          "target": "r2",
           "type": "trigger_passthrough"
         }
       },

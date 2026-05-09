@@ -1035,12 +1035,15 @@ void PadEngine::threadFunc() {
             }
 
             // --- Dpad H5 actions (Macro / Keyboard / Mouse, edge-triggered) ---
-            // Helper: get dpad active state by direction string
+            // Helper: get dpad active state by direction string.
+            // Reads PHYSICAL state so axis_action virtual dpad outputs don't trigger
+            // dpadActions (which are meant for physical dpad remapping only).
             auto dpadActive = [&](const std::string& dir) -> bool {
-                if (dir == "up")    return state.dpadUp;
-                if (dir == "down")  return state.dpadDown;
-                if (dir == "left")  return state.dpadLeft;
-                if (dir == "right") return state.dpadRight;
+                const GamepadState& phys = input->getPhysicalState();
+                if (dir == "up")    return phys.dpadUp;
+                if (dir == "down")  return phys.dpadDown;
+                if (dir == "left")  return phys.dpadLeft;
+                if (dir == "right") return phys.dpadRight;
                 return false;
             };
             for (auto& [dir, macro] : dpadMacros) {
@@ -1057,11 +1060,12 @@ void PadEngine::threadFunc() {
                     if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
                 prev = active;
                 macro.tick(state);
-                // Don't forward to virtual pad
-                if (dir == "up")    state.dpadUp    = false;
-                if (dir == "down")  state.dpadDown  = false;
-                if (dir == "left")  state.dpadLeft  = false;
-                if (dir == "right") state.dpadRight = false;
+                if (active) {
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
             }
             for (auto& [dir, prev] : dpadKbPrev) {
                 bool active = dpadActive(dir);
@@ -1074,11 +1078,12 @@ void PadEngine::threadFunc() {
                 }
                 if (!active && prev) sendKeyCombo(action.keys, false);
                 prev = active;
-                // Don't forward to virtual pad
-                if (dir == "up")    state.dpadUp    = false;
-                if (dir == "down")  state.dpadDown  = false;
-                if (dir == "left")  state.dpadLeft  = false;
-                if (dir == "right") state.dpadRight = false;
+                if (active) {
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
             }
             for (auto& [dir, prev] : dpadMousePrev) {
                 bool active = dpadActive(dir);
@@ -1089,11 +1094,12 @@ void PadEngine::threadFunc() {
                         pushEvent({ PadEventType::MouseAction, btn + " click", true });
                 }
                 prev = active;
-                // Don't forward to virtual pad
-                if (dir == "up")    state.dpadUp    = false;
-                if (dir == "down")  state.dpadDown  = false;
-                if (dir == "left")  state.dpadLeft  = false;
-                if (dir == "right") state.dpadRight = false;
+                if (active) {
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
             }
             // Dpad direction → virtual trigger (L2/R2)
             for (const auto& [dir, action] : cfg->dpadActions) {
@@ -1102,12 +1108,11 @@ void PadEngine::threadFunc() {
                 if (active) {
                     if      (action.target == "l2") state.triggerL = 1.0f;
                     else if (action.target == "r2") state.triggerR = 1.0f;
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
                 }
-                // Don't forward to virtual pad
-                if (dir == "up")    state.dpadUp    = false;
-                if (dir == "down")  state.dpadDown  = false;
-                if (dir == "left")  state.dpadLeft  = false;
-                if (dir == "right") state.dpadRight = false;
             }
 
             // --- Trigger-as-source actions ---
@@ -1185,23 +1190,31 @@ void PadEngine::threadFunc() {
             bool trigRWasCrossTarget = false;
 
             if (cfg->triggerLHasAction && cfg->triggerLRanges.empty()) {
-                float physL = state.triggerL;
-                applyTrigAct(physL, cfg->triggerLAction,
+                const auto& lAct = cfg->triggerLAction;
+                // Marker targets (Macro/KB/Mouse) are not written by the Component System,
+                // so read the physical value directly — same pattern as dpadActive().
+                bool lNeedsPhys = lAct.type == ButtonActionType::Macro    ||
+                                  lAct.type == ButtonActionType::Keyboard  ||
+                                  lAct.type == ButtonActionType::MouseClick;
+                float physL = lNeedsPhys ? input->getPhysicalState().triggerL : state.triggerL;
+                applyTrigAct(physL, lAct,
                              trigLKbPrev, trigLMousPrev, trigLMacro, trigLMacroOk,
                              state.triggerL);
-                // If L2→R2 passthrough fired, mark R2 as cross-target
-                if (cfg->triggerLAction.type == ButtonActionType::TriggerPassthrough &&
-                    cfg->triggerLAction.target == "r2" && physL > 0.0f)
+                if (lAct.type == ButtonActionType::TriggerPassthrough &&
+                    lAct.target == "r2" && physL > 0.0f)
                     trigRWasCrossTarget = true;
             }
             if (cfg->triggerRHasAction && cfg->triggerRRanges.empty()) {
-                float physR = state.triggerR;
-                applyTrigAct(physR, cfg->triggerRAction,
+                const auto& rAct = cfg->triggerRAction;
+                bool rNeedsPhys = rAct.type == ButtonActionType::Macro    ||
+                                  rAct.type == ButtonActionType::Keyboard  ||
+                                  rAct.type == ButtonActionType::MouseClick;
+                float physR = rNeedsPhys ? input->getPhysicalState().triggerR : state.triggerR;
+                applyTrigAct(physR, rAct,
                              trigRKbPrev, trigRMousPrev, trigRMacro, trigRMacroOk,
                              state.triggerR);
-                // If R2→L2 passthrough fired, mark L2 as cross-target
-                if (cfg->triggerRAction.type == ButtonActionType::TriggerPassthrough &&
-                    cfg->triggerRAction.target == "l2" && physR > 0.0f)
+                if (rAct.type == ButtonActionType::TriggerPassthrough &&
+                    rAct.target == "l2" && physR > 0.0f)
                     trigLWasCrossTarget = true;
             }
 
@@ -1257,12 +1270,16 @@ void PadEngine::threadFunc() {
                     prev = active;
                 }
             };
-            if (!trigLWasCrossTarget)
-                applyTrigRanges(state.triggerL, cfg->triggerLRanges,
+            if (!trigLWasCrossTarget) {
+                float physL = input->getPhysicalState().triggerL;
+                applyTrigRanges(physL, cfg->triggerLRanges,
                                 trigLRangePrev, trigLRangeMacros, trigLRangeMacroOk, state.triggerL);
-            if (!trigRWasCrossTarget)
-                applyTrigRanges(state.triggerR, cfg->triggerRRanges,
+            }
+            if (!trigRWasCrossTarget) {
+                float physR = input->getPhysicalState().triggerR;
+                applyTrigRanges(physR, cfg->triggerRRanges,
                                 trigRRangePrev, trigRRangeMacros, trigRRangeMacroOk, state.triggerR);
+            }
 
             trigLPrev = state.triggerL;
             trigRPrev = state.triggerR;

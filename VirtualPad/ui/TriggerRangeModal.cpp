@@ -47,8 +47,9 @@ bool TriggerRangeModal::render() {
         {"pad.left_x_pos","left_x_pos"},{"pad.left_x_neg","left_x_neg"},
         {"pad.right_y_pos","right_y_pos"},{"pad.right_y_neg","right_y_neg"},
         {"pad.right_x_pos","right_x_pos"},{"pad.right_x_neg","right_x_neg"},
+        {"pad.trigger_l","l2"},{"pad.trigger_r","r2"},
     };
-    static const int kNChoices = 23;
+    static const int kNChoices = 25;
 
     std::string hdrStr = m_forKey + "  \xe2\x86\x92  " + tr("action.ranges_header");
     ImGui::TextColored({ 1.0f, 0.86f, 0.0f, 1.0f }, "%s", hdrStr.c_str());

@@ -94,7 +94,9 @@ static void applyRangedHalfAxis(const RangedHalfAxis& rha, float value,
         if (std::holds_alternative<VirtualPassthrough>(r.target)) {
             passthrough(value);
         } else {
-            float effective = isProportionalTarget(r.target) ? value : 1.0f;
+            // Proportional only when from==0.0f (direct passthrough assignment).
+            // Explicit range entries (from>0) are always binary per mapping invariant.
+            float effective = (isProportionalTarget(r.target) && r.from == 0.0f) ? value : 1.0f;
             applyVirtualTarget(r.target, effective, out, left, right, gyro, dirSign);
         }
         break;  // first matching range wins

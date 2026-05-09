@@ -210,7 +210,9 @@
         "right_y_pos": "Right Up",
         "right_y_neg": "Right Down",
         "right_x_pos": "Right Right",
-        "right_x_neg": "Right Left"
+        "right_x_neg": "Right Left",
+        "trigger_l":   "L2",
+        "trigger_r":   "R2"
     },
     "padview": {
         "assets_not_loaded": "Assets not loaded."

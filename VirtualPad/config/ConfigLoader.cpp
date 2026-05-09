@@ -574,7 +574,14 @@ static RangedHalfAxis buildRangedHalfAxisFromTrigger(const ButtonAction& simple,
         }
     } else if (hasAction) {
         auto vt = buttonActionToVT(simple);
-        if (vt) rha.ranges.push_back({0.0f, 1.0f, *vt});
+        if (vt) {
+            bool digital = std::holds_alternative<VirtualButton>(*vt)     ||
+                           std::holds_alternative<VirtualDpadDir>(*vt)    ||
+                           std::holds_alternative<VirtualMacro>(*vt)      ||
+                           std::holds_alternative<VirtualKeyboard>(*vt)   ||
+                           std::holds_alternative<VirtualMouseClick>(*vt);
+            rha.ranges.push_back({digital ? 0.5f : 0.0f, 1.0f, *vt});
+        }
         // empty ranges = implicit VirtualPassthrough
     }
     return rha;
@@ -591,7 +598,14 @@ static RangedHalfAxis buildRangedHalfAxisFromHalf(const HalfAxisAction& action) 
         }
     } else {
         auto vt = halfAxisActionToVT(action);
-        if (vt) rha.ranges.push_back({0.0f, 1.0f, *vt});
+        if (vt) {
+            // Digital targets (VirtualButton, Dpad) fire at value=1.0 regardless of magnitude.
+            // Using threshold as the lower bound prevents them from activating at stick rest (value=0).
+            // Proportional targets (StickSlot, Trigger, MouseMove, Analog) start from 0.
+            bool digital = (action.type == HalfAxisActionType::VirtualButton ||
+                            action.type == HalfAxisActionType::Dpad);
+            rha.ranges.push_back({digital ? action.threshold : 0.0f, 1.0f, *vt});
+        }
     }
     return rha;
 }
