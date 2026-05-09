@@ -1,15 +1,16 @@
 #include "PadEngine.h"
 #include "Log.h"
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <windows.h>
-#include <mmsystem.h>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 
-#include "input/EightBitDoInputSource.h"
 #include "input/HIDScanner.h"
 #include "input/HIDInputSource.h"
 #include "output/ViGEmOutputAdapter.h"
@@ -23,44 +24,6 @@
 #pragma comment(lib, "cfgmgr32.lib")
 #pragma comment(lib, "hid.lib")
 
-// ---------------------------------------------------------------------------
-// Internal helpers (not exposed in the header)
-// ---------------------------------------------------------------------------
-
-struct JoyEntry {
-    UINT    id;
-    UINT    axes;
-    UINT    buttons;
-    WORD    wMid;
-    WORD    wPid;
-    wchar_t name[MAXPNAMELEN];
-};
-
-static std::vector<JoyEntry> scanPorts() {
-    std::vector<JoyEntry> result;
-    UINT numDevs = joyGetNumDevs();
-    for (UINT id = 0; id < numDevs; ++id) {
-        JOYINFOEX info = {};
-        info.dwSize  = sizeof(JOYINFOEX);
-        info.dwFlags = JOY_RETURNBUTTONS;
-        if (joyGetPosEx(id, &info) != JOYERR_NOERROR) continue;
-
-        JoyEntry e = {};
-        e.id = id;
-        JOYCAPS caps = {};
-        if (joyGetDevCaps(id, &caps, sizeof(caps)) == JOYERR_NOERROR) {
-            e.axes    = caps.wNumAxes;
-            e.buttons = caps.wNumButtons;
-            e.wMid    = caps.wMid;
-            e.wPid    = caps.wPid;
-            wcsncpy_s(e.name, caps.szPname, MAXPNAMELEN);
-        } else {
-            wcscpy_s(e.name, L"(unknown)");
-        }
-        result.push_back(e);
-    }
-    return result;
-}
 
 // ---------------------------------------------------------------------------
 // Keyboard / mouse helpers
@@ -101,6 +64,38 @@ static WORD keyNameToVK(const std::string& name) {
     return 0;
 }
 
+// Set a virtual button in GamepadState by short name (a/b/x/y/l1/r1/… and dpad up/down/left/right).
+static void applyVirtualBtnByName(GamepadState& state, const std::string& name, bool pressed) {
+    if (!pressed) return;
+    if      (name == "a")      state.btnA     = true;
+    else if (name == "b")      state.btnB     = true;
+    else if (name == "x")      state.btnX     = true;
+    else if (name == "y")      state.btnY     = true;
+    else if (name == "l1")     state.btnLB    = true;
+    else if (name == "r1")     state.btnRB    = true;
+    else if (name == "select") state.btnBack  = true;
+    else if (name == "start")  state.btnStart = true;
+    else if (name == "home")   state.btnHome  = true;
+    else if (name == "l3")     state.btnL3    = true;
+    else if (name == "r3")     state.btnR3    = true;
+    else if (name == "l4")     state.btnL4    = true;
+    else if (name == "r4")     state.btnR4    = true;
+    else if (name == "lp")     state.btnLP    = true;
+    else if (name == "rp")     state.btnRP    = true;
+    else if (name == "up"    || name == "dpad_up")    state.dpadUp   = true;
+    else if (name == "down"  || name == "dpad_down")  state.dpadDown = true;
+    else if (name == "left"  || name == "dpad_left")  state.dpadLeft = true;
+    else if (name == "right" || name == "dpad_right") state.dpadRight = true;
+    else if (name == "left_y_pos")  state.leftY  =  1.0f;
+    else if (name == "left_y_neg")  state.leftY  = -1.0f;
+    else if (name == "left_x_pos")  state.leftX  =  1.0f;
+    else if (name == "left_x_neg")  state.leftX  = -1.0f;
+    else if (name == "right_y_pos") state.rightY =  1.0f;
+    else if (name == "right_y_neg") state.rightY = -1.0f;
+    else if (name == "right_x_pos") state.rightX =  1.0f;
+    else if (name == "right_x_neg") state.rightX = -1.0f;
+}
+
 // press=true  → press all keys in order
 // press=false → release all keys in reverse order
 static void sendKeyCombo(const std::vector<std::string>& keys, bool press) {
@@ -131,6 +126,8 @@ static void sendMouseButton(const std::string& btn, bool press) {
     if      (btn == "left")   inp.mi.dwFlags = press ? MOUSEEVENTF_LEFTDOWN   : MOUSEEVENTF_LEFTUP;
     else if (btn == "right")  inp.mi.dwFlags = press ? MOUSEEVENTF_RIGHTDOWN  : MOUSEEVENTF_RIGHTUP;
     else if (btn == "middle") inp.mi.dwFlags = press ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
+    else if (btn == "x1") { inp.mi.dwFlags = press ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP; inp.mi.mouseData = XBUTTON1; }
+    else if (btn == "x2") { inp.mi.dwFlags = press ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP; inp.mi.mouseData = XBUTTON2; }
     else return;
     SendInput(1, &inp, sizeof(INPUT));
 }
@@ -285,8 +282,7 @@ void PadEngine::setStatus(const std::string& s) {
 
 void PadEngine::monitorFunc() {
     while (m_running) {
-        auto winmmEntries = scanPorts();
-        auto hidEntries   = HIDScanner::scan();
+        auto hidEntries = HIDScanner::scan();
 
         std::vector<ControllerConfig> configs;
         uint16_t vVid = 0, vPid = 0;
@@ -298,36 +294,11 @@ void PadEngine::monitorFunc() {
         }
 
         std::vector<DeviceCandidate> candidates;
-
-        for (auto& e : winmmEntries) {
-            if (vVid && e.wMid == vVid && e.wPid == vPid) continue;  // skip virtual pad
-            const ControllerConfig* cfg = findConfig(configs, e.wMid, e.wPid);
-            if (cfg && cfg->mode == "hid") continue;
-
-            DeviceCandidate c;
-            c.source  = DeviceCandidate::Source::WinMM;
-            c.port    = e.id;
-            c.vid     = e.wMid;
-            c.pid     = e.wPid;
-            c.axes    = e.axes;
-            c.buttons = e.buttons;
-            char narrow[MAXPNAMELEN];
-            WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-            c.name = narrow;
-            candidates.push_back(c);
-        }
-
         for (auto& h : hidEntries) {
-            if (vVid && h.vid == vVid && h.pid == vPid) continue;  // skip virtual pad
+            if (vVid && h.vid == vVid && h.pid == vPid) continue;
             const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType);
-            bool inWinMM = false;
-            for (auto& e : winmmEntries)
-                if (e.wMid == h.vid && e.wPid == h.pid) { inWinMM = true; break; }
-            if (!cfg && inWinMM) continue;
-            if (cfg && cfg->mode != "hid" && inWinMM) continue;
-
+            if (!cfg || cfg->mode != "hid") continue;
             DeviceCandidate c;
-            c.source         = DeviceCandidate::Source::HID;
             c.hidPath        = h.path;
             c.vid            = h.vid;
             c.pid            = h.pid;
@@ -361,9 +332,11 @@ void PadEngine::threadFunc() {
     m_hidHide.addSelfToWhitelist();
 
     // --- One-time init: configs (shared with monitor thread) ---
-    std::vector<ControllerConfig> configs;
+    std::vector<ControllerConfig>    configs;
+    std::vector<PhysicalController>  physCtrls;
     try {
-        configs = loadControllerConfigs("data/controllers.json");
+        configs   = loadControllerConfigs("data/controllers.json");
+        physCtrls = loadPhysicalControllers("data/controllers.json");
         { std::lock_guard<std::mutex> lock(m_mutex); m_configs = configs; }
     } catch (const std::exception& ex) {
         spdlog::error("Error loading config: {}", ex.what());
@@ -426,38 +399,14 @@ void PadEngine::threadFunc() {
             while (m_running && selected.vid == 0) {
                 // Pick up any config updates written by the BindingWizard
                 { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
-                auto winmmEntries = scanPorts();
-                auto hidEntries   = HIDScanner::scan();
+                auto hidEntries = HIDScanner::scan();
 
                 std::vector<DeviceCandidate> allCandidates;
-
-                for (auto& e : winmmEntries) {
-                    if (vpCfg.vid && e.wMid == vpCfg.vid && e.wPid == vpCfg.pid) continue;
-                    const ControllerConfig* c = findConfig(configs, e.wMid, e.wPid);
-                    if (c && c->mode == "hid") continue;
-                    DeviceCandidate dc;
-                    dc.source  = DeviceCandidate::Source::WinMM;
-                    dc.port    = e.id;
-                    dc.vid     = e.wMid;
-                    dc.pid     = e.wPid;
-                    dc.axes    = e.axes;
-                    dc.buttons = e.buttons;
-                    char narrow[MAXPNAMELEN];
-                    WideCharToMultiByte(CP_UTF8, 0, e.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-                    dc.name = narrow;
-                    allCandidates.push_back(dc);
-                }
-
                 for (auto& h : hidEntries) {
                     if (vpCfg.vid && h.vid == vpCfg.vid && h.pid == vpCfg.pid) continue;
                     const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType);
-                    bool inWinMM = false;
-                    for (auto& e : winmmEntries)
-                        if (e.wMid == h.vid && e.wPid == h.pid) { inWinMM = true; break; }
-                    if (!c && inWinMM) continue;
-                    if (c && c->mode != "hid" && inWinMM) continue;
+                    if (!c || c->mode != "hid") continue;
                     DeviceCandidate dc;
-                    dc.source         = DeviceCandidate::Source::HID;
                     dc.hidPath        = h.path;
                     dc.vid            = h.vid;
                     dc.pid            = h.pid;
@@ -468,15 +417,9 @@ void PadEngine::threadFunc() {
                     allCandidates.push_back(dc);
                 }
 
-                spdlog::debug("[Scan] WinMM: {} HID: {} Candidates: {}",
-                    winmmEntries.size(), hidEntries.size(), allCandidates.size());
-                for (auto& h : hidEntries)
-                    spdlog::debug("[HID found] VID:{:04X} PID:{:04X} '{}' path={}",
-                        h.vid, h.pid, h.productName, h.path);
+                spdlog::trace("[Scan] HID: {} Candidates: {}", hidEntries.size(), allCandidates.size());
                 for (auto& dc : allCandidates)
-                    spdlog::debug("[Candidate] [{}] VID:{:04X} PID:{:04X} '{}'",
-                        dc.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
-                        dc.vid, dc.pid, dc.name);
+                    spdlog::trace("[Candidate] VID:{:04X} PID:{:04X} '{}'", dc.vid, dc.pid, dc.name);
 
                 if (allCandidates.empty()) {
                     setStatus("No device found — connect controller");
@@ -486,8 +429,7 @@ void PadEngine::threadFunc() {
 
                 if (allCandidates.size() == 1) {
                     selected = allCandidates[0];
-                    spdlog::info("Auto-selected [{}]: {} [VID={:04X} PID={:04X}]",
-                        selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                    spdlog::info("Auto-selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
                     setStatus(std::string("Auto-selected: ") + selected.name);
                 } else {
@@ -508,8 +450,7 @@ void PadEngine::threadFunc() {
                         continue;
                     }
                     selected = allCandidates[idx];
-                    spdlog::info("User selected [{}]: {} [VID={:04X} PID={:04X}]",
-                        selected.source == DeviceCandidate::Source::HID ? "HID" : "WinMM",
+                    spdlog::info("User selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
                 }
             }
@@ -555,11 +496,19 @@ void PadEngine::threadFunc() {
         }
         const ControllerConfig* cfg = &effectiveCfg;
 
-        std::unique_ptr<IInputSource> input;
-        if (selected.source == DeviceCandidate::Source::HID)
-            input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
-        else
-            input = std::make_unique<EightBitDoInputSource>(selected.port, *cfg);
+        auto input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
+
+        // Inject PhysicalController for component-system processing (P4)
+        {
+            auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
+                [&](const PhysicalController& pc) {
+                    return pc.vid == selected.vid && pc.pid == selected.pid;
+                });
+            if (it != physCtrls.end()) {
+                input->setPhysicalController(*it);
+                spdlog::info("PhysicalController injected for {:04X}:{:04X}", selected.vid, selected.pid);
+            }
+        }
 
         if (!input->isConnected()) {
             spdlog::error("Failed to open input device — rescanning.");
@@ -585,13 +534,89 @@ void PadEngine::threadFunc() {
         std::unordered_map<int, bool>        kbPrevBtn;
         std::unordered_map<int, bool>        mousePrevBtn;
 
+        // Axis-action equivalents (keyed by "source_pos"/"source_neg")
+        std::unordered_map<std::string, Macro>       axisMacros;
+        std::unordered_map<std::string, bool>        axisMacroPrev;
+        std::unordered_map<std::string, std::string> axisMacroNames;
+        std::unordered_map<std::string, bool>        axisKbPrev;
+        std::unordered_map<std::string, bool>        axisMousePrev;
+        // Axis Ranges: prev active ButtonAction per key (nullopt = nothing was active)
+        std::unordered_map<std::string, std::optional<ButtonAction>> axisRangePrev;
+        // Axis Range macros: composite key = "axis_key|macro_name"
+        std::unordered_map<std::string, Macro> axisRangeMacros;
+        std::unordered_map<std::string, bool>  axisRangeMacroOk;
+
+        // Dpad H5 actions (keyed by "up"/"down"/"left"/"right")
+        std::unordered_map<std::string, Macro>       dpadMacros;
+        std::unordered_map<std::string, bool>        dpadMacroPrev;
+        std::unordered_map<std::string, std::string> dpadMacroNames;
+        std::unordered_map<std::string, bool>        dpadKbPrev;
+        std::unordered_map<std::string, bool>        dpadMousePrev;
+
+        // Trigger-as-source state
+        float trigLPrev = 0.0f;           // previous frame physical trigger L value
+        float trigRPrev = 0.0f;           // previous frame physical trigger R value
+        Macro trigLMacro;                 // macro for simple triggerLAction
+        Macro trigRMacro;                 // macro for simple triggerRAction
+        bool  trigLMacroOk  = false;      // true = trigLMacro parsed and valid
+        bool  trigRMacroOk  = false;
+        bool  trigLKbPrev   = false;      // previous active state for keyboard trigger L
+        bool  trigRKbPrev   = false;
+        bool  trigLMousPrev = false;      // previous active state for mouse trigger L
+        bool  trigRMousPrev = false;
+        // Ranged trigger state (indexed by range position in triggerLRanges/triggerRRanges)
+        // uint8_t instead of bool to avoid std::vector<bool> proxy reference issues
+        std::vector<uint8_t> trigLRangePrev;
+        std::vector<uint8_t> trigRRangePrev;
+        std::vector<Macro>   trigLRangeMacros;
+        std::vector<Macro>   trigRRangeMacros;
+        std::vector<uint8_t> trigLRangeMacroOk;
+        std::vector<uint8_t> trigRRangeMacroOk;
+
         auto initMacros = [&]() {
             macros.clear();      macroPrevBtn.clear(); macroNames.clear();
             macroRotCount.clear(); macroLastRX.clear(); macroLastRY.clear();
             kbPrevBtn.clear();   mousePrevBtn.clear();
+            axisMacros.clear();  axisMacroPrev.clear(); axisMacroNames.clear();
+            axisKbPrev.clear();  axisMousePrev.clear();
+            dpadMacros.clear();  dpadMacroPrev.clear(); dpadMacroNames.clear();
+            dpadKbPrev.clear();  dpadMousePrev.clear();
             for (const auto& [bit, action] : cfg->buttons) {
                 if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
                 if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
+            }
+            for (const auto& [dir, action] : cfg->dpadActions) {
+                if (action.type == ButtonActionType::Keyboard)   dpadKbPrev[dir]    = false;
+                if (action.type == ButtonActionType::MouseClick) dpadMousePrev[dir] = false;
+            }
+            axisRangePrev.clear();
+            axisRangeMacros.clear();
+            axisRangeMacroOk.clear();
+            for (const auto& [key, action] : cfg->axis_actions) {
+                if (action.type == HalfAxisActionType::Keyboard)   axisKbPrev[key]    = false;
+                if (action.type == HalfAxisActionType::MouseClick) axisMousePrev[key] = false;
+                if (action.type == HalfAxisActionType::Ranges) {
+                    axisRangePrev[key] = std::nullopt;
+                    for (const auto& r : action.ranges) {
+                        if (!r.hasAction || r.action.type != ButtonActionType::Macro) continue;
+                        std::string mkey = key + "|" + r.action.name;
+                        auto it = macroLibrary.find(r.action.name);
+                        if (it == macroLibrary.end()) {
+                            spdlog::warn("Macro '{}' (axis range {}) not found.", r.action.name, key);
+                            axisRangeMacroOk[mkey] = false;
+                            continue;
+                        }
+                        try {
+                            Macro m;
+                            MacroParser::parse(it->second, m);
+                            axisRangeMacros[mkey]  = std::move(m);
+                            axisRangeMacroOk[mkey] = true;
+                        } catch (...) {
+                            spdlog::warn("Failed to parse macro '{}' (axis range {}).", r.action.name, key);
+                            axisRangeMacroOk[mkey] = false;
+                        }
+                    }
+                }
             }
             lightningBotBit = findBotBit(*cfg, "LightningBot");
             if (lightningBotBit > 0)
@@ -621,6 +646,100 @@ void PadEngine::threadFunc() {
                     spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
                 }
             }
+            // Dpad H5 macros
+            for (const auto& [dir, action] : cfg->dpadActions) {
+                if (action.type != ButtonActionType::Macro) continue;
+                std::string execution;
+                auto it = macroLibrary.find(action.name);
+                if (it == macroLibrary.end()) {
+                    spdlog::warn("Macro '{}' (dpad {}) not found in library.", action.name, dir);
+                    continue;
+                }
+                execution = it->second;
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    dpadMacros[dir]     = std::move(m);
+                    dpadMacroPrev[dir]  = false;
+                    dpadMacroNames[dir] = action.name;
+                    spdlog::info("Macro '{}' assigned to dpad {}.", action.name, dir);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+                }
+            }
+
+            // Axis-direction macros
+            for (const auto& [key, action] : cfg->axis_actions) {
+                if (action.type != HalfAxisActionType::Macro) continue;
+                std::string execution = action.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(action.target);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (axis {}) not found in library.", action.target, key);
+                        continue;
+                    }
+                    execution = it->second;
+                }
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    axisMacros[key]     = std::move(m);
+                    axisMacroPrev[key]  = false;
+                    axisMacroNames[key] = action.target;
+                    spdlog::info("Macro '{}' assigned to axis direction {}.", action.target, key);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.target, ex.what());
+                }
+            }
+
+            // Trigger-as-source state reset
+            trigLPrev = trigRPrev = 0.0f;
+            trigLKbPrev = trigRKbPrev = trigLMousPrev = trigRMousPrev = false;
+            trigLMacroOk = trigRMacroOk = false;
+            // Simple trigger macros
+            auto initTrigMacro = [&](const ButtonAction& act, Macro& mac, bool& ok) {
+                ok = false;
+                if (act.type != ButtonActionType::Macro) return;
+                auto it = macroLibrary.find(act.name);
+                if (it == macroLibrary.end()) {
+                    spdlog::warn("Macro '{}' (trigger) not found in library.", act.name);
+                    return;
+                }
+                try {
+                    MacroParser::parse(it->second, mac);
+                    ok = true;
+                    spdlog::info("Macro '{}' assigned to trigger.", act.name);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing trigger macro '{}': {}", act.name, ex.what());
+                }
+            };
+            if (cfg->triggerLHasAction) initTrigMacro(cfg->triggerLAction, trigLMacro, trigLMacroOk);
+            if (cfg->triggerRHasAction) initTrigMacro(cfg->triggerRAction, trigRMacro, trigRMacroOk);
+            // Ranged trigger macros
+            auto initRangeMacros = [&](const std::vector<TriggerRange>& ranges,
+                                       std::vector<Macro>& macs, std::vector<uint8_t>& ok,
+                                       std::vector<uint8_t>& prev) {
+                macs.clear(); ok.clear(); prev.clear();
+                for (const auto& r : ranges) {
+                    prev.push_back(0);
+                    if (r.action.type == ButtonActionType::Macro) {
+                        auto it = macroLibrary.find(r.action.name);
+                        if (it != macroLibrary.end()) {
+                            Macro m;
+                            try {
+                                MacroParser::parse(it->second, m);
+                                macs.push_back(std::move(m));
+                                ok.push_back(1);
+                                continue;
+                            } catch (...) {}
+                        }
+                    }
+                    macs.push_back({});
+                    ok.push_back(0);
+                }
+            };
+            initRangeMacros(cfg->triggerLRanges, trigLRangeMacros, trigLRangeMacroOk, trigLRangePrev);
+            initRangeMacros(cfg->triggerRRanges, trigRRangeMacros, trigRRangeMacroOk, trigRRangePrev);
         };
         initMacros();
 
@@ -635,7 +754,6 @@ void PadEngine::threadFunc() {
 
     GamepadState state;
     bool         botBtnPrev    = false;
-    bool         btnAPrev      = false;
     bool         mouseWasMoving = false;
     float        mouseAccumX   = 0.0f;
     float        mouseAccumY   = 0.0f;
@@ -662,7 +780,6 @@ void PadEngine::threadFunc() {
             input->setConfig(*cfg);   // cfg == &effectiveCfg, now updated
             if (bot.isActive()) bot.toggle();
             botBtnPrev  = false;
-            btnAPrev    = false;
             mouseAccumX = 0.0f;
             mouseAccumY = 0.0f;
             initMacros();
@@ -682,6 +799,20 @@ void PadEngine::threadFunc() {
                     } catch (...) {}
                 }
                 input->setConfig(*cfg);  // push updated button map to active input source
+                initMacros();            // re-init KB/mouse edge state + re-parse macros
+
+                // Re-inject PhysicalController so the component system picks up mapping changes.
+                try {
+                    physCtrls = loadPhysicalControllers("data/controllers.json");
+                    auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
+                        [&](const PhysicalController& pc) {
+                            return pc.vid == selected.vid && pc.pid == selected.pid;
+                        });
+                    if (it != physCtrls.end())
+                        input->setPhysicalController(*it);
+                } catch (const std::exception& ex) {
+                    spdlog::warn("PhysicalController hot-reload failed: {}", ex.what());
+                }
             }
         }
 
@@ -740,10 +871,6 @@ void PadEngine::threadFunc() {
                 prev = pressed;
             }
 
-            if (state.btnA && !btnAPrev)
-                spdlog::info("[MAN][{}] Manual A press", GetTickCount64()); // TODO: remove when no longer needed
-            btnAPrev = state.btnA;
-
             bool botPressed = bot.consumePressA();
             if (botPressed) state.btnA = true;
 
@@ -797,10 +924,370 @@ void PadEngine::threadFunc() {
                 prev = pressed;
             }
 
+            // --- Axis-direction Macro / Keyboard / Mouse (edge-triggered) ---
+            {
+                auto activeAA = input->getActiveAxisActions();
+                std::unordered_set<std::string> activeAASet(activeAA.begin(), activeAA.end());
+
+                for (auto& [key, macro] : axisMacros) {
+                    bool active = activeAASet.count(key) > 0;
+                    bool& prev  = axisMacroPrev[key];
+                    if (active && !prev) {
+                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                            macro.start();
+                        else
+                            macro.toggle();
+                        if (macro.isActive())
+                            spdlog::info("[MACRO][AXIS] '{}' ON", axisMacroNames[key]);
+                        pushEvent({ PadEventType::MacroToggle, axisMacroNames[key], macro.isActive() });
+                    }
+                    if (!active && prev)
+                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                            macro.stop();
+                    prev = active;
+                    macro.tick(state);
+                }
+
+                for (auto& [key, prev] : axisKbPrev) {
+                    bool active = activeAASet.count(key) > 0;
+                    const HalfAxisAction& action = cfg->axis_actions.at(key);
+                    if (active && !prev) {
+                        sendKeyCombo(action.keys, true);
+                        std::string combo;
+                        for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                        pushEvent({ PadEventType::KeyboardAction, combo, true });
+                    }
+                    if (!active && prev) sendKeyCombo(action.keys, false);
+                    prev = active;
+                }
+
+                for (auto& [key, prev] : axisMousePrev) {
+                    bool active = activeAASet.count(key) > 0;
+                    if (active != prev) {
+                        const std::string& btn = cfg->axis_actions.at(key).mouseButton;
+                        sendMouseButton(btn, active);
+                        if (active)
+                            pushEvent({ PadEventType::MouseAction, btn + " click", true });
+                    }
+                    prev = active;
+                }
+
+                // Axis Ranges: Keyboard / MouseClick / Macro edge-triggered per range action
+                {
+                    const auto& rangeActions = input->getActiveAxisRangeActions();
+                    for (auto& [key, prev] : axisRangePrev) {
+                        auto it = rangeActions.find(key);
+                        bool isActive = (it != rangeActions.end());
+                        bool changed  = isActive
+                            ? (!prev.has_value() ||
+                               prev->type        != it->second.type        ||
+                               prev->name        != it->second.name        ||
+                               prev->mouseButton != it->second.mouseButton ||
+                               prev->keys        != it->second.keys)
+                            : prev.has_value();
+
+                        if (!changed) continue;
+
+                        // Release previous action
+                        if (prev.has_value()) {
+                            if (prev->type == ButtonActionType::Keyboard)
+                                sendKeyCombo(prev->keys, false);
+                            else if (prev->type == ButtonActionType::MouseClick)
+                                sendMouseButton(prev->mouseButton, false);
+                            else if (prev->type == ButtonActionType::Macro) {
+                                auto mit = axisRangeMacros.find(key + "|" + prev->name);
+                                if (mit != axisRangeMacros.end() && axisRangeMacroOk[key + "|" + prev->name])
+                                    if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
+                                        mit->second.stop();
+                            }
+                        }
+                        // Activate new action
+                        if (isActive) {
+                            const ButtonAction& cur = it->second;
+                            if (cur.type == ButtonActionType::Keyboard) {
+                                sendKeyCombo(cur.keys, true);
+                                std::string combo;
+                                for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                                pushEvent({ PadEventType::KeyboardAction, combo, true });
+                            } else if (cur.type == ButtonActionType::MouseClick) {
+                                sendMouseButton(cur.mouseButton, true);
+                                pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
+                            } else if (cur.type == ButtonActionType::Macro) {
+                                std::string mkey = key + "|" + cur.name;
+                                auto mit = axisRangeMacros.find(mkey);
+                                if (mit != axisRangeMacros.end() && axisRangeMacroOk[mkey]) {
+                                    if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
+                                        mit->second.start();
+                                    else
+                                        mit->second.toggle();
+                                    pushEvent({ PadEventType::MacroToggle, cur.name, mit->second.isActive() });
+                                }
+                            }
+                            prev = cur;
+                        } else {
+                            prev = std::nullopt;
+                        }
+                    }
+                    // Tick active axis range macros every frame
+                    for (auto& [mkey, macro] : axisRangeMacros)
+                        macro.tick(state);
+                }
+            }
+
+            // --- Dpad H5 actions (Macro / Keyboard / Mouse, edge-triggered) ---
+            // Helper: get dpad active state by direction string.
+            // Reads PHYSICAL state so axis_action virtual dpad outputs don't trigger
+            // dpadActions (which are meant for physical dpad remapping only).
+            auto dpadActive = [&](const std::string& dir) -> bool {
+                const GamepadState& phys = input->getPhysicalState();
+                if (dir == "up")    return phys.dpadUp;
+                if (dir == "down")  return phys.dpadDown;
+                if (dir == "left")  return phys.dpadLeft;
+                if (dir == "right") return phys.dpadRight;
+                return false;
+            };
+            for (auto& [dir, macro] : dpadMacros) {
+                bool active = dpadActive(dir);
+                bool& prev  = dpadMacroPrev[dir];
+                if (active && !prev) {
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
+                    else macro.toggle();
+                    if (macro.isActive())
+                        spdlog::info("[MACRO][DPAD] '{}' ON", dpadMacroNames[dir]);
+                    pushEvent({ PadEventType::MacroToggle, dpadMacroNames[dir], macro.isActive() });
+                }
+                if (!active && prev)
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
+                prev = active;
+                macro.tick(state);
+                if (active) {
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
+            }
+            for (auto& [dir, prev] : dpadKbPrev) {
+                bool active = dpadActive(dir);
+                const ButtonAction& action = cfg->dpadActions.at(dir);
+                if (active && !prev) {
+                    sendKeyCombo(action.keys, true);
+                    std::string combo;
+                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                }
+                if (!active && prev) sendKeyCombo(action.keys, false);
+                prev = active;
+                if (active) {
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
+            }
+            for (auto& [dir, prev] : dpadMousePrev) {
+                bool active = dpadActive(dir);
+                if (active != prev) {
+                    const std::string& btn = cfg->dpadActions.at(dir).mouseButton;
+                    sendMouseButton(btn, active);
+                    if (active)
+                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
+                }
+                prev = active;
+                if (active) {
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
+            }
+            // Dpad direction → virtual trigger (L2/R2)
+            for (const auto& [dir, action] : cfg->dpadActions) {
+                if (action.type != ButtonActionType::Trigger) continue;
+                bool active = dpadActive(dir);
+                if (active) {
+                    if      (action.target == "l2") state.triggerL = 1.0f;
+                    else if (action.target == "r2") state.triggerR = 1.0f;
+                    if (dir == "up")    state.dpadUp    = false;
+                    if (dir == "down")  state.dpadDown  = false;
+                    if (dir == "left")  state.dpadLeft  = false;
+                    if (dir == "right") state.dpadRight = false;
+                }
+            }
+
+            // --- Trigger-as-source actions ---
+            constexpr float kTrigActThresh = 0.1f;  // activation threshold for digital targets
+            // Helper: apply a single ButtonAction driven by a float trigger value.
+            // physVal is the raw physical trigger value [0..1].
+            // prevActive is the per-action edge-detect flag (modified in place).
+            // After the call, the source trigger value in state has been routed/cleared.
+            auto applyTrigAct = [&](float physVal, const ButtonAction& act,
+                                     bool& kbPrev, bool& mousPrev, Macro& mac, bool macOk,
+                                     float& srcTrig) {
+                bool active = (physVal > kTrigActThresh);
+                switch (act.type) {
+                case ButtonActionType::TriggerPassthrough: {
+                    // Cross-passthrough only: only consume source when routing to the OTHER trigger.
+                    // Same-trigger (R2→R2 or L2→L2) = identity, leave srcTrig untouched.
+                    bool srcIsR2 = (&srcTrig == &state.triggerR);
+                    if (act.target == "r2" && !srcIsR2) {
+                        state.triggerR = (physVal > state.triggerR ? physVal : state.triggerR);
+                        srcTrig = 0.0f;  // consume L2
+                    } else if (act.target == "l2" && srcIsR2) {
+                        state.triggerL = (physVal > state.triggerL ? physVal : state.triggerL);
+                        srcTrig = 0.0f;  // consume R2
+                    }
+                    // same-trigger: no-op, value passes through unchanged
+                    break;
+                }
+                case ButtonActionType::VirtualButton:
+                    applyVirtualBtnByName(state, act.name, active);
+                    srcTrig = 0.0f;
+                    break;
+                case ButtonActionType::Keyboard:
+                    if (active != kbPrev) {
+                        sendKeyCombo(act.keys, active);
+                        if (active) {
+                            std::string combo;
+                            for (const auto& k : act.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                            pushEvent({ PadEventType::KeyboardAction, combo, true });
+                        }
+                        kbPrev = active;
+                    }
+                    srcTrig = 0.0f;
+                    break;
+                case ButtonActionType::MouseClick:
+                    if (active != mousPrev) {
+                        sendMouseButton(act.mouseButton, active);
+                        if (active) pushEvent({ PadEventType::MouseAction, act.mouseButton + " click", true });
+                        mousPrev = active;
+                    }
+                    srcTrig = 0.0f;
+                    break;
+                case ButtonActionType::Macro:
+                    if (active && !kbPrev) {  // reuse kbPrev as macroPrev for trigger
+                        if (macOk) {
+                            if (mac.getMode() == MacroRepeatMode::UntilRelease) mac.start();
+                            else mac.toggle();
+                            if (mac.isActive()) pushEvent({ PadEventType::MacroToggle, act.name, true });
+                        }
+                        kbPrev = true;
+                    } else if (!active && kbPrev) {
+                        if (macOk && mac.getMode() == MacroRepeatMode::UntilRelease) mac.stop();
+                        kbPrev = false;
+                    }
+                    if (macOk && mac.isActive()) mac.tick(state);
+                    srcTrig = 0.0f;
+                    break;
+                default: break;
+                }
+            };
+
+            // Simple trigger actions.
+            // Track cross-passthrough: if L2 was routed to R2 (or R2 to L2), skip the
+            // destination's own trigger_actions so the analog value reaches ViGEm unmodified.
+            bool trigLWasCrossTarget = false;
+            bool trigRWasCrossTarget = false;
+
+            if (cfg->triggerLHasAction && cfg->triggerLRanges.empty()) {
+                const auto& lAct = cfg->triggerLAction;
+                // Marker targets (Macro/KB/Mouse) are not written by the Component System,
+                // so read the physical value directly — same pattern as dpadActive().
+                bool lNeedsPhys = lAct.type == ButtonActionType::Macro    ||
+                                  lAct.type == ButtonActionType::Keyboard  ||
+                                  lAct.type == ButtonActionType::MouseClick;
+                float physL = lNeedsPhys ? input->getPhysicalState().triggerL : state.triggerL;
+                applyTrigAct(physL, lAct,
+                             trigLKbPrev, trigLMousPrev, trigLMacro, trigLMacroOk,
+                             state.triggerL);
+                if (lAct.type == ButtonActionType::TriggerPassthrough &&
+                    lAct.target == "r2" && physL > 0.0f)
+                    trigRWasCrossTarget = true;
+            }
+            if (cfg->triggerRHasAction && cfg->triggerRRanges.empty()) {
+                const auto& rAct = cfg->triggerRAction;
+                bool rNeedsPhys = rAct.type == ButtonActionType::Macro    ||
+                                  rAct.type == ButtonActionType::Keyboard  ||
+                                  rAct.type == ButtonActionType::MouseClick;
+                float physR = rNeedsPhys ? input->getPhysicalState().triggerR : state.triggerR;
+                applyTrigAct(physR, rAct,
+                             trigRKbPrev, trigRMousPrev, trigRMacro, trigRMacroOk,
+                             state.triggerR);
+                if (rAct.type == ButtonActionType::TriggerPassthrough &&
+                    rAct.target == "l2" && physR > 0.0f)
+                    trigLWasCrossTarget = true;
+            }
+
+            // Ranged trigger actions (overrides simple when non-empty).
+            // Skipped for triggers that received a cross-passthrough value.
+            auto applyTrigRanges = [&](float physVal,
+                                        const std::vector<TriggerRange>& ranges,
+                                        std::vector<uint8_t>& rangePrev,
+                                        std::vector<Macro>& rangeMacs,
+                                        std::vector<uint8_t>& rangeMacOk,
+                                        float& srcTrig) {
+                if (ranges.empty()) return;
+                srcTrig = 0.0f;  // trigger no longer outputs analog value
+                for (size_t i = 0; i < ranges.size(); ++i) {
+                    const TriggerRange& r = ranges[i];
+                    bool active = (physVal >= r.from && physVal <= r.to);
+                    uint8_t& prev = rangePrev[i];
+                    if (!r.hasAction) { prev = active; continue; }
+                    const ButtonAction& act = r.action;
+                    switch (act.type) {
+                    case ButtonActionType::VirtualButton:
+                        applyVirtualBtnByName(state, act.name, active);
+                        break;
+                    case ButtonActionType::Keyboard:
+                        if (active != prev) {
+                            sendKeyCombo(act.keys, active);
+                            if (active) {
+                                std::string combo;
+                                for (const auto& k : act.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                                pushEvent({ PadEventType::KeyboardAction, combo, true });
+                            }
+                        }
+                        break;
+                    case ButtonActionType::MouseClick:
+                        if (active != prev) {
+                            sendMouseButton(act.mouseButton, active);
+                            if (active) pushEvent({ PadEventType::MouseAction, act.mouseButton + " click", true });
+                        }
+                        break;
+                    case ButtonActionType::Macro:
+                        if (active && !prev && i < rangeMacs.size() && rangeMacOk[i]) {
+                            if (rangeMacs[i].getMode() == MacroRepeatMode::UntilRelease) rangeMacs[i].start();
+                            else rangeMacs[i].toggle();
+                            if (rangeMacs[i].isActive()) pushEvent({ PadEventType::MacroToggle, act.name, true });
+                        } else if (!active && prev && i < rangeMacs.size() && rangeMacOk[i]) {
+                            if (rangeMacs[i].getMode() == MacroRepeatMode::UntilRelease) rangeMacs[i].stop();
+                        }
+                        if (i < rangeMacs.size() && rangeMacOk[i] && rangeMacs[i].isActive())
+                            rangeMacs[i].tick(state);
+                        break;
+                    default: break;
+                    }
+                    prev = active;
+                }
+            };
+            if (!trigLWasCrossTarget) {
+                float physL = input->getPhysicalState().triggerL;
+                applyTrigRanges(physL, cfg->triggerLRanges,
+                                trigLRangePrev, trigLRangeMacros, trigLRangeMacroOk, state.triggerL);
+            }
+            if (!trigRWasCrossTarget) {
+                float physR = input->getPhysicalState().triggerR;
+                applyTrigRanges(physR, cfg->triggerRRanges,
+                                trigRRangePrev, trigRRangeMacros, trigRRangeMacroOk, state.triggerR);
+            }
+
+            trigLPrev = state.triggerL;
+            trigRPrev = state.triggerR;
+
             // --- Mouse movement (continuous, sub-pixel accumulator) ---
             constexpr float kMouseDeadZone = 0.12f;
-            float mx = (fabsf(state.mouseX) > kMouseDeadZone) ? state.mouseX : 0.0f;
-            float my = (fabsf(state.mouseY) > kMouseDeadZone) ? state.mouseY : 0.0f;
+            float mx = (fabsf(state.mouseX) > kMouseDeadZone) ?  state.mouseX : 0.0f;
+            float my = (fabsf(state.mouseY) > kMouseDeadZone) ? -state.mouseY : 0.0f;
             bool mouseIsMoving = (mx != 0.0f || my != 0.0f);
             if (mouseIsMoving && !mouseWasMoving)
                 pushEvent({ PadEventType::MouseAction, "move", true });

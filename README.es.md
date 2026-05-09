@@ -453,6 +453,20 @@ El componente `gyroscope` es visible en la pestaña Pads cuando el mando conecta
 - **State bindings** — `state`, `state_x`, `state_y`, `state_click`, `state_up/down/left/right` — combos con los nombres de campo de `GamepadState`.
 - **Colores** — colores activo/inactivo para la imagen base y el overlay.
 
+### Imágenes de template
+
+El canvas tiene dos zonas apiladas verticalmente:
+
+| Zona | Propósito | Tamaño de imagen recomendado |
+|---|---|---|
+| **FRONT** | Franja inferior — cara frontal del mando | 480 × 200 px |
+| **TOP** | Área principal — vista superior | 480 × 320 px |
+
+Las imágenes se estiran para rellenar exactamente su zona. Usar imágenes a estas dimensiones evita pérdida de calidad por escalado.
+Los archivos van en `images/templates/`.
+
+---
+
 ### Control de cambios
 
 Un indicador `*` aparece cuando hay cambios sin guardar. Cambiar de layout sin guardar activa un diálogo de confirmación.
@@ -515,9 +529,30 @@ El asistente usa `state_map.json` para saber el nombre físico del botón (`phys
 | `data/FinalFantasyX.json` | Perfil de juego para FFX (overrides sobre la base) |
 | `data/MonsterHunterStories2.json` | Perfil de juego para MHS2 (overrides sobre la base) |
 | `data/macros.json` | Biblioteca de macros reutilizables |
-| `data/virtualpad.json` | VID/PID del mando virtual creado por ViGEm + nivel de log |
+| `data/virtualpad.json` | VID/PID del mando virtual, idioma, nivel de log y umbrales de stick |
+| `data/strings/strings_en.json` | Textos de la interfaz — inglés |
+| `data/strings/strings_es.json` | Textos de la interfaz — español |
 
 Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
+
+---
+
+## Localización
+
+El idioma activo de la interfaz se configura con `"locale"` en `data/virtualpad.json`:
+
+```json
+{ "locale": "es" }
+```
+
+| Valor | Idioma |
+|---|---|
+| `"en"` | Inglés |
+| `"es"` | Español |
+
+Los textos se cargan de `data/strings/strings_{locale}.json` al arrancar. Si falta alguna clave en el fichero, se muestra el nombre de la clave como texto de reserva — no hay crash.
+
+Para añadir un idioma nuevo: copia `strings_en.json`, renómbralo `strings_xx.json`, traduce los valores (nunca las claves) y pon `"locale": "xx"` en `virtualpad.json`.
 
 ---
 

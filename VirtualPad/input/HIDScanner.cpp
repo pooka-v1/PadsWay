@@ -44,6 +44,10 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         attribs.Size = sizeof(attribs);
         if (!HidD_GetAttributes(h, &attribs)) { CloseHandle(h); continue; }
 
+        // Skip ViGEm virtual controllers (VID 0x5650). Orphaned instances from
+        // crashed sessions can return malformed preparsed data that corrupts the heap.
+        if (attribs.VendorID == 0x5650) { CloseHandle(h); continue; }
+
         PHIDP_PREPARSED_DATA preparsed = nullptr;
         if (!HidD_GetPreparsedData(h, &preparsed)) { CloseHandle(h); continue; }
 

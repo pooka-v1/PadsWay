@@ -1,4 +1,5 @@
 #include "AppWindow.h"
+#include "Log.h"
 
 #include <algorithm>
 #include <fstream>
@@ -14,6 +15,8 @@ using json = nlohmann::json;
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx11.h"
+#include "ui/ActionPanel.h"
+#include "config/Strings.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -61,7 +64,17 @@ int AppWindow::run() {
 
     try {
         m_controllerConfigs = loadControllerConfigs("data/controllers.json");
-    } catch (...) {}   // optional — scanner falls back to WinMM names if missing
+    } catch (...) {}   // optional â€" scanner falls back to WinMM names if missing
+
+    std::string locale = "en";
+    try {
+        VirtualPadConfig vpCfg = loadVirtualPadConfig("data/virtualpad.json");
+        m_acceptedXboxButtons  = vpCfg.acceptedXboxButtons;
+        m_stickSelectThreshold = vpCfg.stickSelectThreshold;
+        m_stickHoldMs          = vpCfg.stickHoldMs;
+        locale = vpCfg.locale;
+    } catch (...) {}  // struct defaults apply if file is missing or malformed
+    Strings::load(locale);
 
     try { m_padLayouts = loadPadLayouts("data/pad_layouts.json"); } catch (...) {}
     if (m_padLayouts.empty()) {
@@ -96,6 +109,9 @@ int AppWindow::run() {
     m_padView.load(m_device);
     m_virtualPadView.load(m_device);
     m_layoutEditor.init(m_device, &m_padLayouts);
+    m_mappingEditor.init(m_device, &m_engine, m_padLayouts,
+                         m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs);
+    m_mappingEditor.setConfigs(m_controllerConfigs);
 
     m_engine.start();
 
@@ -143,7 +159,7 @@ int AppWindow::run() {
 }
 
 // ---------------------------------------------------------------------------
-// renderFrame — full-screen canvas with tab bar
+// renderFrame â€" full-screen canvas with tab bar
 // ---------------------------------------------------------------------------
 
 void AppWindow::renderFrame() {
@@ -158,10 +174,10 @@ void AppWindow::renderFrame() {
         ImGuiWindowFlags_NoBringToFrontOnFocus);
 
     if (ImGui::BeginTabBar("MainTabs")) {
-        if (ImGui::BeginTabItem("Engine"))  { renderEngineTab();  ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Scanner")) { renderScannerTab(); ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Pads"))    { renderPadsTab();    ImGui::EndTabItem(); }
-        if (ImGui::BeginTabItem("Layout"))  { renderLayoutTab();  ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem(tr("tab.engine")))  { renderEngineTab();  ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem(tr("tab.scanner"))) { renderScannerTab(); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem(tr("tab.pads")))    { renderPadsTab();    ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem(tr("tab.layout")))  { renderLayoutTab();  ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
 
@@ -179,32 +195,32 @@ void AppWindow::renderEngineTab() {
     bool        connected = m_engine.isConnected();
     bool        running   = m_engine.isRunning();
 
-    // ── Status indicator ──────────────────────────────────────────────────
+    // â"€â"€ Status indicator â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     if (connected) {
-        ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "●");
+        ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "\xe2\x97\x8f");
         ImGui::SameLine();
-        ImGui::Text("Connected — %s", m_engine.getDevice().c_str());
+        ImGui::Text(tr("engine.connected"), m_engine.getDevice().c_str());
     } else if (phase == EnginePhase::WaitingSelection) {
-        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "●");
+        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "\xe2\x97\x8f");
         ImGui::SameLine();
-        ImGui::Text("Select a controller:");
+        ImGui::Text("%s", tr("engine.select_ctrl"));
     } else if (running) {
-        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "●");
+        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "\xe2\x97\x8f");
         ImGui::SameLine();
-        ImGui::Text("Waiting for device...");
+        ImGui::Text("%s", tr("engine.waiting"));
     } else {
-        ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "●");
+        ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "\xe2\x97\x8f");
         ImGui::SameLine();
-        ImGui::Text("Engine stopped");
+        ImGui::Text("%s", tr("engine.stopped"));
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Status: %s", m_engine.getStatus().c_str());
+    ImGui::TextDisabled(tr("engine.status"), m_engine.getStatus().c_str());
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    // ── Device list ───────────────────────────────────────────────────────
+    // â"€â"€ Device list â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     // WaitingSelection uses the candidates snapshot; all other states use the
     // live monitor list so newly connected devices appear without a restart.
     auto availableDevices = m_engine.getAvailableDevices();
@@ -216,35 +232,28 @@ void AppWindow::renderEngineTab() {
         ? candidates : availableDevices;
 
     if (displayList.empty()) {
-        ImGui::TextDisabled("  No controllers detected");
+        ImGui::TextDisabled("%s", tr("engine.no_ctrl"));
     } else {
         for (int i = 0; i < (int)displayList.size(); ++i) {
             const auto& dev = displayList[i];
             const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid,
                                                      dev.connectionType);
             const char* displayName = cfg ? cfg->source_name.c_str() : dev.name.c_str();
-            const char* src = (dev.source == DeviceCandidate::Source::HID) ? "HID" : "WinMM";
-
-            // Determine if this entry is the currently active device
             bool isActive = (dev.vid == activeDevice.vid && dev.pid == activeDevice.pid
-                          && dev.source == activeDevice.source);
-            if (isActive && dev.source == DeviceCandidate::Source::HID)
-                isActive = (dev.hidPath == activeDevice.hidPath);
-            if (isActive && dev.source == DeviceCandidate::Source::WinMM)
-                isActive = (dev.port == activeDevice.port);
+                          && dev.hidPath == activeDevice.hidPath);
 
             if (isActive) {
                 ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "  >");
                 ImGui::SameLine();
-                ImGui::Text("[%s]  %s    VID:%04X  PID:%04X", src, displayName, dev.vid, dev.pid);
+                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", displayName, dev.vid, dev.pid);
             } else {
                 ImGui::Text("   ");
                 ImGui::SameLine();
-                ImGui::Text("[%s]  %s    VID:%04X  PID:%04X", src, displayName, dev.vid, dev.pid);
+                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", displayName, dev.vid, dev.pid);
                 ImGui::SameLine();
 
                 char btnLabel[64];
-                snprintf(btnLabel, sizeof(btnLabel), "Activar##dev%d", i);
+                snprintf(btnLabel, sizeof(btnLabel), "%s##dev%d", tr("btn.activate"), i);
 
                 if (phase == EnginePhase::WaitingSelection) {
                     if (ImGui::SmallButton(btnLabel))
@@ -265,12 +274,12 @@ void AppWindow::renderEngineTab() {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // ── Game profile selector ─────────────────────────────────────────────
-    ImGui::Text("Game profile:");
+    // â"€â"€ Game profile selector â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    ImGui::Text("%s", tr("engine.profile"));
     ImGui::SameLine();
 
     std::vector<const char*> profileItems;
-    profileItems.push_back("(none)");
+    profileItems.push_back(tr("engine.no_profile"));
     for (const auto& n : m_profileNames)
         profileItems.push_back(n.c_str());
 
@@ -285,30 +294,23 @@ void AppWindow::renderEngineTab() {
     std::string activeName = m_engine.getActiveProfileName();
     if (!activeName.empty()) {
         ImGui::SameLine();
-        ImGui::TextColored({ 0.4f, 0.9f, 0.4f, 1.0f }, "(active: %s)", activeName.c_str());
+        ImGui::TextColored({ 0.4f, 0.9f, 0.4f, 1.0f }, tr("engine.profile_active"), activeName.c_str());
     } else if (connected && m_profileSelected != 0) {
         ImGui::SameLine();
-        ImGui::TextDisabled("(reconnect to apply)");
+        ImGui::TextDisabled("%s", tr("engine.reconnect"));
     }
 
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-    ImGui::TextDisabled("Console window shows full log output.");
-    ImGui::TextDisabled("Close this window to exit.");
+    ImGui::TextDisabled("%s", tr("engine.console_hint"));
+    ImGui::TextDisabled("%s", tr("engine.close_hint"));
 }
 
 // ---------------------------------------------------------------------------
-// Scanner tab — helpers
+// Scanner tab â€" helpers
 // ---------------------------------------------------------------------------
 
-// Converts a raw WinMM axis value [0..65535] to normalised float [-1..1].
-static float normalizeAxis(DWORD v) {
-    float n = (static_cast<float>(v) - 32767.5f) / 32767.5f;
-    if (n < -1.0f) n = -1.0f;
-    if (n >  1.0f) n =  1.0f;
-    return n;
-}
 
 // Returns a human-readable POV direction string.
 static const char* povDirection(DWORD pov) {
@@ -324,7 +326,7 @@ static const char* povDirection(DWORD pov) {
     return "N";
 }
 
-// Draws a 3×3 compass widget showing the active POV direction.
+// Draws a 3Ã—3 compass widget showing the active POV direction.
 static void drawPOVCompass(DWORD pov) {
     // Map POV to (col, row): N=top-center, E=mid-right, etc.
     struct Dir { int col, row; const char* label; DWORD minVal, maxVal; };
@@ -390,27 +392,13 @@ static void drawPOVCompass(DWORD pov) {
 }
 
 // ---------------------------------------------------------------------------
-// Scanner tab — main render
+// Scanner tab â€" main render
 // ---------------------------------------------------------------------------
 
 void AppWindow::renderScannerTab() {
     ULONGLONG now  = GetTickCount64();
     uint16_t  vVid = m_engine.getVirtualVid();
     uint16_t  vPid = m_engine.getVirtualPid();
-
-    // WinMM scan — fast, runs synchronously every second
-    if (now - m_lastScanTime > 1000) {
-        auto all = PadScanner::scan();
-        m_scanDevices.clear();
-        for (auto& d : all) {
-            if (vVid && d.vid == vVid && d.pid == vPid) continue; // skip virtual pad
-            const ControllerConfig* dcfg = findConfig(m_controllerConfigs, d.vid, d.pid);
-            if (dcfg && dcfg->mode == "hid") continue;           // HID devices go to HID section
-            m_scanDevices.push_back(d);
-        }
-        m_lastScanTime = now;
-        if (m_scanSelected >= (int)m_scanDevices.size()) m_scanSelected = -1;
-    }
 
     // HID scan — slow (opens every HID device), runs on a background thread
     auto kickHidScan = [&]() {
@@ -426,12 +414,9 @@ void AppWindow::renderScannerTab() {
     if (m_hidScanRunning && m_hidScanFuture.valid() &&
         m_hidScanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto raw = m_hidScanFuture.get();
-        // Remove virtual pad and devices already visible via WinMM
+        // Remove virtual pad
         raw.erase(std::remove_if(raw.begin(), raw.end(), [&](const HIDScanner::DeviceInfo& h) {
-            if (vVid && h.vid == vVid && h.pid == vPid) return true;
-            for (auto& w : m_scanDevices)
-                if (w.vid == h.vid && w.pid == h.pid) return true;
-            return false;
+            return vVid && h.vid == vVid && h.pid == vPid;
         }), raw.end());
         m_hidDevices = std::move(raw);
         if (m_hidSelected >= (int)m_hidDevices.size()) m_hidSelected = -1;
@@ -440,64 +425,24 @@ void AppWindow::renderScannerTab() {
 
     ImGui::Spacing();
 
-    // ── Splitter ─────────────────────────────────────────────────────────
+    // â"€â"€ Splitter â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     const float splitterW  = 6.0f;
     const float minPanelW  = 120.0f;
     float availW = ImGui::GetContentRegionAvail().x;
     m_scanSplitX = std::clamp(m_scanSplitX, minPanelW, availW - minPanelW - splitterW);
 
-    // ── Left panel: device list ──────────────────────────────────────────
+    // â"€â"€ Left panel: device list â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     ImGui::BeginChild("##DeviceList", { m_scanSplitX, 0.0f }, true);
 
-    ImGui::Text("WinMM (%zu)", m_scanDevices.size());
+    ImGui::Text("HID(% zu)", m_hidDevices.size());
     ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh")) {
-        auto all = PadScanner::scan();
-        m_scanDevices.clear();
-        for (auto& d : all) {
-            if (vVid && d.vid == vVid && d.pid == vPid) continue;
-            const ControllerConfig* dcfg = findConfig(m_controllerConfigs, d.vid, d.pid);
-            if (dcfg && dcfg->mode == "hid") continue;
-            m_scanDevices.push_back(d);
-        }
-        m_lastScanTime = now;
-        if (m_scanSelected >= (int)m_scanDevices.size()) m_scanSelected = -1;
+    if (ImGui::SmallButton(tr("btn.refresh")))
         kickHidScan();
-    }
-    ImGui::Separator();
-
-    if (m_scanDevices.empty()) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("No WinMM devices found.");
-    } else {
-        for (int i = 0; i < (int)m_scanDevices.size(); ++i) {
-            const auto& dev = m_scanDevices[i];
-            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
-            char label[128];
-            if (cfg)
-                snprintf(label, sizeof(label), "[%u] %s", dev.port, cfg->source_name.c_str());
-            else
-                snprintf(label, sizeof(label), "[%u] %ls", dev.port, dev.name);
-
-            bool sel = (m_scanSelected == i);
-            if (ImGui::Selectable(label, sel, 0, { 0, 0 })) {
-                m_scanSelected = i;
-                m_hidSelected  = -1;
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("  VID:%04X PID:%04X  %uax %ubtn",
-                dev.vid, dev.pid, dev.axes, dev.buttons);
-        }
-    }
-
-    // ── HID-only devices ──────────────────────────────────────────────────
-    ImGui::Spacing();
-    ImGui::Text("HID-only (%zu)", m_hidDevices.size());
     ImGui::Separator();
 
     if (m_hidDevices.empty()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("No HID-only devices found.");
+        ImGui::TextDisabled("%s", tr("scanner.no_devices"));
     } else {
         for (int i = 0; i < (int)m_hidDevices.size(); ++i) {
             const auto& dev = m_hidDevices[i];
@@ -511,10 +456,8 @@ void AppWindow::renderScannerTab() {
                 snprintf(label, sizeof(label), "[HID] VID:%04X PID:%04X", dev.vid, dev.pid);
 
             bool sel = (m_hidSelected == i);
-            if (ImGui::Selectable(label, sel, 0, { 0, 0 })) {
-                m_hidSelected  = i;
-                m_scanSelected = -1;
-            }
+            if (ImGui::Selectable(label, sel, 0, { 0, 0 }))
+                m_hidSelected = i;
             ImGui::SameLine();
             ImGui::TextDisabled("  VID:%04X PID:%04X", dev.vid, dev.pid);
         }
@@ -522,7 +465,7 @@ void AppWindow::renderScannerTab() {
 
     ImGui::EndChild();
 
-    // ── Draggable splitter handle ─────────────────────────────────────────
+    // â"€â"€ Draggable splitter handle â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     ImGui::SameLine();
     ImGui::InvisibleButton("##splitter", { splitterW, -1.0f });
     if (ImGui::IsItemHovered())
@@ -532,263 +475,150 @@ void AppWindow::renderScannerTab() {
 
     ImGui::SameLine();
 
-    // ── Right panel: input monitor ───────────────────────────────────────
+    // â"€â"€ Right panel: input monitor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     ImGui::BeginChild("##InputMonitor", { 0.0f, 0.0f }, true);
 
-    // ── HID device live monitor ───────────────────────────────────────────
-    if (m_hidSelected >= 0 && m_hidSelected < (int)m_hidDevices.size()) {
-        const auto& hdev = m_hidDevices[m_hidSelected];
-        const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
-                                                 hdev.connectionType);
-
-        // Header
+    // â"€â"€ HID device live monitor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    if (m_hidSelected < 0 || m_hidSelected >= (int)m_hidDevices.size()) {
+        if (m_scanDevice) { m_scanDevice.reset(); m_scanRawState = {}; m_scanDeviceIdx = -1; }
         ImGui::Spacing();
-        ImGui::Text("%s", hdev.productName.empty() ? "HID Device" : hdev.productName.c_str());
-        ImGui::SameLine();
-        ImGui::TextDisabled("VID:%04X PID:%04X", hdev.vid, hdev.pid);
-        if (cfg)
-            ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "Config: %s", cfg->source_name.c_str());
-        else {
-            ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "No config");
-            ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"", hdev.vid, hdev.pid);
-        }
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Read live state from the engine (avoids competing with it on Bluetooth HID)
-        if (!m_engine.isConnected()) {
-            ImGui::TextDisabled("Engine not running — start the engine to monitor inputs.");
-            ImGui::EndChild();
-            return;
-        }
-
-        m_hidScanState = m_engine.getLastState();
-        // Reconstruct a button mask from the mapped state for the button grid
-        DWORD btns = 0;
-        if (m_hidScanState.btnA)     btns |= (1u << 1);
-        if (m_hidScanState.btnB)     btns |= (1u << 0);
-        if (m_hidScanState.btnX)     btns |= (1u << 4);
-        if (m_hidScanState.btnY)     btns |= (1u << 3);
-        if (m_hidScanState.btnLB)    btns |= (1u << 6);
-        if (m_hidScanState.btnRB)    btns |= (1u << 7);
-        if (m_hidScanState.btnBack)  btns |= (1u << 10);
-        if (m_hidScanState.btnStart) btns |= (1u << 11);
-        if (m_hidScanState.btnHome)  btns |= (1u << 12);
-        if (m_hidScanState.btnL3)    btns |= (1u << 13);
-        if (m_hidScanState.btnR3)    btns |= (1u << 14);
-        if (m_hidScanState.btnLP)    btns |= (1u << 15);
-        if (m_hidScanState.btnRP)    btns |= (1u << 16);
-        if (m_hidScanState.btnL4)    btns |= (1u << 17);
-        if (m_hidScanState.btnR4)    btns |= (1u << 18);
-        const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
-
-        // ── Buttons ──────────────────────────────────────────────────────
-        ImGui::Text("Buttons");
-        ImGui::Separator();
-        ImGui::Spacing();
-        for (int i = 0; i < 19; ++i) {
-            bool pressed = (btns & (1u << i)) != 0;
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f) : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-                pressed ? ImVec4(0.25f, 0.85f, 0.25f, 1.0f) : ImVec4(0.28f, 0.28f, 0.30f, 1.0f));
-            char lbl[4]; snprintf(lbl, sizeof(lbl), "%d", i + 1);
-            ImGui::Button(lbl, { 34.0f, 34.0f });
-            ImGui::PopStyleColor(2);
-            if ((i + 1) % 8 != 0) ImGui::SameLine(0.0f, 4.0f);
-        }
-
-        // ── Sticks ───────────────────────────────────────────────────────
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Text("Sticks");
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        struct { const char* name; float v; } sticks[] = {
-            { "LX", m_hidScanState.leftX  }, { "LY", m_hidScanState.leftY  },
-            { "RX", m_hidScanState.rightX }, { "RY", m_hidScanState.rightY },
-        };
-        for (auto& s : sticks) {
-            float dev_f = fabsf(s.v);
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
-            ImGui::Text("%-2s", s.name);
-            ImGui::SameLine();
-            char ov[12]; snprintf(ov, sizeof(ov), "%+.3f", s.v);
-            ImGui::ProgressBar((s.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
-            ImGui::PopStyleColor();
-        }
-
-        // ── Triggers ─────────────────────────────────────────────────────
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Text("Triggers");
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        struct { const char* name; float v; } triggers[] = {
-            { "L2", m_hidScanState.triggerL },
-            { "R2", m_hidScanState.triggerR },
-        };
-        for (auto& t : triggers) {
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                ImVec4(0.20f + t.v * 0.60f, 0.55f - t.v * 0.20f, 0.15f, 1.0f));
-            ImGui::Text("%-2s", t.name);
-            ImGui::SameLine();
-            char ov[12]; snprintf(ov, sizeof(ov), "%.3f", t.v);
-            ImGui::ProgressBar(t.v, { barW, 18.0f }, ov);
-            ImGui::PopStyleColor();
-        }
-
-        // ── D-pad ─────────────────────────────────────────────────────────
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Text("D-pad");
-        ImGui::Separator();
-        ImGui::Spacing();
-        // Convert booleans to a POV value for the existing compass widget
-        DWORD pov = JOY_POVCENTERED;
-        if      ( m_hidScanState.dpadUp   && !m_hidScanState.dpadRight && !m_hidScanState.dpadLeft)  pov = 0;
-        else if ( m_hidScanState.dpadUp   &&  m_hidScanState.dpadRight)                              pov = 4500;
-        else if (!m_hidScanState.dpadUp   &&  m_hidScanState.dpadRight && !m_hidScanState.dpadDown)  pov = 9000;
-        else if ( m_hidScanState.dpadDown &&  m_hidScanState.dpadRight)                              pov = 13500;
-        else if ( m_hidScanState.dpadDown && !m_hidScanState.dpadRight && !m_hidScanState.dpadLeft)  pov = 18000;
-        else if ( m_hidScanState.dpadDown &&  m_hidScanState.dpadLeft)                               pov = 22500;
-        else if (!m_hidScanState.dpadDown &&  m_hidScanState.dpadLeft  && !m_hidScanState.dpadUp)    pov = 27000;
-        else if ( m_hidScanState.dpadUp   &&  m_hidScanState.dpadLeft)                               pov = 31500;
-        drawPOVCompass(pov);
-
-        // Gyroscope (only shown when the device reports IMU data)
-        if (m_hidScanState.gyroActive) {
-            ImGui::Spacing();
-            ImGui::Spacing();
-            ImGui::Text("Gyroscope");
-            ImGui::Separator();
-            ImGui::Spacing();
-            struct { const char* name; float v; } axes[] = {
-                { "X", m_hidScanState.gyroX },
-                { "Y", m_hidScanState.gyroY },
-                { "Z", m_hidScanState.gyroZ },
-            };
-            for (auto& a : axes) {
-                float dev_f = fabsf(a.v);
-                ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                    ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.60f, 1.0f));
-                ImGui::Text("%-2s", a.name);
-                ImGui::SameLine();
-                char ov[12]; snprintf(ov, sizeof(ov), "%+.4f", a.v);
-                ImGui::ProgressBar((a.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
-                ImGui::PopStyleColor();
-            }
-        }
-
+        ImGui::TextDisabled("%s", tr("scanner.hint"));
         ImGui::EndChild();
         return;
     }
 
-    // ── WinMM device input monitor ────────────────────────────────────────
-    if (m_scanSelected < 0 || m_scanSelected >= (int)m_scanDevices.size()) {
+    const auto& hdev = m_hidDevices[m_hidSelected];
+    const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
+                                             hdev.connectionType);
+
+    // Open/close m_scanDevice when the selection changes
+    if (m_hidSelected != m_scanDeviceIdx) {
+        m_scanDevice.reset();
+        m_scanRawState  = {};
+        m_scanDeviceIdx = m_hidSelected;
+        char nameLabel[64];
+        snprintf(nameLabel, sizeof(nameLabel), "VID:%04X PID:%04X", hdev.vid, hdev.pid);
+        m_scanDevice = std::make_unique<RawHIDReader>(
+            hdev.path,
+            hdev.productName.empty() ? nameLabel : hdev.productName);
+    }
+
+    // Read new data (timeout=0 — non-blocking from the render thread)
+    if (m_scanDevice) {
+        if (!m_scanDevice->isOpen()) {
+            m_scanDevice.reset();
+            m_scanRawState  = {};
+            m_scanDeviceIdx = -1;
+        } else {
+            m_scanDevice->read(m_scanRawState, 0);
+        }
+    }
+
+    // Header
+    ImGui::Spacing();
+    ImGui::Text("%s", hdev.productName.empty() ? tr("scanner.default_name") : hdev.productName.c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("VID: % 04X PID : % 04X", hdev.vid, hdev.pid);
+    if (cfg)
+        ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "Config: %s", cfg->source_name.c_str());
+    else {
+        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "%s", tr("scanner.no_config"));
+        ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"",
+                            hdev.vid, hdev.pid);
+    }
+    if (!m_scanDevice || !m_scanDevice->isOpen()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Select a device on the left to monitor its inputs.");
+        ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", tr("scanner.disconnected"));
         ImGui::EndChild();
         return;
     }
-
-    const auto& dev = m_scanDevices[m_scanSelected];
-    auto raw = PadScanner::readRaw(dev.port);
-
-    if (!raw.valid) {
-        ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "Read failed — device disconnected?");
-        ImGui::EndChild();
-        return;
-    }
-
-    // ── Buttons ──────────────────────────────────────────────────────────
-    ImGui::Text("Buttons (%u)", dev.buttons);
+    ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    const UINT maxButtons = (dev.buttons < 32) ? dev.buttons : 32;
-    const int  buttonsPerRow = 8;
+    const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
 
-    for (UINT i = 0; i < maxButtons; ++i) {
-        bool pressed = (raw.buttons & (1u << i)) != 0;
-
+    // Buttons — raw HID button numbers 1-32
+    ImGui::Text("%s", tr("scanner.buttons"));
+    ImGui::Separator();
+    ImGui::Spacing();
+    for (int i = 0; i < 32; ++i) {
+        bool pressed = (m_scanRawState.buttonMask & (1u << i)) != 0;
         ImGui::PushStyleColor(ImGuiCol_Button,
-            pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f)
-                    : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
+            pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f) : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-            pressed ? ImVec4(0.25f, 0.85f, 0.25f, 1.0f)
-                    : ImVec4(0.28f, 0.28f, 0.30f, 1.0f));
-
-        char label[6];
-        snprintf(label, sizeof(label), "%u", i + 1);
-        ImGui::Button(label, { 34.0f, 34.0f });
+            pressed ? ImVec4(0.25f, 0.85f, 0.25f, 1.0f) : ImVec4(0.28f, 0.28f, 0.30f, 1.0f));
+        char lbl[4]; snprintf(lbl, sizeof(lbl), "%d", i + 1);
+        ImGui::Button(lbl, { 34.0f, 34.0f });
         ImGui::PopStyleColor(2);
-
-        if ((i + 1) % buttonsPerRow != 0 && i + 1 < maxButtons)
-            ImGui::SameLine(0.0f, 4.0f);
+        if ((i + 1) % 16 != 0) ImGui::SameLine(0.0f, 4.0f);
     }
 
+    // Axes — raw HID axis values [-1, 1]
     ImGui::Spacing();
     ImGui::Spacing();
-
-    // ── Axes ─────────────────────────────────────────────────────────────
-    ImGui::Text("Axes (%u)", dev.axes);
+    ImGui::Text("%s", tr("scanner.axes"));
     ImGui::Separator();
     ImGui::Spacing();
-
-    struct { const char* name; DWORD value; } axes[] = {
-        { "X", raw.xpos }, { "Y", raw.ypos }, { "Z", raw.zpos },
-        { "R", raw.rpos }, { "U", raw.upos }, { "V", raw.vpos },
+    struct { const char* name; float v; } axes[] = {
+        { "X",     m_scanRawState.axisX     },
+        { "Y",     m_scanRawState.axisY     },
+        { "Z",     m_scanRawState.axisZ     },
+        { "Rx",    m_scanRawState.axisRx    },
+        { "Ry",    m_scanRawState.axisRy    },
+        { "Rz",    m_scanRawState.axisRz    },
+        { "Brake", m_scanRawState.axisBrake },
+        { "Accel", m_scanRawState.axisAccel },
     };
-
-    const UINT numAxes = (dev.axes < 6) ? dev.axes : 6;
-    const float barWidth = ImGui::GetContentRegionAvail().x - 40.0f;
-
-    for (UINT i = 0; i < numAxes; ++i) {
-        float v   = normalizeAxis(axes[i].value);
-        float bar = (v + 1.0f) * 0.5f;  // remap [-1,1] → [0,1] for ProgressBar
-
-        // Colour: neutral grey at center, shifts toward orange as it deviates
-        float dev_f = fabsf(v);
+    for (auto& a : axes) {
+        float dev_f = fabsf(a.v);
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
             ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
-
-        ImGui::Text("%-2s", axes[i].name);
+        ImGui::Text("%-5s", a.name);
         ImGui::SameLine();
-
-        char overlay[12];
-        snprintf(overlay, sizeof(overlay), "%+.3f", v);
-        ImGui::ProgressBar(bar, { barWidth, 18.0f }, overlay);
+        char ov[12]; snprintf(ov, sizeof(ov), "%+.3f", a.v);
+        ImGui::ProgressBar((a.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
         ImGui::PopStyleColor();
     }
 
-    ImGui::Spacing();
-    ImGui::Spacing();
+    // Gyro (raw bytes offset 13 — DS4 USB only; other controllers may show noise)
+    if (m_scanRawState.gyroRawValid) {
+        ImGui::Spacing();
+        ImGui::Spacing();
+        ImGui::Text("Gyro (IMU)");
+        ImGui::Separator();
+        ImGui::Spacing();
+        struct { const char* name; float v; } gyros[] = {
+            { "Gx", m_scanRawState.gyroRawX },
+            { "Gy", m_scanRawState.gyroRawY },
+            { "Gz", m_scanRawState.gyroRawZ },
+        };
+        for (auto& g : gyros) {
+            float dev_f = fabsf(g.v);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
+                ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
+            ImGui::Text("%-5s", g.name);
+            ImGui::SameLine();
+            char ov[12]; snprintf(ov, sizeof(ov), "%+.3f", g.v);
+            ImGui::ProgressBar((g.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
+            ImGui::PopStyleColor();
+        }
+    }
 
-    // ── POV ──────────────────────────────────────────────────────────────
-    ImGui::Text("POV");
+    // Hat switch — raw hat value → compass widget
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::Text("%s", tr("scanner.hat"));
     ImGui::Separator();
     ImGui::Spacing();
-
-    drawPOVCompass(raw.pov);
-    ImGui::SameLine(0.0f, 16.0f);
-
-    // Text annotation next to the compass
-    ImGui::BeginGroup();
-    ImGui::Spacing();
-    if (raw.pov == JOY_POVCENTERED) {
-        ImGui::TextDisabled("Center");
-    } else {
-        ImGui::Text("%s  (%u°)", povDirection(raw.pov), raw.pov / 100);
-    }
-    ImGui::EndGroup();
+    DWORD pov = JOY_POVCENTERED;
+    if (m_scanRawState.hat < 8)
+        pov = m_scanRawState.hat * 4500;
+    drawPOVCompass(pov);
 
     ImGui::EndChild();
 }
+
 
 // ---------------------------------------------------------------------------
 // Window / D3D11 initialisation
@@ -880,35 +710,34 @@ void AppWindow::renderPadsTab() {
         }
     }
 
-    if (ImGui::BeginTabBar("##PadsSubTabs")) {
+    {
+      if (!m_mappingEditor.isActive()) {
+        ImGui::Spacing();
 
-        if (ImGui::BeginTabItem("Ver")) {
-            ImGui::Spacing();
+        ImGui::BeginGroup();
+        m_padView.render(m_engine.getLastState());
+        ImGui::EndGroup();
 
-            ImGui::BeginGroup();
-            m_padView.render(m_engine.getLastState());
-            ImGui::EndGroup();
+        ImGui::SameLine(0.0f, 10.0f);
+        ImGui::BeginGroup();
+        {
+            if (!m_arrowRightTex.valid())
+                PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
+            const auto& L = m_padView.getLayout();
+            constexpr float kArrowSize = 40.0f;
+            float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
+            if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
+            if (m_arrowRightTex.valid())
+                ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
+        }
+        ImGui::EndGroup();
+        ImGui::SameLine(0.0f, 10.0f);
 
-            ImGui::SameLine(0.0f, 10.0f);
-            ImGui::BeginGroup();
-            {
-                if (!m_arrowRightTex.valid())
-                    PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
-                const auto& L = m_padView.getLayout();
-                constexpr float kArrowSize = 40.0f;
-                float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
-                if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
-                if (m_arrowRightTex.valid())
-                    ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
-            }
-            ImGui::EndGroup();
-            ImGui::SameLine(0.0f, 10.0f);
+        ImGui::BeginGroup();
+        m_virtualPadView.render(m_engine.getLastVirtualState());
+        ImGui::EndGroup();
 
-            ImGui::BeginGroup();
-            m_virtualPadView.render(m_engine.getLastVirtualState());
-            ImGui::EndGroup();
-
-            // ── Marquee ───────────────────────────────────────────────────────────────
+            // â"€â"€ Marquee â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
     for (const auto& ev : m_engine.pollEvents()) {
         MarqueeEntry entry;
@@ -934,7 +763,7 @@ void AppWindow::renderPadsTab() {
         if (m_marqueeLines.size() > 4) m_marqueeLines.pop_front();
     }
 
-    // 3. Render — always 4 slots so the area height is constant from the first entry
+    // 3. Render â€" always 4 slots so the area height is constant from the first entry
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -959,272 +788,33 @@ void AppWindow::renderPadsTab() {
                 case MarqueeEntryType::Mouse:    col = kColMouse;    break;
                 default:                         col = kColMacro;    break;
             }
-            // Fade: slot 0 (oldest) = 0.25 alpha, slot 3 (newest) = 1.0 — fixed scale of 4
+            // Fade: slot 0 (oldest) = 0.25 alpha, slot 3 (newest) = 1.0 â€" fixed scale of 4
             col.w = 0.25f + 0.75f * ((float)(slot + 1) / 4.0f);
             ImGui::TextColored(col, "%s", entry.text.c_str());
         } else {
-            // Empty slot — reserve the line height so the layout doesn't jump
+            // Empty slot â€" reserve the line height so the layout doesn't jump
             ImGui::Dummy({ 1.0f, ImGui::GetTextLineHeight() });
         }
     }
 
-            ImGui::EndTabItem(); // Ver
+        // â"€â"€ BotÃ³n Mapear â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            m_mappingEditor.activate();
         }
-
-        if (ImGui::BeginTabItem("Mapear")) {
-            renderMappingSubtab();
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar(); // ##PadsSubTabs
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Mapping subtab — helpers
-// ---------------------------------------------------------------------------
-
-// Tabla de traducción: nombre corto de controllers.json ↔ nombre de campo en GamepadState/layout
-static const std::pair<const char*, const char*> kBtnNames[] = {
-    {"a",         "btnA"},    {"b",         "btnB"},
-    {"x",         "btnX"},    {"y",         "btnY"},
-    {"l1",        "btnLB"},   {"r1",        "btnRB"},
-    {"select",    "btnBack"}, {"start",     "btnStart"},
-    {"home",      "btnHome"}, {"l3",        "btnL3"},
-    {"r3",        "btnR3"},   {"l4",        "btnL4"},
-    {"r4",        "btnR4"},   {"lp",        "btnLP"},
-    {"rp",        "btnRP"},   {"touch_btn", "btnTouch"},
-};
-static std::string shortToState(const std::string& s) {
-    for (auto& [k, v] : kBtnNames) if (k == s) return v;
-    return s;
-}
-static std::string stateToShort(const std::string& s) {
-    for (auto& [k, v] : kBtnNames) if (v == s) return k;
-    return s;
-}
-static int findCompByState(const PadLayout& layout, const std::string& stateName) {
-    for (int i = 0; i < (int)layout.components.size(); ++i)
-        if (layout.components[i].state == stateName) return i;
-    return -1;
-}
-static void activateState(GamepadState& s, const std::string& name) {
-    if      (name == "btnA")      s.btnA      = true;
-    else if (name == "btnB")      s.btnB      = true;
-    else if (name == "btnX")      s.btnX      = true;
-    else if (name == "btnY")      s.btnY      = true;
-    else if (name == "btnLB")     s.btnLB     = true;
-    else if (name == "btnRB")     s.btnRB     = true;
-    else if (name == "btnL3")     s.btnL3     = true;
-    else if (name == "btnR3")     s.btnR3     = true;
-    else if (name == "btnBack")   s.btnBack   = true;
-    else if (name == "btnStart")  s.btnStart  = true;
-    else if (name == "btnHome")   s.btnHome   = true;
-    else if (name == "btnTouch")  s.btnTouch  = true;
-    else if (name == "btnL4")     s.btnL4     = true;
-    else if (name == "btnR4")     s.btnR4     = true;
-    else if (name == "btnLP")     s.btnLP     = true;
-    else if (name == "btnRP")     s.btnRP     = true;
-    else if (name == "triggerL")  s.triggerL  = 1.0f;
-    else if (name == "triggerR")  s.triggerR  = 1.0f;
-    else if (name == "dpadUp")    s.dpadUp    = true;
-    else if (name == "dpadDown")  s.dpadDown  = true;
-    else if (name == "dpadLeft")  s.dpadLeft  = true;
-    else if (name == "dpadRight") s.dpadRight = true;
-}
-
-// ---------------------------------------------------------------------------
-// Mapping subtab
-// ---------------------------------------------------------------------------
-
-void AppWindow::renderMappingSubtab() {
-    // ── Pre-populate edits cuando cambia el mando activo ─────────────────────
-    DeviceCandidate dev = m_engine.getActiveDevice();
-    if (dev.vid != m_mappingActiveVid || dev.pid != m_mappingActivePid) {
-        m_mappingActiveVid   = dev.vid;
-        m_mappingActivePid   = dev.pid;
-        m_mappingSelPhysComp = -1;
-        m_mappingEdits.clear();
-        for (const auto& cfg : m_controllerConfigs) {
-            if (cfg.vid == dev.vid && cfg.pid == dev.pid) {
-                for (const auto& [idx, action] : cfg.buttons) {
-                    if (action.type == ButtonActionType::VirtualButton &&
-                        !action.physical.empty() && !action.name.empty() &&
-                        action.physical != action.name)
-                        m_mappingEdits[action.physical] = action.name;
-                }
-                break;
-            }
-        }
+      } // !m_mappingEditor.isActive()
     }
 
-    ImGui::Spacing();
-    ImVec2 mouse       = ImGui::GetIO().MousePos;
-    bool   mouseClicked = ImGui::IsMouseClicked(0);
-
-    // ── Construir estados de display ──────────────────────────────────────────
-    m_mappingFlashTimer -= ImGui::GetIO().DeltaTime;
-    if (m_mappingFlashTimer <= 0.0f) m_mappingFlashComp = -1;
-
-    GamepadState physDisplay{};
-    GamepadState virtDisplay{};
-    if (m_mappingSelPhysComp >= 0) {
-        const auto& physComps = m_padView.getLayout().components;
-        if (m_mappingSelPhysComp < (int)physComps.size()) {
-            const std::string& physState = physComps[m_mappingSelPhysComp].state;
-            activateState(physDisplay, physState);
-            std::string physShort = stateToShort(physState);
-            auto it = m_mappingEdits.find(physShort);
-            std::string virtShort = (it != m_mappingEdits.end()) ? it->second : physShort;
-            activateState(virtDisplay, shortToState(virtShort));
+    if (m_mappingEditor.isActive()) {
+        m_mappingEditor.render(m_padView, m_virtualPadView);
+        if (m_mappingEditor.pollConfigsSaved()) {
+            m_controllerConfigs = loadControllerConfigs("data/controllers.json");
+            m_mappingEditor.setConfigs(m_controllerConfigs);
         }
     }
-    // Flash de confirmación: ilumina el botón virtual recién asignado
-    if (m_mappingFlashComp >= 0) {
-        const auto& virtComps = m_virtualPadView.getLayout().components;
-        if (m_mappingFlashComp < (int)virtComps.size())
-            activateState(virtDisplay, virtComps[m_mappingFlashComp].state);
-    }
-
-    // ── Pad físico ────────────────────────────────────────────────────────────
-    ImGui::BeginGroup();
-    m_mappingPhysOrigin = ImGui::GetCursorScreenPos();
-    m_padView.render(physDisplay);
-    ImGui::Spacing();
-    ImGui::SetWindowFontScale(1.35f);
-    ImGui::TextDisabled("Físico");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::EndGroup();
-
-    ImGui::SameLine(0.0f, 10.0f);
-    ImGui::BeginGroup();
-    {
-        if (!m_arrowRightTex.valid())
-            PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRightTex);
-        const auto& L = m_padView.getLayout();
-        constexpr float kArrowSize = 40.0f;
-        float push = (L.FrontH + L.TopH) * 0.5f - kArrowSize * 0.5f;
-        if (push > 0.0f) ImGui::Dummy({ 0.0f, push });
-        if (m_arrowRightTex.valid())
-            ImGui::Image((ImTextureID)m_arrowRightTex.srv, { kArrowSize, kArrowSize });
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(0.0f, 10.0f);
-
-    ImGui::BeginGroup();
-    m_mappingVirtOrigin = ImGui::GetCursorScreenPos();
-    m_virtualPadView.render(virtDisplay);
-    ImGui::Spacing();
-    ImGui::SetWindowFontScale(1.35f);
-    ImGui::TextDisabled("Virtual (Xbox One)");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::EndGroup();
-
-    // ── Gestión de clicks ─────────────────────────────────────────────────────
-    if (mouseClicked) {
-        int physHit = m_padView.hitTest(mouse, m_mappingPhysOrigin);
-        if (physHit >= 0 && m_padView.getLayout().components[physHit].type == "button") {
-            m_mappingSelPhysComp = (physHit == m_mappingSelPhysComp) ? -1 : physHit;
-        } else if (m_mappingSelPhysComp >= 0) {
-            int virtHit = m_virtualPadView.hitTest(mouse, m_mappingVirtOrigin);
-            if (virtHit >= 0 && m_virtualPadView.getLayout().components[virtHit].type == "button") {
-                const auto& physComps = m_padView.getLayout().components;
-                std::string physShort = stateToShort(physComps[m_mappingSelPhysComp].state);
-                std::string virtShort = stateToShort(m_virtualPadView.getLayout().components[virtHit].state);
-                if (!physShort.empty() && !virtShort.empty()) {
-                    // Si el virtual pulsado ya es el asignado → desasignar; si no → asignar
-                    auto it = m_mappingEdits.find(physShort);
-                    bool alreadyAssigned = (it != m_mappingEdits.end() && it->second == virtShort);
-                    m_mappingEdits[physShort] = alreadyAssigned ? "" : virtShort;
-                    m_mappingFlashComp  = alreadyAssigned ? -1 : virtHit;
-                    m_mappingFlashTimer = alreadyAssigned ?  0.0f : 0.5f;
-                }
-                m_mappingSelPhysComp = -1;
-            }
-        }
-    }
-
-    // ── Guardar ───────────────────────────────────────────────────────────────
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-    if (ImGui::Button("Guardar mapping##mapSave", { 160.0f, 0.0f }))
-        saveMappingEdits();
-}
-
-// ---------------------------------------------------------------------------
-// saveMappingEdits — escribe m_mappingEdits en controllers.json
-// ---------------------------------------------------------------------------
-
-void AppWindow::saveMappingEdits() {
-    try {
-        const std::string path = "data/controllers.json";
-        json root;
-        {
-            std::ifstream f(path);
-            if (f.is_open()) root = json::parse(f);
-        }
-        if (!root.contains("controllers") || !root["controllers"].is_array()) return;
-
-        char vidStr[8], pidStr[8];
-        snprintf(vidStr, sizeof(vidStr), "%04X", m_mappingActiveVid);
-        snprintf(pidStr, sizeof(pidStr), "%04X", m_mappingActivePid);
-
-        for (auto& ctrl : root["controllers"]) {
-            if (ctrl.value("vid","") != std::string(vidStr) ||
-                ctrl.value("pid","") != std::string(pidStr)) continue;
-            if (!ctrl.contains("buttons")) continue;
-
-            // Recoger cambios primero para no modificar mientras iteramos
-            std::vector<std::pair<std::string, json>> changes;
-            for (auto& [key, btn] : ctrl["buttons"].items()) {
-                std::string physShort;
-                if (btn.is_string())
-                    physShort = btn.get<std::string>();
-                else if (btn.is_object() && btn.contains("physical"))
-                    physShort = btn["physical"].get<std::string>();
-                else continue;
-
-                auto it = m_mappingEdits.find(physShort);
-                if (it == m_mappingEdits.end()) continue;
-
-                json newBtn;
-                if (btn.is_object()) {
-                    newBtn = btn;
-                    if (it->second.empty())
-                        newBtn.erase("virtual");
-                    else
-                        newBtn["virtual"] = it->second;
-                } else {
-                    newBtn["physical"] = physShort;
-                    if (!it->second.empty())
-                        newBtn["virtual"] = it->second;
-                }
-                changes.push_back({ key, std::move(newBtn) });
-            }
-            for (auto& [key, val] : changes)
-                ctrl["buttons"][key] = val;
-
-            break;
-        }
-
-        // Validar antes de escribir
-        std::string dumped = root.dump(2);
-        json::parse(dumped);  // lanza si el JSON generado es inválido
-
-        // Escribir a fichero temporal y hacer rename atómico
-        std::string tmpPath = path + ".tmp";
-        {
-            std::ofstream tmp(tmpPath);
-            if (!tmp.is_open()) return;
-            tmp << dumped;
-        }  // destructor flushes + close
-
-        MoveFileExA(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
-
-        m_controllerConfigs = loadControllerConfigs(path);
-        m_engine.reloadConfigs();
-    } catch (const std::exception&) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -1236,7 +826,7 @@ void AppWindow::renderLayoutTab() {
 
     if (m_layoutsFromBackup) {
         ImGui::TextColored({ 1.0f, 0.7f, 0.1f, 1.0f },
-            "AVISO: pad_layouts.json fallo al cargar. Usando copia de seguridad (.bak).");
+            "%s", tr("layout.backup_warning"));
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
@@ -1247,6 +837,7 @@ void AppWindow::renderLayoutTab() {
     if (m_layoutEditor.pollControllersSaved()) {
         m_controllerConfigs = loadControllerConfigs("data/controllers.json");
         m_engine.reloadConfigs();
+        m_forceLayoutReload = true;
     }
 
     if (m_layoutEditor.pollLayoutSaved()) {
@@ -1258,6 +849,7 @@ void AppWindow::renderLayoutTab() {
 // ---------------------------------------------------------------------------
 
 void AppWindow::cleanup() {
+    m_mappingEditor.unload();
     m_layoutEditor.unload();
     m_virtualPadView.unload();
     m_padView.unload();

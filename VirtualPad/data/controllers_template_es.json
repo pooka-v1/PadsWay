@@ -1,0 +1,87 @@
+{
+  "_doc": "Template vacío de controllers.json. Cada entrada en 'controllers' es un mando físico.",
+  "controllers": [
+    {
+      "vid": "XXXX",
+      "pid": "YYYY",
+      "source_name": "Nombre del mando",
+      "mode": "hid",
+      "layout_id": "8BitDo-Pro3",
+
+      "axes": {
+        "hid_x":     { "invert": false, "target": "left_x"   },
+        "hid_y":     { "invert": true,  "target": "left_y"   },
+        "hid_z":     { "invert": false, "target": "right_x"  },
+        "hid_rz":    { "invert": true,  "target": "right_y"  },
+        "hid_accel": { "invert": false, "target": "trigger_l" },
+        "hid_brake": { "invert": false, "target": "trigger_r" }
+      },
+
+      "buttons": {
+        "1": { "physical": "a",      "virtual": "a"      },
+        "2": { "physical": "b",      "virtual": "b"      },
+        "3": { "physical": "x",      "virtual": "x"      },
+        "4": { "physical": "y",      "virtual": "y"      },
+        "5": { "physical": "l1",     "virtual": "l1"     },
+        "6": { "physical": "r1",     "virtual": "r1"     },
+        "7": { "physical": "l3",     "virtual": "l3"     },
+        "8": { "physical": "r3",     "virtual": "r3"     },
+        "9": { "physical": "select", "virtual": "select" },
+        "10":{ "physical": "start",  "virtual": "start"  },
+        "11":{ "physical": "home",   "virtual": "home"   },
+
+        "_remap_examples": {
+          "_btn_to_btn":     { "physical": "a", "virtual": "b"          },
+          "_btn_to_dpad":    { "physical": "a", "virtual": "dpad_up"    },
+          "_btn_to_trigger": { "physical": "a", "virtual": "trigger_l"  },
+          "_btn_to_stick":   { "physical": "a", "virtual": "right_x_pos"},
+          "_btn_to_kb":      { "physical": "a", "action": { "type": "keyboard", "keys": ["ctrl","c"] } },
+          "_btn_to_macro":   { "physical": "a", "action": { "type": "macro", "name": "mi_macro" } },
+          "_btn_to_mouse":   { "physical": "a", "action": { "type": "mouse_click", "button": "left" } }
+        }
+      },
+
+      "dpad": "hid_hat",
+
+      "_dpad_remap_example": {
+        "_doc": "Redirige una dirección de dpad a otra salida",
+        "dpad_remap": {
+          "up":    "left_y_pos",
+          "down":  "left_y_neg",
+          "left":  "left_x_neg",
+          "right": "left_x_pos"
+        }
+      },
+
+      "trigger_actions": {
+        "_doc": "Acciones para L2/R2 físicos. Sin 'trigger_actions' → los gatillos usan axes normalmente.",
+        "l2": { "type": "trigger_passthrough", "target": "l2" },
+        "r2": { "type": "trigger_passthrough", "target": "r2" },
+
+        "_l2_remap_examples": {
+          "_to_button":    { "virtual": "a"         },
+          "_to_dpad":      { "virtual": "dpad_up"   },
+          "_to_trigger":   { "virtual": "trigger_r" },
+          "_to_stick":     { "virtual": "left_y_pos"},
+          "_to_ranges": {
+            "ranges": [
+              { "from": 0.0, "to": 0.5,  "action": { "virtual": "a" } },
+              { "from": 0.5, "to": 1.0,  "action": { "virtual": "b" } }
+            ]
+          },
+          "_range_note": "Dentro de rangos: trigger/analog como target se comporta binario (0 o 1, sin valores intermedios)"
+        }
+      },
+
+      "_stick_slots_example": {
+        "_doc": "H6: asignar fuente física a semieje de stick virtual. Cuando existe un slot, el motor ignora 'axes' para ese eje.",
+        "stick_slots": {
+          "left_x_pos": { "source": "button_b",  "type": "digital" },
+          "left_x_neg": { "source": "button_a",  "type": "digital" },
+          "left_y_pos": { "source": "hid_accel", "type": "analog"  },
+          "left_y_neg": { "source": "hid_brake", "type": "analog"  }
+        }
+      }
+    }
+  ]
+}

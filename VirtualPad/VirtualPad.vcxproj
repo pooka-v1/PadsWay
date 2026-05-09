@@ -139,8 +139,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="config\ConfigLoader.cpp" />
-    <ClCompile Include="input\EightBitDoInputSource.cpp" />
+    <ClCompile Include="config\Strings.cpp" />
+    <ClCompile Include="input\ComponentTypes.cpp" />
     <ClCompile Include="input\HIDScanner.cpp" />
+    <ClCompile Include="input\HIDDevice.cpp" />
     <ClCompile Include="input\HIDInputSource.cpp" />
     <ClCompile Include="bots\LightningBot.cpp" />
     <ClCompile Include="input\RawHIDReader.cpp" />
@@ -149,9 +151,12 @@
     <ClCompile Include="output\ViGEmOutputAdapter.cpp" />
     <ClCompile Include="output\HidHideClient.cpp" />
     <ClCompile Include="PadEngine.cpp" />
-    <ClCompile Include="PadScanner.cpp" />
     <ClCompile Include="AppWindow.cpp" />
+    <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
+    <ClCompile Include="ui\MappingEditor.cpp" />
+    <ClCompile Include="ui\MappingModel.cpp" />
+    <ClCompile Include="ui\TriggerRangeModal.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -164,11 +169,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="config\ConfigLoader.h" />
+    <ClInclude Include="config\Strings.h" />
     <ClInclude Include="input\ControllerConfig.h" />
     <ClInclude Include="GamepadState.h" />
     <ClInclude Include="input\IInputSource.h" />
-    <ClInclude Include="input\EightBitDoInputSource.h" />
     <ClInclude Include="input\HIDScanner.h" />
+    <ClInclude Include="input\HIDDevice.h" />
     <ClInclude Include="input\HIDInputSource.h" />
     <ClInclude Include="bots\LightningBot.h" />
     <ClInclude Include="input\RawHIDReader.h" />
@@ -178,7 +184,6 @@
     <ClInclude Include="Log.h" />
     <ClInclude Include="output\HidHideClient.h" />
     <ClInclude Include="PadEngine.h" />
-    <ClInclude Include="PadScanner.h" />
     <ClInclude Include="AppWindow.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />

@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 #include <windows.h>
-#include "PadScanner.h"
 #include "GamepadState.h"
 #include "input/ControllerConfig.h"
 #include "output/HidHideClient.h"
@@ -24,20 +23,14 @@ struct PadEvent {
 };
 
 // ---------------------------------------------------------------------------
-// Unified description of a physical input device, regardless of API.
-// Built during the scan phase; used to create the right IInputSource.
+// Unified description of a physical HID input device.
+// Built during the scan phase; used to create an HIDInputSource.
 struct DeviceCandidate {
-    enum class Source { WinMM, HID };
-
-    Source      source         = Source::WinMM;
-    UINT        port           = UINT_MAX;   // WinMM only
-    std::string hidPath;                     // HID only
+    std::string hidPath;
     WORD        vid            = 0;
     WORD        pid            = 0;
     std::string name;
-    std::string connectionType;              // "usb" / "bt" / "" (WinMM)
-    UINT        axes           = 0;
-    UINT        buttons        = 0;
+    std::string connectionType;  // "usb" / "bt" / ""
 };
 
 enum class EnginePhase {

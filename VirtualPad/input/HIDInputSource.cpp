@@ -1,14 +1,12 @@
 #include "HIDInputSource.h"
 #include "../GamepadState.h"
 #include "../Log.h"
+#include "StickSlotsHelper.h"
 #include <hidsdi.h>
 #include <algorithm>
 #include <vector>
 
-#pragma comment(lib, "hid.lib")
-
-// Convenience cast — m_preparsed is stored as void* to keep hidsdi.h out of the header.
-#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_preparsed))
+#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_hid.preparsed()))
 
 // HID Generic Desktop axis usage IDs
 static constexpr USHORT kUsageX   = 0x30;
@@ -36,215 +34,188 @@ HIDInputSource::AxisUsage HIDInputSource::usageFromAxisName(const std::string& n
 // ---------------------------------------------------------------------------
 
 HIDInputSource::HIDInputSource(const std::string& devicePath, const ControllerConfig& config)
-    : m_config(config), m_name(config.source_name)
+    : m_hid(devicePath, config.source_name), m_config(config), m_name(config.source_name)
 {
-    m_device = CreateFileA(devicePath.c_str(),
-        GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-        nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
-
-    if (m_device == INVALID_HANDLE_VALUE) {
-        spdlog::error("[HID] Failed to open device (error {})", GetLastError());
-        return;
-    }
-
-    m_event = CreateEvent(nullptr, TRUE, FALSE, nullptr);
-    if (!m_event) {
-        CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE;
-        return;
-    }
-
-    // Get preparsed data and store as void* (hidsdi.h stays out of the header)
-    PHIDP_PREPARSED_DATA preparsed = nullptr;
-    if (!HidD_GetPreparsedData(m_device, &preparsed)) {
-        spdlog::error("[HID] Failed to get preparsed data");
-        CloseHandle(m_event);  m_event  = nullptr;
-        CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE;
-        return;
-    }
-    m_preparsed = preparsed;
-
-    HIDP_CAPS caps = {};
-    if (HidP_GetCaps(PREPARSED, &caps) != HIDP_STATUS_SUCCESS) {
-        HidD_FreePreparsedData(PREPARSED); m_preparsed = nullptr;
-        CloseHandle(m_event);  m_event  = nullptr;
-        CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE;
-        return;
-    }
-
-    m_inputReportLen = caps.InputReportByteLength;
-    m_reportBuf.resize(m_inputReportLen, 0);
-
-    // Cache logical min/max for all value caps so we can normalise axes.
-    // Some devices (e.g. 8BitDo Pro 3 D-mode) declare generic axes as a range cap
-    // (IsRange=true, UsageMin=0x30..UsageMax=0x35) instead of individual caps.
-    // We expand range caps so every usage in the range gets an entry.
-    //
-    // Collision rule: when the same usage number appears on multiple pages (e.g. DS4 BT
-    // exposes usage 0x30 on both page 0x01 and vendor page 0xFF00), prefer the standard
-    // page (< 0xFF00) over vendor-specific pages.  Without this, the vendor entry can
-    // overwrite the standard one and cause HIDP_STATUS_INCOMPATIBLE_REPORT_ID on reads.
-    std::vector<HIDP_VALUE_CAPS> valueCaps(caps.NumberInputValueCaps);
-    USHORT numCaps = caps.NumberInputValueCaps;
-    HidP_GetValueCaps(HidP_Input, valueCaps.data(), &numCaps, PREPARSED);
-
-    auto insertCap = [&](USHORT u, USHORT page, const ValueRange& vr) {
-        auto it = m_usagePage.find(u);
-        if (it == m_usagePage.end()) {
-            m_valueCaps.emplace(u, vr);
-            m_usagePage.emplace(u, page);
-        } else {
-            // Collision: same usage on multiple pages — prefer standard over vendor-specific.
-            bool existingIsStandard = (it->second < 0xFF00);
-            bool newIsStandard      = (page       < 0xFF00);
-            if (newIsStandard && !existingIsStandard) {
-                m_valueCaps[u] = vr;
-                m_usagePage[u] = page;
-            }
-            // else keep existing (existing standard beats new vendor; or keep first of same class)
-        }
-    };
-
-    for (USHORT ci = 0; ci < numCaps; ++ci) {
-        ValueRange vr = { valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax, valueCaps[ci].BitSize };
-        USHORT     page = valueCaps[ci].UsagePage;
-        if (valueCaps[ci].IsRange) {
-            for (USHORT u = valueCaps[ci].Range.UsageMin; u <= valueCaps[ci].Range.UsageMax; ++u)
-                insertCap(u, page, vr);
-        } else {
-            insertCap(valueCaps[ci].NotRange.Usage, page, vr);
-        }
-    }
-
-    // Find report ID used for buttons (may differ from the report ID the device sends)
-    USHORT numBtnCaps = caps.NumberInputButtonCaps;
-    spdlog::info("[HID] Opened: {}  ReportLen={}  ValueCaps={}  BtnCaps={}",
-        m_name, m_inputReportLen, numCaps, numBtnCaps);
-    if (numBtnCaps > 0) {
-        std::vector<HIDP_BUTTON_CAPS> btnCaps(numBtnCaps);
-        if (HidP_GetButtonCaps(HidP_Input, btnCaps.data(), &numBtnCaps, PREPARSED) == HIDP_STATUS_SUCCESS && numBtnCaps > 0) {
-            m_buttonReportId = btnCaps[0].ReportID;
-            spdlog::debug("[HID] Button ReportID in descriptor: {}", m_buttonReportId);
-        }
-    }
-    // Log all value caps for diagnosis (both range and individual)
-    for (USHORT ci = 0; ci < numCaps; ++ci) {
-        if (valueCaps[ci].IsRange)
-            spdlog::debug("[HID] ValCap(range): ReportID={} Page=0x{:02X} Usage=0x{:02X}..0x{:02X} range=[{},{}]",
-                valueCaps[ci].ReportID, valueCaps[ci].UsagePage,
-                valueCaps[ci].Range.UsageMin, valueCaps[ci].Range.UsageMax,
-                valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax);
-        else
-            spdlog::debug("[HID] ValCap: ReportID={} Page=0x{:02X} Usage=0x{:02X} range=[{},{}]",
-                valueCaps[ci].ReportID, valueCaps[ci].UsagePage,
-                valueCaps[ci].NotRange.Usage,
-                valueCaps[ci].LogicalMin, valueCaps[ci].LogicalMax);
-    }
-
-    m_connected = true;
 }
 
 HIDInputSource::~HIDInputSource() {
-    if (m_preparsed)                        HidD_FreePreparsedData(PREPARSED);
-    if (m_event)                          { CloseHandle(m_event);  m_event  = nullptr; }
-    if (m_device != INVALID_HANDLE_VALUE) { CloseHandle(m_device); m_device = INVALID_HANDLE_VALUE; }
 }
 
 // ---------------------------------------------------------------------------
 
 bool HIDInputSource::isConnected() const {
-    return m_connected;
+    return m_hid.isConnected();
 }
 
 bool HIDInputSource::read(GamepadState& state) {
-    if (!m_connected || m_device == INVALID_HANDLE_VALUE) return false;
-
-    ResetEvent(m_event);
-    OVERLAPPED ov = {};
-    ov.hEvent = m_event;
-
-    DWORD bytesRead = 0;
-    BOOL  readOk    = ReadFile(m_device, m_reportBuf.data(), m_inputReportLen, &bytesRead, &ov);
-
-    if (!readOk) {
-        DWORD err = GetLastError();
-        if (err != ERROR_IO_PENDING) {
-            m_connected = false;
-            return false;
-        }
-        DWORD wait = WaitForSingleObject(m_event, 20);
-        if (wait != WAIT_OBJECT_0) {
-            // Timeout — no new data, keep last state (but clear per-frame deltas)
-            CancelIo(m_device);
-            WaitForSingleObject(m_event, INFINITE); // drain the cancelled I/O
-            state.touchDeltaX = 0.0f;
-            state.touchDeltaY = 0.0f;
-            if (++m_readCount % 240 == 0) {
-                spdlog::debug("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X} (no report)",
-                       m_name,
-                       state.leftX, state.leftY, state.rightX, state.rightY,
-                       state.triggerL, state.triggerR, m_lastButtonMask);
-            }
-            return true;
-        }
-        if (!GetOverlappedResult(m_device, &ov, &bytesRead, FALSE)) {
-            m_connected = false;
-            return false;
-        }
+    auto result = m_hid.read(20);
+    if (result == HIDDevice::ReadResult::Disconnected) return false;
+    if (result == HIDDevice::ReadResult::Timeout) {
+        state.touchDeltaX = 0.0f;
+        state.touchDeltaY = 0.0f;
+        if (++m_readCount % 240 == 0)
+            spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X} (no report)",
+                   m_name,
+                   state.leftX, state.leftY, state.rightX, state.rightY,
+                   state.triggerL, state.triggerR, m_lastButtonMask);
+        return true;
     }
 
-    PCHAR buf    = reinterpret_cast<PCHAR>(m_reportBuf.data());
-    ULONG bufLen = m_inputReportLen;
+    PCHAR buf      = reinterpret_cast<PCHAR>(const_cast<BYTE*>(m_hid.reportBuf().data()));
+    ULONG bufLen   = m_hid.reportLen();
+    ULONG bytesRead = m_hid.lastBytesRead();
 
-    applyButtons (buf, bufLen,    state);
-    applyAxes    (buf, bufLen,    state);
-    applyTouchpad(buf, bytesRead, state);
-    applyIMU     (buf, bytesRead, state);
-
-    // Diagnostic: log state + raw bytes every ~2 seconds (240 reads * 8ms = ~2s)
+    // Diagnostic: log raw bytes every ~2 seconds (240 reads * 8ms = ~2s)
     if (++m_readCount % 240 == 0) {
-        spdlog::debug("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
-               m_name,
-               state.leftX, state.leftY, state.rightX, state.rightY,
-               state.triggerL, state.triggerR, m_lastButtonMask);
-        ULONG dumpLen = (m_inputReportLen < 20) ? m_inputReportLen : 20;
+        ULONG dumpLen = (bufLen < 20) ? bufLen : 20;
         std::string raw;
         raw.reserve(dumpLen * 3);
         for (ULONG i = 0; i < dumpLen; ++i) {
             char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)m_reportBuf[i]);
+            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
             raw += tmp;
         }
-        spdlog::debug("[HID][raw] {}", raw);
+        spdlog::trace("[HID][raw] {}", raw);
     }
 
-    if (m_config.dpad == "hid_hat") {
-        ULONG hatValue = 0xFFFFFFFF; // default = out of range = neutral
-        NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
-                                                &hatValue, PREPARSED, buf, bufLen);
-        if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
-            char savedId = buf[0];
-            buf[0] = static_cast<char>(m_buttonReportId);
-            HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
-                               &hatValue, PREPARSED, buf, bufLen);
-            buf[0] = savedId;
-        }
-        // Hat encodings vary:
-        //   [0..8]: 0=N, 1=NE ... 7=NW, 8=center  (e.g. Pro 2 D-mode)
-        //   [1..8]: 1=N, 2=NE ... 8=NW, center=0  (e.g. Pro 3 X-mode)
-        // Values inside [logMin..logMax] are directions; outside = neutral.
-        auto hatCapIt = m_valueCaps.find(kUsageHat);
-        if (hatCapIt != m_valueCaps.end()) {
-            ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
-            ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
-            if (hatValue < hatMin || hatValue > hatMax) {
-                state.dpadUp = state.dpadDown = state.dpadLeft = state.dpadRight = false;
-            } else {
-                parseHIDDpad(hatValue - hatMin, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
+    bool hasAxisDpad = false;
+    for (const auto& [src, m] : m_config.axes)
+        if (m.target == "dpad_x" || m.target == "dpad_y") { hasAxisDpad = true; break; }
+
+    if (m_hasPhysicalController) {
+        // ── Component-system path ─────────────────────────────────────────────
+        m_physicalState = {};
+        buildPhysicalButtons(buf, bufLen);
+        buildPhysicalAxes(buf, bufLen);
+
+        // Hat switch → physical state; process() handles virtual output via PhysicalDpadDir.
+        if (!hasAxisDpad && m_config.dpad == "hid_hat") {
+            ULONG hatValue = 0xFFFFFFFF;
+            NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
+                                                    &hatValue, PREPARSED, buf, bufLen);
+            if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
+                char savedId = buf[0];
+                buf[0] = static_cast<char>(m_hid.buttonReportId());
+                HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
+                                   &hatValue, PREPARSED, buf, bufLen);
+                buf[0] = savedId;
             }
-        } else {
-            parseHIDDpad(hatValue, state.dpadUp, state.dpadDown, state.dpadLeft, state.dpadRight);
+            bool hatUp = false, hatDown = false, hatLeft = false, hatRight = false;
+            auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
+            if (hatCapIt != m_hid.valueCaps().end()) {
+                ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
+                ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
+                if (hatValue >= hatMin && hatValue <= hatMax)
+                    parseHIDDpad(hatValue - hatMin, hatUp, hatDown, hatLeft, hatRight);
+            } else {
+                parseHIDDpad(hatValue, hatUp, hatDown, hatLeft, hatRight);
+            }
+            m_physicalState.dpadUp    = hatUp;
+            m_physicalState.dpadDown  = hatDown;
+            m_physicalState.dpadLeft  = hatLeft;
+            m_physicalState.dpadRight = hatRight;
         }
+
+        state = {};
+        m_physicalController.process(m_physicalState, state);
+        applyAxesResidual(buf, bufLen, state);
+
+        spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
+               m_name, state.leftX, state.leftY, state.rightX, state.rightY,
+               state.triggerL, state.triggerR, m_lastButtonMask);
+    } else {
+        // ── Legacy path (no PhysicalController loaded) ────────────────────────
+        applyButtons(buf, bufLen, state);
+        applyAxes   (buf, bufLen, state);
+
+        if (!hasAxisDpad && m_config.dpad == "hid_hat") {
+            ULONG hatValue = 0xFFFFFFFF;
+            NTSTATUS hatStatus = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
+                                                    &hatValue, PREPARSED, buf, bufLen);
+            if (hatStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
+                char savedId = buf[0];
+                buf[0] = static_cast<char>(m_hid.buttonReportId());
+                HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, kUsageHat,
+                                   &hatValue, PREPARSED, buf, bufLen);
+                buf[0] = savedId;
+            }
+            bool hatUp = false, hatDown = false, hatLeft = false, hatRight = false;
+            auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
+            if (hatCapIt != m_hid.valueCaps().end()) {
+                ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
+                ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
+                if (hatValue >= hatMin && hatValue <= hatMax)
+                    parseHIDDpad(hatValue - hatMin, hatUp, hatDown, hatLeft, hatRight);
+            } else {
+                parseHIDDpad(hatValue, hatUp, hatDown, hatLeft, hatRight);
+            }
+            m_physicalState.dpadUp    = hatUp;
+            m_physicalState.dpadDown  = hatDown;
+            m_physicalState.dpadLeft  = hatLeft;
+            m_physicalState.dpadRight = hatRight;
+            state.dpadUp    |= hatUp;
+            state.dpadDown  |= hatDown;
+            state.dpadLeft  |= hatLeft;
+            state.dpadRight |= hatRight;
+        }
+
+        if (!m_config.dpadRemap.empty()) {
+            bool wasUp = state.dpadUp, wasDown = state.dpadDown,
+                 wasLeft = state.dpadLeft, wasRight = state.dpadRight;
+            auto applyRemap = [&](bool active, const std::string& dir, bool& srcFlag) {
+                if (!active) return;
+                auto it = m_config.dpadRemap.find(dir);
+                if (it == m_config.dpadRemap.end()) return;
+                srcFlag = false;
+                const std::string& v = it->second;
+                if      (v == "a")          state.btnA     = true;
+                else if (v == "b")          state.btnB     = true;
+                else if (v == "x")          state.btnX     = true;
+                else if (v == "y")          state.btnY     = true;
+                else if (v == "l1")         state.btnLB    = true;
+                else if (v == "r1")         state.btnRB    = true;
+                else if (v == "select")     state.btnBack  = true;
+                else if (v == "start")      state.btnStart = true;
+                else if (v == "home")       state.btnHome  = true;
+                else if (v == "l3")         state.btnL3    = true;
+                else if (v == "r3")         state.btnR3    = true;
+                else if (v == "dpad_up")    state.dpadUp    = true;
+                else if (v == "dpad_down")  state.dpadDown  = true;
+                else if (v == "dpad_left")  state.dpadLeft  = true;
+                else if (v == "dpad_right") state.dpadRight = true;
+            };
+            applyRemap(wasUp,    "up",    state.dpadUp);
+            applyRemap(wasDown,  "down",  state.dpadDown);
+            applyRemap(wasLeft,  "left",  state.dpadLeft);
+            applyRemap(wasRight, "right", state.dpadRight);
+        }
+
+        for (const auto& [bit, action] : m_config.buttons) {
+            if (action.type != ButtonActionType::VirtualButton) continue;
+            if (!action.physical.empty()) {
+                bool srcIsSlot = false;
+                for (const auto& [slot, srcs] : m_config.stickSlots)
+                    for (const auto& src : srcs)
+                        if (src == action.physical) { srcIsSlot = true; break; }
+                if (srcIsSlot) continue;
+            }
+            bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
+            if (!pressed) continue;
+            if      (action.name == "dpad_up")    state.dpadUp    = true;
+            else if (action.name == "dpad_down")  state.dpadDown  = true;
+            else if (action.name == "dpad_left")  state.dpadLeft  = true;
+            else if (action.name == "dpad_right") state.dpadRight = true;
+        }
+
+        applyStickSlots(m_config, m_physicalState, state);
+
+        spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
+               m_name, state.leftX, state.leftY, state.rightX, state.rightY,
+               state.triggerL, state.triggerR, m_lastButtonMask);
     }
+
+    applyTouchpad(buf, bytesRead, state);
+    applyIMU     (buf, bytesRead, state);
 
     return true;
 }
@@ -260,9 +231,9 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
 
     // If the device sends a different Report ID than the one in the descriptor,
     // temporarily swap it so HidP can parse the same data layout.
-    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
         char savedId = buf[0];
-        buf[0] = static_cast<char>(m_buttonReportId);
+        buf[0] = static_cast<char>(m_hid.buttonReportId());
         usageCount = 128;
         btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
                                    usages, &usageCount, PREPARSED, buf, bufLen);
@@ -281,28 +252,34 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
         if (usages[i] >= 1 && usages[i] <= 32)
             m_lastButtonMask |= (1u << (usages[i] - 1));
 
+    // OR semantics: only set true, never overwrite with false.
+    // GamepadState starts zeroed each frame, so un-pressed buttons are already false.
+    // This allows multiple physical buttons to map to the same virtual target.
     auto setBtn = [&](const std::string& name, bool v) {
-        if      (name == "a")      state.btnA     = v;
-        else if (name == "b")      state.btnB     = v;
-        else if (name == "x")      state.btnX     = v;
-        else if (name == "y")      state.btnY     = v;
-        else if (name == "l1")     state.btnLB    = v;
-        else if (name == "r1")     state.btnRB    = v;
-        else if (name == "select") state.btnBack  = v;
-        else if (name == "start")  state.btnStart = v;
-        else if (name == "home")   state.btnHome  = v;
-        else if (name == "l3")     state.btnL3    = v;
-        else if (name == "r3")     state.btnR3    = v;
-        else if (name == "l4")        state.btnL4    = v;
-        else if (name == "r4")        state.btnR4    = v;
-        else if (name == "lp")        state.btnLP    = v;
-        else if (name == "rp")        state.btnRP    = v;
-        else if (name == "touch_btn") state.btnTouch = v;
+        if (!v) return;
+        if      (name == "a")         state.btnA     = true;
+        else if (name == "b")         state.btnB     = true;
+        else if (name == "x")         state.btnX     = true;
+        else if (name == "y")         state.btnY     = true;
+        else if (name == "l1")        state.btnLB    = true;
+        else if (name == "r1")        state.btnRB    = true;
+        else if (name == "select")    state.btnBack  = true;
+        else if (name == "start")     state.btnStart = true;
+        else if (name == "home")      state.btnHome  = true;
+        else if (name == "l3")        state.btnL3    = true;
+        else if (name == "r3")        state.btnR3    = true;
+        else if (name == "l4")        state.btnL4    = true;
+        else if (name == "r4")        state.btnR4    = true;
+        else if (name == "lp")        state.btnLP    = true;
+        else if (name == "rp")        state.btnRP    = true;
+        else if (name == "touch_btn") state.btnTouch = true;
     };
 
     // Physical display state: build separately using action.physical names.
     // Must run BEFORE virtual loop so display and ViGEm output stay independent.
-    GamepadState physDisplay = state;  // inherit axes already applied
+    // Do NOT inherit from state here — state has last frame's remapped axes, not physical ones.
+    // Axis physical values are written by applyAxes() using stickId (physical position).
+    GamepadState physDisplay = {};
     auto setPhys = [&](const std::string& name, bool v) {
         if      (name == "a")         physDisplay.btnA     = v;
         else if (name == "b")         physDisplay.btnB     = v;
@@ -325,19 +302,53 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
         if (action.physical.empty()) continue;
         bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
         setPhys(action.physical, pressed);
+        // Track physical L2/R2 trigger buttons (not remapped buttons acting as triggers)
+        if (pressed && action.type == ButtonActionType::Trigger) {
+            if (action.physical == "l2") physDisplay.triggerL = 1.0f;
+            else if (action.physical == "r2") physDisplay.triggerR = 1.0f;
+        }
     }
     m_physicalState = physDisplay;
 
+    // Reset virtual button states before remapping so OR logic works correctly
+    // regardless of unordered_map iteration order.
+    state.btnA = state.btnB = state.btnX    = state.btnY   = false;
+    state.btnLB = state.btnRB = false;
+    state.btnBack = state.btnStart = state.btnHome = false;
+    state.btnL3 = state.btnR3 = false;
+    state.btnL4 = state.btnR4 = false;
+    state.btnLP = state.btnRP = state.btnTouch = false;
+    // Triggers also reset each frame so button-mapped triggers clear when released
+    state.triggerL = state.triggerR = 0.0f;
+    // Dpad bits reset so axis_actions Dpad assignments clear when stick returns to neutral
+    state.dpadUp = state.dpadDown = state.dpadLeft = state.dpadRight = false;
+    // Mouse delta reset each frame so axis_actions mouse_move stops when stick returns to neutral
+    state.mouseX = state.mouseY = 0.0f;
+
+    // Buttons whose physical identity is a stick slot source lose their virtual
+    // action entirely (one input → one output). Checked against action.physical
+    // so unrelated buttons remapped to the same virtual target are not suppressed.
+    auto isSlotSrc = [&](const std::string& phys) -> bool {
+        if (phys.empty() || m_config.stickSlots.empty()) return false;
+        for (const auto& [slot, srcs] : m_config.stickSlots)
+            for (const auto& src : srcs)
+                if (src == phys) return true;
+        return false;
+    };
+
     // Virtual remapping: use action.name so ViGEm receives the mapped output.
     for (const auto& [bit, action] : m_config.buttons) {
+        if (isSlotSrc(action.physical)) continue;
         bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
         switch (action.type) {
         case ButtonActionType::VirtualButton:
             setBtn(action.name, pressed);
             break;
         case ButtonActionType::Trigger:
-            if      (action.target == "l2") state.triggerL = pressed ? 1.0f : 0.0f;
-            else if (action.target == "r2") state.triggerR = pressed ? 1.0f : 0.0f;
+            if (pressed) {
+                if      (action.target == "l2") state.triggerL = 1.0f;
+                else if (action.target == "r2") state.triggerR = 1.0f;
+            }
             break;
         default: break;
         }
@@ -350,7 +361,22 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
 }
 
 void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
-    // Log first raw report bytes once to diagnose BT vs USB report format
+    // OR-semantics button setter (same as setBtn in applyButtons; needed for btn_dir target)
+    auto setBtn = [&](const std::string& name, bool v) {
+        if (!v) return;
+        if      (name == "a")         state.btnA     = true;
+        else if (name == "b")         state.btnB     = true;
+        else if (name == "x")         state.btnX     = true;
+        else if (name == "y")         state.btnY     = true;
+        else if (name == "l1")        state.btnLB    = true;
+        else if (name == "r1")        state.btnRB    = true;
+        else if (name == "select")    state.btnBack  = true;
+        else if (name == "start")     state.btnStart = true;
+        else if (name == "home")      state.btnHome  = true;
+        else if (name == "l3")        state.btnL3    = true;
+        else if (name == "r3")        state.btnR3    = true;
+    };
+
     if (m_readCount == 1) {
         ULONG dumpLen = (bufLen < 24) ? bufLen : 24;
         std::string raw;
@@ -360,7 +386,7 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
             snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
             raw += tmp;
         }
-        spdlog::info("[HID][{}] First report ({} bytes): {}", m_name, bufLen, raw);
+        spdlog::debug("[HID][{}] First report ({} bytes): {}", m_name, bufLen, raw);
     }
 
     for (const auto& [source, mapping] : m_config.axes) {
@@ -369,71 +395,379 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
 
         // Use the page from the device descriptor when available — handles devices
         // that put axes on a non-standard page (e.g. triggers on page 0x01 instead of 0x02).
-        auto pit = m_usagePage.find(au.usage);
-        USHORT page = (pit != m_usagePage.end()) ? pit->second : au.page;
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
 
         ULONG rawValue = 0;
         NTSTATUS axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                                au.usage, &rawValue, PREPARSED, buf, bufLen);
-        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
             char savedId = buf[0];
-            buf[0] = static_cast<char>(m_buttonReportId);
+            buf[0] = static_cast<char>(m_hid.buttonReportId());
             axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
                                           au.usage, &rawValue, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
 
-        // Log axis status for first few reads to diagnose BT issues
-        if (m_readCount <= 3) {
-            float normDbg = (axStatus == HIDP_STATUS_SUCCESS) ? normalizeHIDAxis(au.usage, rawValue) : 0.0f;
-            spdlog::info("[HID][{}] axis {} page=0x{:02X} usage=0x{:02X} reportId={} status=0x{:08X} raw={} norm={:.3f}",
-                m_name, source, page, au.usage, (unsigned char)buf[0],
-                (unsigned)axStatus, rawValue, normDbg);
-        }
-
         if (axStatus != HIDP_STATUS_SUCCESS)
             continue;
 
-        float v = normalizeHIDAxis(au.usage, rawValue);
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
         if (mapping.invert) v = -v;
+
+        // Physical display: write to stickId position (physical axis), not target (virtual axis).
+        // This ensures the physical pad shows the stick that is actually moving on the hardware,
+        // regardless of where it is routed by the user's mapping.
+        if (!mapping.stickId.empty()) {
+            if      (mapping.stickId == "left_x")  m_physicalState.leftX  = v;
+            else if (mapping.stickId == "left_y")  m_physicalState.leftY  = v;
+            else if (mapping.stickId == "right_x") m_physicalState.rightX = v;
+            else if (mapping.stickId == "right_y") m_physicalState.rightY = v;
+        }
 
         if      (mapping.target == "left_x")          state.leftX   = v;
         else if (mapping.target == "left_y")          state.leftY   = v;
         else if (mapping.target == "right_x")         state.rightX  = v;
         else if (mapping.target == "right_y")         state.rightY  = v;
-        else if (mapping.target == "trigger_l")       state.triggerL = (v + 1.0f) * 0.5f;
-        else if (mapping.target == "trigger_r")       state.triggerR = (v + 1.0f) * 0.5f;
+        else if (mapping.target == "trigger_l")       { float tv = (v + 1.0f) * 0.5f; m_physicalState.triggerL = tv; if (tv > state.triggerL) state.triggerL = tv; }
+        else if (mapping.target == "trigger_r")       { float tv = (v + 1.0f) * 0.5f; m_physicalState.triggerR = tv; if (tv > state.triggerR) state.triggerR = tv; }
         else if (mapping.target == "trigger_combined") {
-            state.triggerL = (v > 0.0f) ?  v : 0.0f;
-            state.triggerR = (v < 0.0f) ? -v : 0.0f;
+            float tl = (v > 0.0f) ?  v : 0.0f;
+            float tr = (v < 0.0f) ? -v : 0.0f;
+            m_physicalState.triggerL = tl; m_physicalState.triggerR = tr;
+            if (tl > state.triggerL) state.triggerL = tl;
+            if (tr > state.triggerR) state.triggerR = tr;
         }
         else if (mapping.target == "mouse_x") state.mouseX = v;
         else if (mapping.target == "mouse_y") state.mouseY = v;
+        else if (mapping.target == "dpad_x") {
+            state.dpadLeft  = v < -mapping.threshold;
+            state.dpadRight = v >  mapping.threshold;
+        }
+        else if (mapping.target == "dpad_y") {
+            state.dpadUp   = v < -mapping.threshold;
+            state.dpadDown = v >  mapping.threshold;
+        }
+        else if (mapping.target == "btn_dir") {
+            if (!mapping.btnNeg.empty()) setBtn(mapping.btnNeg, v < -mapping.threshold);
+            if (!mapping.btnPos.empty()) setBtn(mapping.btnPos, v >  mapping.threshold);
+        }
+    }
+
+    // ── axis_actions: per-direction half-axis processing ─────────────────────
+    // !! LEGACY PATH — DEPRECATED !!
+    // Used only when m_hasPhysicalController == false (controllers not yet migrated to P4/P5).
+    // The Component System path (checkHalf, below) supersedes this entirely.
+    // Remove this block when P6 is implemented and all controllers are migrated.
+    // For each axis that has entries in axis_actions, process positive and negative halves.
+    // This runs after whole-axis processing so both can coexist during transition.
+    m_activeAxisActions.clear();
+    m_activeAxisRangeActions.clear();
+    for (const auto& [source, mapping] : m_config.axes) {
+        if (m_config.axis_actions.empty()) break;  // fast path: nothing to do
+
+        AxisUsage au = usageFromAxisName(source);
+        if (au.usage == 0) continue;
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
+        ULONG rawValue = 0;
+        if (HidP_GetUsageValue(HidP_Input, page, 0, au.usage, &rawValue, PREPARSED, buf, bufLen)
+            != HIDP_STATUS_SUCCESS) continue;
+
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        if (mapping.invert) v = -v;
+
+        auto processHalf = [&](const std::string& key, float halfV) {
+            auto ait = m_config.axis_actions.find(key);
+            if (ait == m_config.axis_actions.end()) return;
+            const HalfAxisAction& ha = ait->second;
+            float absV = std::abs(halfV);
+
+            switch (ha.type) {
+            case HalfAxisActionType::Analog: {
+                float outV = absV * ha.scale;
+                if (ha.outDir == "neg") outV = -outV;
+                if      (ha.target == "left_x")  state.leftX  = outV;
+                else if (ha.target == "left_y")  state.leftY  = outV;
+                else if (ha.target == "right_x") state.rightX = outV;
+                else if (ha.target == "right_y") state.rightY = outV;
+                break;
+            }
+            case HalfAxisActionType::VirtualButton:
+                if (absV > ha.threshold) setBtn(ha.target, true);
+                break;
+            case HalfAxisActionType::Dpad:
+                if (absV > ha.threshold) {
+                    if      (ha.target == "up")    state.dpadUp    = true;
+                    else if (ha.target == "down")  state.dpadDown  = true;
+                    else if (ha.target == "left")  state.dpadLeft  = true;
+                    else if (ha.target == "right") state.dpadRight = true;
+                }
+                break;
+            case HalfAxisActionType::Trigger:
+                if (absV > ha.threshold) {
+                    if      (ha.target == "l2" || ha.target == "trigger_l") state.triggerL = absV;
+                    else if (ha.target == "r2" || ha.target == "trigger_r") state.triggerR = absV;
+                }
+                break;
+            case HalfAxisActionType::StickSlot:
+                if (absV > ha.threshold) {
+                    if      (ha.target == "left_x_pos")  state.leftX  =  1.0f;
+                    else if (ha.target == "left_x_neg")  state.leftX  = -1.0f;
+                    else if (ha.target == "left_y_pos")  state.leftY  =  1.0f;
+                    else if (ha.target == "left_y_neg")  state.leftY  = -1.0f;
+                    else if (ha.target == "right_x_pos") state.rightX =  1.0f;
+                    else if (ha.target == "right_x_neg") state.rightX = -1.0f;
+                    else if (ha.target == "right_y_pos") state.rightY =  1.0f;
+                    else if (ha.target == "right_y_neg") state.rightY = -1.0f;
+                }
+                break;
+            case HalfAxisActionType::MouseMove:
+                if      (ha.target == "mouse_x") state.mouseX += halfV * ha.speed;
+                else if (ha.target == "mouse_y") state.mouseY += halfV * ha.speed;
+                break;
+            case HalfAxisActionType::Ranges:
+                for (const auto& r : ha.ranges) {
+                    if (absV < r.from || absV > r.to || !r.hasAction) continue;
+                    switch (r.action.type) {
+                    case ButtonActionType::VirtualButton: setBtn(r.action.name, true); break;
+                    case ButtonActionType::Keyboard:
+                    case ButtonActionType::MouseClick:
+                    case ButtonActionType::Macro:
+                        m_activeAxisRangeActions[key] = r.action;
+                        break;
+                    default: break;
+                    }
+                    break;
+                }
+                break;
+            case HalfAxisActionType::Macro:
+            case HalfAxisActionType::Keyboard:
+            case HalfAxisActionType::MouseClick:
+                if (absV > ha.threshold)
+                    m_activeAxisActions.push_back(key);
+                break;
+            }
+            // Suppress raw axis contribution for this half when redirected to a non-analog target.
+            // Mirrors btn_dir: when a half-axis is repurposed it stops feeding the virtual stick.
+            if (ha.type != HalfAxisActionType::Analog && ha.type != HalfAxisActionType::Ranges) {
+                if      (mapping.target == "left_x")  state.leftX  = (halfV < 0.0f) ? (state.leftX  > 0.0f ? state.leftX  : 0.0f) : (state.leftX  < 0.0f ? state.leftX  : 0.0f);
+                else if (mapping.target == "left_y")  state.leftY  = (halfV < 0.0f) ? (state.leftY  > 0.0f ? state.leftY  : 0.0f) : (state.leftY  < 0.0f ? state.leftY  : 0.0f);
+                else if (mapping.target == "right_x") state.rightX = (halfV < 0.0f) ? (state.rightX > 0.0f ? state.rightX : 0.0f) : (state.rightX < 0.0f ? state.rightX : 0.0f);
+                else if (mapping.target == "right_y") state.rightY = (halfV < 0.0f) ? (state.rightY > 0.0f ? state.rightY : 0.0f) : (state.rightY < 0.0f ? state.rightY : 0.0f);
+            }
+        };
+
+        // Key uses virtual axis name (mapping.target) so JSON entries match: "left_x_pos" etc.
+        if (v >= 0.0f) processHalf(mapping.target + "_pos", v);
+        else           processHalf(mapping.target + "_neg", v);
     }
 }
 
-float HIDInputSource::normalizeHIDAxis(USHORT usage, ULONG rawValue) const {
-    auto it = m_valueCaps.find(usage);
-    if (it == m_valueCaps.end()) return 0.0f;
+// ---------------------------------------------------------------------------
+// Component-system path
+// ---------------------------------------------------------------------------
 
-    LONG logMin = it->second.logMin;
-    LONG logMax = it->second.logMax;
+void HIDInputSource::buildPhysicalButtons(PCHAR buf, ULONG bufLen) {
+    USAGE usages[128];
+    ULONG usageCount = 128;
 
-    // Unsigned range: descriptor reports [0, -1] meaning [0, 2^BitSize - 1]
-    if (logMax < logMin) {
-        USHORT bits = it->second.bitSize;
-        ULONG uMax = (bits > 0 && bits < 32) ? (1UL << bits) - 1 : 0xFFFFFFFFUL;
-        if (uMax == 0) return 0.0f;
-        float norm = static_cast<float>(rawValue) / static_cast<float>(uMax) * 2.0f - 1.0f;
-        return std::clamp(norm, -1.0f, 1.0f);
+    NTSTATUS btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
+                                        usages, &usageCount, PREPARSED, buf, bufLen);
+    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
+        char savedId = buf[0];
+        buf[0] = static_cast<char>(m_hid.buttonReportId());
+        usageCount = 128;
+        btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
+                                   usages, &usageCount, PREPARSED, buf, bufLen);
+        buf[0] = savedId;
+    }
+    if (btnStatus != HIDP_STATUS_SUCCESS) {
+        if (++m_btnErrCount <= 3)
+            spdlog::warn("[HID] HidP_GetUsages failed: 0x{:08X} (count={})",
+                         static_cast<unsigned>(btnStatus), usageCount);
+        return;
     }
 
-    LONG range = logMax - logMin;
-    if (range <= 0) return 0.0f;
+    m_lastButtonMask = 0;
+    for (ULONG i = 0; i < usageCount; ++i)
+        if (usages[i] >= 1 && usages[i] <= 32)
+            m_lastButtonMask |= (1u << (usages[i] - 1));
 
-    float norm = (static_cast<float>(static_cast<LONG>(rawValue) - logMin) / range) * 2.0f - 1.0f;
-    return std::clamp(norm, -1.0f, 1.0f);
+    auto setPhys = [&](const std::string& name, bool v) {
+        if      (name == "a")         m_physicalState.btnA     = v;
+        else if (name == "b")         m_physicalState.btnB     = v;
+        else if (name == "x")         m_physicalState.btnX     = v;
+        else if (name == "y")         m_physicalState.btnY     = v;
+        else if (name == "l1")        m_physicalState.btnLB    = v;
+        else if (name == "r1")        m_physicalState.btnRB    = v;
+        else if (name == "select")    m_physicalState.btnBack  = v;
+        else if (name == "start")     m_physicalState.btnStart = v;
+        else if (name == "home")      m_physicalState.btnHome  = v;
+        else if (name == "l3")        m_physicalState.btnL3    = v;
+        else if (name == "r3")        m_physicalState.btnR3    = v;
+        else if (name == "l4")        m_physicalState.btnL4    = v;
+        else if (name == "r4")        m_physicalState.btnR4    = v;
+        else if (name == "lp")        m_physicalState.btnLP    = v;
+        else if (name == "rp")        m_physicalState.btnRP    = v;
+        else if (name == "touch_btn") m_physicalState.btnTouch = v;
+    };
+    for (const auto& [bit, action] : m_config.buttons) {
+        if (action.physical.empty()) continue;
+        if (action.type != ButtonActionType::VirtualButton &&
+            action.type != ButtonActionType::Trigger) continue;
+        bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
+        setPhys(action.physical, pressed);
+        if (pressed && action.type == ButtonActionType::Trigger) {
+            if      (action.physical == "l2") m_physicalState.triggerL = 1.0f;
+            else if (action.physical == "r2") m_physicalState.triggerR = 1.0f;
+        }
+    }
 }
+
+void HIDInputSource::buildPhysicalAxes(PCHAR buf, ULONG bufLen) {
+    for (const auto& [source, mapping] : m_config.axes) {
+        AxisUsage au = usageFromAxisName(source);
+        if (au.usage == 0) continue;
+
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
+
+        ULONG rawValue = 0;
+        NTSTATUS axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
+                                               au.usage, &rawValue, PREPARSED, buf, bufLen);
+        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
+            char savedId = buf[0];
+            buf[0] = static_cast<char>(m_hid.buttonReportId());
+            axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
+                                          au.usage, &rawValue, PREPARSED, buf, bufLen);
+            buf[0] = savedId;
+        }
+        if (axStatus != HIDP_STATUS_SUCCESS) continue;
+
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        if (mapping.invert) v = -v;
+
+        // Physical position (stickId): write signed value so process() can decompose pos/neg halves.
+        if (!mapping.stickId.empty()) {
+            if      (mapping.stickId == "left_x")  m_physicalState.leftX  = v;
+            else if (mapping.stickId == "left_y")  m_physicalState.leftY  = v;
+            else if (mapping.stickId == "right_x") m_physicalState.rightX = v;
+            else if (mapping.stickId == "right_y") m_physicalState.rightY = v;
+        } else {
+            // No stickId override: physical position = virtual target (common case).
+            if      (mapping.target == "left_x")  m_physicalState.leftX  = v;
+            else if (mapping.target == "left_y")  m_physicalState.leftY  = v;
+            else if (mapping.target == "right_x") m_physicalState.rightX = v;
+            else if (mapping.target == "right_y") m_physicalState.rightY = v;
+        }
+
+        // Triggers: convert signed [-1,1] → [0,1] for m_physicalState.
+        // trigger_combined is split and handled in applyAxesResidual.
+        if      (mapping.target == "trigger_l") m_physicalState.triggerL = (v + 1.0f) * 0.5f;
+        else if (mapping.target == "trigger_r") m_physicalState.triggerR = (v + 1.0f) * 0.5f;
+    }
+}
+
+void HIDInputSource::applyAxesResidual(PCHAR buf, ULONG bufLen, GamepadState& state) {
+    auto setBtn = [&](const std::string& name, bool v) {
+        if (!v) return;
+        if      (name == "a")      state.btnA     = true;
+        else if (name == "b")      state.btnB     = true;
+        else if (name == "x")      state.btnX     = true;
+        else if (name == "y")      state.btnY     = true;
+        else if (name == "l1")     state.btnLB    = true;
+        else if (name == "r1")     state.btnRB    = true;
+        else if (name == "select") state.btnBack  = true;
+        else if (name == "start")  state.btnStart = true;
+        else if (name == "home")   state.btnHome  = true;
+        else if (name == "l3")     state.btnL3    = true;
+        else if (name == "r3")     state.btnR3    = true;
+    };
+
+    m_activeAxisActions.clear();
+    m_activeAxisRangeActions.clear();
+    for (const auto& [source, mapping] : m_config.axes) {
+        AxisUsage au = usageFromAxisName(source);
+        if (au.usage == 0) continue;
+
+        auto pit = m_hid.usagePage().find(au.usage);
+        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
+
+        ULONG rawValue = 0;
+        NTSTATUS axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
+                                               au.usage, &rawValue, PREPARSED, buf, bufLen);
+        if (axStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
+            char savedId = buf[0];
+            buf[0] = static_cast<char>(m_hid.buttonReportId());
+            axStatus = HidP_GetUsageValue(HidP_Input, page, 0,
+                                          au.usage, &rawValue, PREPARSED, buf, bufLen);
+            buf[0] = savedId;
+        }
+        if (axStatus != HIDP_STATUS_SUCCESS) continue;
+
+        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        if (mapping.invert) v = -v;
+
+        // Targets not handled by PhysicalController::process() — write directly to state.
+        if (mapping.target == "mouse_x") state.mouseX = v;
+        else if (mapping.target == "mouse_y") state.mouseY = v;
+        else if (mapping.target == "dpad_x") {
+            state.dpadLeft  = v < -mapping.threshold;
+            state.dpadRight = v >  mapping.threshold;
+        }
+        else if (mapping.target == "dpad_y") {
+            state.dpadUp   = v < -mapping.threshold;
+            state.dpadDown = v >  mapping.threshold;
+        }
+        else if (mapping.target == "trigger_combined") {
+            float tl = (v > 0.0f) ?  v : 0.0f;
+            float tr = (v < 0.0f) ? -v : 0.0f;
+            m_physicalState.triggerL = tl; m_physicalState.triggerR = tr;
+            if (tl > state.triggerL) state.triggerL = tl;
+            if (tr > state.triggerR) state.triggerR = tr;
+        }
+        else if (mapping.target == "btn_dir") {
+            if (!mapping.btnNeg.empty()) setBtn(mapping.btnNeg, v < -mapping.threshold);
+            if (!mapping.btnPos.empty()) setBtn(mapping.btnPos, v >  mapping.threshold);
+        }
+
+        // axis_actions: only Macro/Keyboard/MouseClick need m_activeAxisActions.
+        // All other types (VirtualButton, Dpad, Trigger, StickSlot, Analog, MouseMove) are
+        // handled by PhysicalAnalogDir inside m_physicalController.process().
+        if (!m_config.axis_actions.empty()) {
+            auto checkHalf = [&](const std::string& key, float halfV) {
+                auto ait = m_config.axis_actions.find(key);
+                if (ait == m_config.axis_actions.end()) return;
+                const HalfAxisAction& ha = ait->second;
+                float absV = std::abs(halfV);
+                switch (ha.type) {
+                case HalfAxisActionType::Macro:
+                case HalfAxisActionType::Keyboard:
+                case HalfAxisActionType::MouseClick:
+                    if (absV > ha.threshold)
+                        m_activeAxisActions.push_back(key);
+                    break;
+                case HalfAxisActionType::Ranges:
+                    for (const auto& r : ha.ranges) {
+                        if (absV < r.from || absV > r.to || !r.hasAction) continue;
+                        if (r.action.type == ButtonActionType::Keyboard   ||
+                            r.action.type == ButtonActionType::MouseClick  ||
+                            r.action.type == ButtonActionType::Macro)
+                            m_activeAxisRangeActions[key] = r.action;
+                        break;
+                    }
+                    break;
+                default: break;
+                }
+            };
+            if (v >= 0.0f) checkHalf(mapping.target + "_pos", v);
+            else           checkHalf(mapping.target + "_neg", v);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.touchDeltaX = 0.0f;
@@ -444,6 +778,9 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     // Guard: touchpad finger data must fit within the bytes actually received.
     // DS4 BT in simplified mode (report ~10 bytes) won't have this data.
     int off = m_config.touchpad.dataOffset;
+    if (m_readCount <= 5 || m_readCount % 240 == 0)
+        spdlog::debug("[TOUCH][{}] enabled={} offset={} bytesRead={} guard={}",
+            m_name, m_config.touchpad.enabled, off, (int)bytesRead, (off + 4 > (int)bytesRead) ? "FAIL" : "OK");
     if (off + 4 > static_cast<int>(bytesRead)) {
         state.touch1Active = false;
         state.touch2Active = false;
@@ -464,6 +801,7 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     // --- Finger 1 ---
     bool active = (b0 & 0x80) == 0;  // bit7 = 0 means touching
     state.touch1Active = active;
+    m_physicalState.touch1Active = active;
 
     if (active) {
         int   rawX  = b1 | ((b2 & 0x0F) << 8);
@@ -473,6 +811,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
 
         state.touch1X = normX;
         state.touch1Y = normY;
+        m_physicalState.touch1X = normX;
+        m_physicalState.touch1Y = normY;
 
         if (m_lastTouchActive) {
             // Delta in raw touchpad units — used for mouse routing
@@ -486,6 +826,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     } else {
         state.touch1X = 0.0f;
         state.touch1Y = 0.0f;
+        m_physicalState.touch1X = 0.0f;
+        m_physicalState.touch1Y = 0.0f;
     }
 
     m_lastTouchActive = active;
@@ -497,18 +839,25 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         BYTE c2 = static_cast<BYTE>(buf[off + 6]);
         BYTE c3 = static_cast<BYTE>(buf[off + 7]);
         state.touch2Active = (c0 & 0x80) == 0;
+        m_physicalState.touch2Active = state.touch2Active;
         if (state.touch2Active) {
             int rawX2 = c1 | ((c2 & 0x0F) << 8);
             int rawY2 = ((c2 & 0xF0) >> 4) | (c3 << 4);
             state.touch2X = static_cast<float>(rawX2) / static_cast<float>(m_config.touchpad.maxX);
             state.touch2Y = static_cast<float>(rawY2) / static_cast<float>(m_config.touchpad.maxY);
+            m_physicalState.touch2X = state.touch2X;
+            m_physicalState.touch2Y = state.touch2Y;
         } else {
             state.touch2X = 0.0f;
             state.touch2Y = 0.0f;
+            m_physicalState.touch2X = 0.0f;
+            m_physicalState.touch2Y = 0.0f;
         }
     } else {
         state.touch2Active = false;
         state.touch2X = state.touch2Y = 0.0f;
+        m_physicalState.touch2Active = false;
+        m_physicalState.touch2X = m_physicalState.touch2Y = 0.0f;
     }
 }
 
@@ -535,6 +884,10 @@ void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.gyroY     = std::clamp(rawY * m_config.imu.gyroScale, -1.0f, 1.0f);
     state.gyroZ     = std::clamp(rawZ * m_config.imu.gyroScale, -1.0f, 1.0f);
     state.gyroActive = true;
+    m_physicalState.gyroX     = state.gyroX;
+    m_physicalState.gyroY     = state.gyroY;
+    m_physicalState.gyroZ     = state.gyroZ;
+    m_physicalState.gyroActive = true;
 }
 
 void HIDInputSource::parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right) {

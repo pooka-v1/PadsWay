@@ -4,7 +4,7 @@
     {
       "vid": "2DC8",
       "pid": "6009",
-      "_note": "Pro 3 D-mode: ",
+      "_note": "8BitDo-Pro3 D-mode: ",
       "buttons": {
 	    "3":  { "type": "macro", "name": "MonsterHunterStoriesFly" },
         "6":  { "type": "macro",      "name": "MonsterHunterStoriesCharge"   },
@@ -15,7 +15,7 @@
     {
       "vid": "2DC8",
       "pid": "6006",
-      "_note": "Pro 2 D-mode: ",
+      "_note": "8BitDo-Pro2 D-mode: ",
       "buttons": {
 	    "3":  { "type": "macro", "name": "MonsterHunterStoriesFly" },
         "6":  { "type": "macro",      "name": "MonsterHunterStoriesCharge"   },

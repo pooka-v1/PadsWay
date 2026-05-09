@@ -1,5 +1,6 @@
 #pragma once
 #include "../input/ControllerConfig.h"
+#include "../input/ComponentTypes.h"
 #include "../ui/PadLayout.h"
 #include <vector>
 #include <string>
@@ -22,9 +23,13 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path);
 
 struct VirtualPadConfig {
-    uint16_t    vid      = 0x5650;   // defaults if file is missing
-    uint16_t    pid      = 0x0001;
-    std::string logLevel = "info";   // trace/debug/info/warn/error
+    uint16_t                 vid                    = 0x5650;   // defaults if file is missing
+    uint16_t                 pid                    = 0x0001;
+    std::string              logLevel               = "info";   // trace/debug/info/warn/error
+    std::string              locale                 = "en";
+    std::vector<std::string> acceptedXboxButtons    = {"a","b","x","y","l1","r1","select","start","home","l3","r3"};
+    float                    stickSelectThreshold   = 0.85f;    // normalized [0,1]
+    int                      stickHoldMs            = 2000;     // ms held at tope to select direction
 };
 
 // Loads virtual pad identity config from a JSON file.
@@ -39,8 +44,9 @@ struct GameProfile {
 
     struct Override {
         uint16_t vid = 0, pid = 0;
-        std::unordered_map<int, ButtonAction>     buttons;  // physical bit -> action
-        std::unordered_map<std::string, AxisMapping> axes;  // source -> mapping
+        std::unordered_map<int, ButtonAction>           buttons;       // physical bit -> action
+        std::unordered_map<std::string, AxisMapping>    axes;          // source -> whole-axis mapping
+        std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "source_pos/neg" -> per-direction action
     };
     std::vector<Override> overrides;
 };
@@ -52,6 +58,12 @@ GameProfile loadGameProfile(const std::string& path);
 // Returns a copy of base with the matching override's buttons applied on top.
 // Axes and dpad are unchanged. If no override matches vid/pid, returns base as-is.
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
+
+// ── Component System ─────────────────────────────────────────────────────────
+
+// Builds a PhysicalController from one controllers.json entry.
+// Runs in parallel with ControllerConfig — does not affect existing behaviour.
+std::vector<PhysicalController> loadPhysicalControllers(const std::string& path);
 
 // ── Pad layouts ─────────────────────────────────────────────────────────────
 

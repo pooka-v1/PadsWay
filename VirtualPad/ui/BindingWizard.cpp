@@ -1,4 +1,5 @@
 #include "BindingWizard.h"
+#include "../config/Strings.h"
 #include "../config/ConfigLoader.h"
 #include "../input/ControllerConfig.h"
 #include "../imgui/imgui.h"
@@ -6,7 +7,6 @@
 #include <fstream>
 #include <algorithm>
 #include <cstring>
-
 using json = nlohmann::json;
 
 // ── HID axis names by RawHIDState field index ────────────────────────────────
@@ -26,21 +26,6 @@ static float kHIDAxisValues(const RawHIDState& s, int i) {
     case 7: return s.axisAccel;
     }
     return 0.0f;
-}
-
-static const char* kWinMMAxisNames[] = {
-    "dwXpos", "dwYpos", "dwZpos", "dwRpos", "dwUpos", "dwVpos"
-};
-static DWORD kWinMMAxisValues(const PadScanner::RawInput& r, int i) {
-    switch (i) {
-    case 0: return r.xpos;
-    case 1: return r.ypos;
-    case 2: return r.zpos;
-    case 3: return r.rpos;
-    case 4: return r.upos;
-    case 5: return r.vpos;
-    }
-    return 32767;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +74,6 @@ void BindingWizard::start(const PadLayout& layout) {
     m_overlayLabels.clear();
     m_hasDpad  = false;
     m_dpadType.clear();
-    m_modeIsXInput      = false;
     m_saveWithConnection = false;
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
 
@@ -117,27 +101,22 @@ void BindingWizard::render() {
 // ---------------------------------------------------------------------------
 
 void BindingWizard::renderSelectController() {
-    ImGui::SeparatorText("Emparejar mando — Selecciona el controlador");
+    ImGui::SeparatorText(tr("wizard.step_select_title"));
     ImGui::Spacing();
 
-    if (ImGui::Button("Actualizar lista")) scanControllers();
+    if (ImGui::Button(tr("btn.refresh"))) scanControllers();
     ImGui::Spacing();
 
     if (m_controllers.empty()) {
-        ImGui::TextDisabled("No se detectó ningún mando. Conecta el mando y pulsa Actualizar.");
+        ImGui::TextDisabled("%s", tr("wizard.no_ctrl"));
     } else {
         ImGui::BeginChild("##ctrlList", { 0.0f, 180.0f }, true);
         for (int i = 0; i < (int)m_controllers.size(); ++i) {
             const auto& c = m_controllers[i];
-            // Build transport label: "HID/USB", "HID/BT", or "WinMM"
             char transport[16];
-            if (c.source == DetectedController::Source::HID) {
-                if      (c.connectionType == "bt")  snprintf(transport, sizeof(transport), "HID/BT");
-                else if (c.connectionType == "usb") snprintf(transport, sizeof(transport), "HID/USB");
-                else                                snprintf(transport, sizeof(transport), "HID");
-            } else {
-                snprintf(transport, sizeof(transport), "WinMM");
-            }
+            if      (c.connectionType == "bt")  snprintf(transport, sizeof(transport), "HID/BT");
+            else if (c.connectionType == "usb") snprintf(transport, sizeof(transport), "HID/USB");
+            else                                snprintf(transport, sizeof(transport), "HID");
             char label[256];
             snprintf(label, sizeof(label), "%s  [%04X:%04X]  (%s)##ctrl%d",
                      c.name.c_str(), c.vid, c.pid, transport, i);
@@ -150,7 +129,7 @@ void BindingWizard::renderSelectController() {
     ImGui::Spacing();
     bool canContinue = (m_selectedCtrl >= 0 && m_selectedCtrl < (int)m_controllers.size());
     if (!canContinue) ImGui::BeginDisabled();
-    if (ImGui::Button("Continuar##selCtrl", { 140.0f, 0.0f })) {
+    if (ImGui::Button(trid("btn.continue", "selCtrl").c_str(), { 140.0f, 0.0f })) {
         const auto& c = m_controllers[m_selectedCtrl];
         strncpy_s(m_nameBuf, c.name.c_str(), sizeof(m_nameBuf) - 1);
         m_state = State::NameController;
@@ -158,7 +137,7 @@ void BindingWizard::renderSelectController() {
     if (!canContinue) ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (ImGui::Button("Cancelar##selCtrl", { 100.0f, 0.0f })) cancel();
+    if (ImGui::Button(trid("btn.cancel", "selCtrl").c_str(), { 100.0f, 0.0f })) cancel();
 }
 
 // ---------------------------------------------------------------------------
@@ -166,48 +145,38 @@ void BindingWizard::renderSelectController() {
 // ---------------------------------------------------------------------------
 
 void BindingWizard::renderNameController() {
-    ImGui::SeparatorText("Emparejar mando — Nombre y modo");
+    ImGui::SeparatorText(tr("wizard.step_name_title"));
     ImGui::Spacing();
 
     const auto& c = m_controllers[m_selectedCtrl];
 
     ImGui::Text("VID:%04X  PID:%04X", c.vid, c.pid);
     if (!c.productName.empty())
-        ImGui::Text("Nombre HID: %s", c.productName.c_str());
-    if (c.source == DetectedController::Source::HID) {
-        const char* conn = c.connectionType == "bt"  ? "Bluetooth" :
-                           c.connectionType == "usb" ? "USB" : "desconocida";
-        ImGui::Text("Conexion detectada: %s", conn);
-        ImGui::Checkbox("Mapping especifico para esta conexion", &m_saveWithConnection);
+        ImGui::Text(tr("wizard.hid_name"), c.productName.c_str());
+    {
+        const char* conn = c.connectionType == "bt"  ? tr("wizard.conn_bt") :
+                           c.connectionType == "usb" ? tr("wizard.conn_usb") : tr("wizard.conn_unknown");
+        ImGui::Text(tr("wizard.connection"), conn);
+        ImGui::Checkbox(tr("wizard.specific_mapping"), &m_saveWithConnection);
         if (m_saveWithConnection)
-            ImGui::TextDisabled("  El mapping solo se usara cuando el mando conecte por %s.", conn);
+            ImGui::TextDisabled(tr("wizard.mapping_specific"), conn);
         else
-            ImGui::TextDisabled("  El mapping servira para USB y BT.");
+            ImGui::TextDisabled("%s", tr("wizard.mapping_generic"));
     }
     ImGui::Spacing();
-    ImGui::Text("Nombre para mostrar (editable):");
+    ImGui::Text("%s", tr("wizard.display_name"));
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputText("##cname", m_nameBuf, sizeof(m_nameBuf));
-
-    if (c.source == DetectedController::Source::WinMM) {
-        ImGui::Spacing();
-        ImGui::Text("Modo WinMM:");
-        ImGui::SameLine();
-        if (ImGui::RadioButton("D-input", !m_modeIsXInput)) m_modeIsXInput = false;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("X-input", m_modeIsXInput))  m_modeIsXInput = true;
-        ImGui::TextDisabled("  D-input: gatillos independientes.  X-input: gatillos compartidos en un eje.");
-    }
 
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
-    if (ImGui::Button("← Atrás##name", { 100.0f, 0.0f })) m_state = State::SelectController;
+    if (ImGui::Button(trid("btn.back", "name").c_str(), { 100.0f, 0.0f })) m_state = State::SelectController;
     ImGui::SameLine();
     bool canContinue = (m_nameBuf[0] != '\0');
     if (!canContinue) ImGui::BeginDisabled();
-    if (ImGui::Button("Continuar##name", { 140.0f, 0.0f })) {
+    if (ImGui::Button(trid("btn.continue", "name").c_str(), { 140.0f, 0.0f })) {
         buildSteps();
         if (m_noStateCount > 0)
             m_state = State::WarnNoState;
@@ -219,7 +188,7 @@ void BindingWizard::renderNameController() {
     }
     if (!canContinue) ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Cancelar##name", { 100.0f, 0.0f })) cancel();
+    if (ImGui::Button(trid("btn.cancel", "name").c_str(), { 100.0f, 0.0f })) cancel();
 }
 
 // ---------------------------------------------------------------------------
@@ -227,22 +196,22 @@ void BindingWizard::renderNameController() {
 // ---------------------------------------------------------------------------
 
 void BindingWizard::renderWarnNoState() {
-    ImGui::SeparatorText("Emparejar mando — Aviso");
+    ImGui::SeparatorText(tr("wizard.step_warn_title"));
     ImGui::Spacing();
     ImGui::TextColored({ 1.0f, 0.8f, 0.2f, 1.0f },
-        "%d componente(s) no tienen entrada en state_map y serán ignorados.",
+        tr("wizard.warn_count"),
         m_noStateCount);
     ImGui::Spacing();
-    ImGui::TextWrapped("Puedes continuar igualmente. Los componentes ignorados no se asignarán al mando.");
+    ImGui::TextWrapped("%s", tr("wizard.warn_hint"));
     ImGui::Spacing();
 
-    if (ImGui::Button("Continuar##warn", { 140.0f, 0.0f })) {
+    if (ImGui::Button(trid("btn.continue", "warn").c_str(), { 140.0f, 0.0f })) {
         m_state = State::Binding;
         openReader();
         beginStep();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancelar##warn", { 100.0f, 0.0f })) cancel();
+    if (ImGui::Button(trid("btn.cancel", "warn").c_str(), { 100.0f, 0.0f })) cancel();
 }
 
 // ---------------------------------------------------------------------------
@@ -271,8 +240,8 @@ void BindingWizard::renderBinding() {
     ImGui::BeginChild("##wizRight", { rightW, 0.0f }, true);
 
     // Progress
-    ImGui::SeparatorText("Emparejando mando");
-    ImGui::Text("Paso %d / %d", m_currentStep + 1, (int)m_steps.size());
+    ImGui::SeparatorText(tr("wizard.step_bind_title"));
+    ImGui::Text(tr("wizard.step"), m_currentStep + 1, (int)m_steps.size());
     ImGui::Spacing();
 
     if (m_currentStep < (int)m_steps.size()) {
@@ -281,7 +250,7 @@ void BindingWizard::renderBinding() {
 
         // Component label
         if (step.compIndex >= 0 && step.compIndex < (int)m_layout.components.size())
-            ImGui::Text("Componente: %s", m_layout.components[step.compIndex].id.c_str());
+            ImGui::Text(tr("wizard.component"), m_layout.components[step.compIndex].id.c_str());
 
         ImGui::Spacing();
 
@@ -293,12 +262,12 @@ void BindingWizard::renderBinding() {
                 const char* id = (step.compIndex >= 0)
                     ? m_layout.components[step.compIndex].id.c_str()
                     : step.state.c_str();
-                snprintf(promptBuf, sizeof(promptBuf), "Pulsa el boton  [ %s ]", id);
+                snprintf(promptBuf, sizeof(promptBuf), tr("wizard.press_button"), id);
                 promptText = promptBuf;
             } else if (t == "axis" || t == "trigger") {
                 promptText = step.mapping.prompt.c_str();
             } else if (t == "dpad") {
-                promptText = "Pulsa cualquier direccion del D-pad";
+                promptText = tr("wizard.press_dpad");
             }
 
             ImGui::SetWindowFontScale(1.35f);
@@ -327,12 +296,12 @@ void BindingWizard::renderBinding() {
 
         // ── Manual controls ──────────────────────────────────────────────────
         if (m_currentStep == 0) ImGui::BeginDisabled();
-        if (ImGui::Button("Atras##bind", { 90.0f, 0.0f })) goBack();
+        if (ImGui::Button(trid("btn.back", "bind").c_str(), { 90.0f, 0.0f })) goBack();
         if (m_currentStep == 0) ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("Saltar##bind",   { 80.0f, 0.0f })) skipStep();
+        if (ImGui::Button(trid("btn.skip", "bind").c_str(), { 80.0f, 0.0f })) skipStep();
         ImGui::SameLine();
-        if (ImGui::Button("Cancelar##bind", { 90.0f, 0.0f })) cancel();
+        if (ImGui::Button(trid("btn.cancel", "bind").c_str(), { 90.0f, 0.0f })) cancel();
     }
 
     ImGui::EndChild();
@@ -357,23 +326,23 @@ void BindingWizard::renderReview() {
     ImGui::SameLine();
 
     ImGui::BeginChild("##revRight", { rightW, 0.0f }, true);
-    ImGui::SeparatorText("Resultado");
+    ImGui::SeparatorText(tr("wizard.step_review_title"));
 
-    ImGui::Text("Botones asignados: %d", (int)m_boundButtons.size());
-    ImGui::Text("Ejes asignados: %d",    (int)m_boundAxes.size());
-    if (m_hasDpad) ImGui::Text("D-pad: %s", m_dpadType.c_str());
-    else           ImGui::TextDisabled("D-pad: no asignado");
+    ImGui::Text(tr("wizard.review_buttons"), (int)m_boundButtons.size());
+    ImGui::Text(tr("wizard.review_axes"), (int)m_boundAxes.size());
+    if (m_hasDpad) ImGui::Text(tr("wizard.review_dpad"), m_dpadType.c_str());
+    else           ImGui::TextDisabled("%s", tr("wizard.review_dpad_none"));
 
     ImGui::Spacing();
     ImGui::BeginChild("##revList", { 0.0f, 180.0f }, true);
     for (const auto& b : m_boundButtons) {
         if (b.physicalOnly)
-            ImGui::Text("Btn %2d → %s (solo visual)", b.physIndex, b.physical.c_str());
+            ImGui::Text(tr("wizard.review_visual"), b.physIndex, b.physical.c_str());
         else
-            ImGui::Text("Btn %2d → %s", b.physIndex, b.physical.c_str());
+            ImGui::Text(tr("wizard.review_btn"), b.physIndex, b.physical.c_str());
     }
     for (const auto& a : m_boundAxes) {
-        ImGui::Text("%s → %s%s", a.source.c_str(), a.target.c_str(), a.invert ? " (inv)" : "");
+        ImGui::Text(tr("wizard.review_axis"), a.source.c_str(), a.target.c_str(), a.invert ? tr("wizard.review_inverted") : "");
     }
     ImGui::EndChild();
 
@@ -381,9 +350,9 @@ void BindingWizard::renderReview() {
     ImGui::Separator();
     ImGui::Spacing();
 
-    if (ImGui::Button("Guardar##rev", { 120.0f, 0.0f })) saveResult();
+    if (ImGui::Button(trid("btn.save", "rev").c_str(), { 120.0f, 0.0f })) saveResult();
     ImGui::SameLine();
-    if (ImGui::Button("Repetir##rev", { 100.0f, 0.0f })) {
+    if (ImGui::Button(trid("btn.repeat", "rev").c_str(), { 100.0f, 0.0f })) {
         closeReader();
         m_boundButtons.clear();
         m_boundAxes.clear();
@@ -398,7 +367,7 @@ void BindingWizard::renderReview() {
         m_state = State::Binding;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancelar##rev", { 100.0f, 0.0f })) cancel();
+    if (ImGui::Button(trid("btn.cancel", "rev").c_str(), { 100.0f, 0.0f })) cancel();
 
     ImGui::EndChild();
 }
@@ -503,46 +472,20 @@ void BindingWizard::scanControllers() {
         }
     } catch (...) {}
 
-    // HID devices — skip the ViGEm virtual controller (VID:5650 PID:0001)
+    // HID scan — all physical controllers use HID
     for (const auto& h : HIDScanner::scan()) {
-        if (h.vid == 0x5650 && h.pid == 0x0001) continue;
+        if (h.vid == 0x5650 && h.pid == 0x0001) continue;  // skip ViGEm
+        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
+                                                       h.connectionType);
         DetectedController c;
-        c.source         = DetectedController::Source::HID;
         c.vid            = h.vid;
         c.pid            = h.pid;
         c.productName    = h.productName;
         c.connectionType = h.connectionType;
         c.path           = h.path;
-        // Pre-fill display name from existing config; fall back to HID product string
-        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
-                                                       h.connectionType);
         c.name = (existing && !existing->source_name.empty())
                  ? existing->source_name
                  : (h.productName.empty() ? "HID device" : h.productName);
-        m_controllers.push_back(std::move(c));
-    }
-
-    // WinMM devices — skip ViGEm virtual and devices already listed as HID
-    for (const auto& w : PadScanner::scan()) {
-        if (w.vid == 0x5650 && w.pid == 0x0001) continue;
-        bool alreadyHID = false;
-        for (const auto& c : m_controllers)
-            if (c.vid == w.vid && c.pid == w.pid) { alreadyHID = true; break; }
-        if (alreadyHID) continue;
-
-        char narrow[MAXPNAMELEN] = {};
-        WideCharToMultiByte(CP_UTF8, 0, w.name, -1, narrow, sizeof(narrow), nullptr, nullptr);
-
-        DetectedController c;
-        c.source = DetectedController::Source::WinMM;
-        c.vid    = w.vid;
-        c.pid    = w.pid;
-        c.port   = w.port;
-        // Pre-fill display name from existing config; fall back to WinMM name
-        const ControllerConfig* existing = findConfig(existingConfigs, w.vid, w.pid);
-        c.name = (existing && !existing->source_name.empty())
-                 ? existing->source_name
-                 : ((narrow[0] != '\0') ? narrow : "WinMM device");
         m_controllers.push_back(std::move(c));
     }
 }
@@ -793,16 +736,10 @@ void BindingWizard::cancel() {
 // ---------------------------------------------------------------------------
 
 bool BindingWizard::captureButton(int& outIndex) {
-    DWORD mask = 0;
-    if (m_hidReader && m_hidReader->isOpen()) {
-        RawHIDState s{};
-        m_hidReader->read(s);
-        mask = s.buttonMask;
-    } else {
-        auto r = PadScanner::readRaw(m_winmmPort);
-        if (!r.valid) return false;
-        mask = r.buttons;
-    }
+    if (!m_hidReader || !m_hidReader->isOpen()) return false;
+    RawHIDState s{};
+    m_hidReader->read(s);
+    DWORD mask = s.buttonMask;
 
     DWORD newBits = mask & ~m_prevButtonMask;
     m_prevButtonMask = mask;
@@ -821,10 +758,21 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
         if (m_stepCooldown == 0) snapshotBaseline(); // re-snapshot once movement settles
         return false;
     }
-    // Skip axes already committed in previous steps to avoid bleed-over
-    auto alreadyBound = [&](const std::string& name) {
-        for (const auto& a : m_boundAxes)
-            if (a.source == name) return true;
+    // Skip axes already committed in previous steps to avoid bleed-over.
+    // Exception: allow reuse when the current step is the paired trigger (trigger_combined).
+    const BindStep& curStep = m_steps[m_currentStep];
+    const bool curIsTrigger = (curStep.mapping.type == "trigger");
+    const std::string& curTarget = curStep.mapping.axis_target;
+    auto alreadyBound = [&](const std::string& name) -> bool {
+        for (const auto& a : m_boundAxes) {
+            if (a.source != name) continue;
+            if (curIsTrigger &&
+                (a.target == "trigger_l" || a.target == "trigger_r") &&
+                (curTarget  == "trigger_l" || curTarget  == "trigger_r") &&
+                a.target != curTarget)
+                continue; // same axis, opposite trigger → trigger_combined, not a conflict
+            return true;
+        }
         return false;
     };
 
@@ -838,33 +786,40 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
             float delta = std::abs(kHIDAxisValues(cur, i) - kHIDAxisValues(m_axisBaseline, i));
             if (delta > bestDelta) { bestDelta = delta; bestAxis = i; }
         }
-        if (bestDelta < kAxisThreshold || bestAxis < 0) return false;
-        // Use delta direction (not absolute value) so triggers that rest at -1.0
-        // are correctly identified: pressing increases the value (positive delta) → no invert.
-        float deltaSigned = kHIDAxisValues(cur, bestAxis) - kHIDAxisValues(m_axisBaseline, bestAxis);
-        outSource = kHIDAxisNames[bestAxis];
-        outInvert = invertIfPositive ? (deltaSigned > 0.0f) : (deltaSigned < 0.0f);
-        return true;
-    } else {
-        auto cur = PadScanner::readRaw(m_winmmPort);
-        if (!cur.valid) return false;
-        DWORD bestDelta = 0;
-        int   bestAxis  = -1;
-        for (int i = 0; i < 6; ++i) {
-            if (alreadyBound(kWinMMAxisNames[i])) continue;
-            DWORD base = kWinMMAxisValues(m_winmmBaseline, i);
-            DWORD now  = kWinMMAxisValues(cur, i);
-            DWORD delta = (now > base) ? (now - base) : (base - now);
-            if (delta > bestDelta) { bestDelta = delta; bestAxis = i; }
+        float deltaSigned = (bestAxis >= 0)
+            ? kHIDAxisValues(cur, bestAxis) - kHIDAxisValues(m_axisBaseline, bestAxis)
+            : 0.0f;
+
+        if (bestDelta < kAxisNoiseFloor || bestAxis < 0) {
+            // Below noise floor: drift or noise — reset confirmation state.
+            m_axisConfirmCount = 0;
+            m_axisConfirmBest  = -1;
+            m_axisConfirmSum   = 0.0f;
+            return false;
         }
-        if (bestDelta < kWinmmThreshold || bestAxis < 0) return false;
-        DWORD val  = kWinMMAxisValues(cur, bestAxis);
-        // Normalize: center ~32768
-        float norm = (static_cast<float>(val) - 32767.5f) / 32767.5f;
-        outSource = kWinMMAxisNames[bestAxis];
-        outInvert = invertIfPositive ? (norm > 0.0f) : (norm < 0.0f);
+
+        // Require the same axis to dominate for kAxisConfirm consecutive frames.
+        // Prevents committing on fast swipes caught during the release phase or cross-axis drift.
+        if (bestAxis != m_axisConfirmBest) {
+            m_axisConfirmBest  = bestAxis;
+            m_axisConfirmCount = 0;
+            m_axisConfirmSum   = 0.0f;
+        }
+        m_axisConfirmSum += deltaSigned;
+        ++m_axisConfirmCount;
+        if (m_axisConfirmCount < kAxisConfirm || bestDelta < kAxisThreshold) return false;
+
+        // Commit: derive direction from average signed delta over the confirmation window.
+        float avgDelta = m_axisConfirmSum / m_axisConfirmCount;
+        m_axisConfirmCount = 0;
+        m_axisConfirmBest  = -1;
+        m_axisConfirmSum   = 0.0f;
+
+        outSource = kHIDAxisNames[bestAxis];
+        outInvert = invertIfPositive ? (avgDelta > 0.0f) : (avgDelta < 0.0f);
         return true;
     }
+    return false;
 }
 
 bool BindingWizard::captureDpad(std::string& outDpadType) {
@@ -877,9 +832,6 @@ bool BindingWizard::captureDpad(std::string& outDpadType) {
         RawHIDState s{};
         m_hidReader->read(s);
         if (s.hat != 0xFFFFFFFF) { outDpadType = "hid_hat"; return true; }
-    } else {
-        auto r = PadScanner::readRaw(m_winmmPort);
-        if (r.valid && r.pov != JOY_POVCENTERED) { outDpadType = "pov"; return true; }
     }
     return false;
 }
@@ -887,13 +839,7 @@ bool BindingWizard::captureDpad(std::string& outDpadType) {
 void BindingWizard::openReader() {
     closeReader();
     const auto& c = m_controllers[m_selectedCtrl];
-    if (c.source == DetectedController::Source::HID) {
-        m_hidReader = std::make_unique<RawHIDReader>(c.path);
-        m_winmmPort = 0;
-    } else {
-        m_hidReader.reset();
-        m_winmmPort = c.port;
-    }
+    m_hidReader = std::make_unique<RawHIDReader>(c.path);
     m_prevButtonMask = 0;
 }
 
@@ -951,15 +897,15 @@ GamepadState BindingWizard::buildFakeState() const {
 }
 
 void BindingWizard::snapshotBaseline() {
-    m_prevButtonMask = 0;
+    m_prevButtonMask   = 0;
+    m_axisConfirmCount = 0;
+    m_axisConfirmBest  = -1;
+    m_axisConfirmSum   = 0.0f;
     if (m_hidReader && m_hidReader->isOpen()) {
         RawHIDState s{};
         m_hidReader->read(s);
         m_axisBaseline   = s;
         m_prevButtonMask = s.buttonMask;
-    } else {
-        auto r = PadScanner::readRaw(m_winmmPort);
-        if (r.valid) { m_winmmBaseline = r; m_prevButtonMask = r.buttons; }
     }
 }
 
@@ -970,12 +916,7 @@ void BindingWizard::snapshotBaseline() {
 void BindingWizard::saveResult() {
     const auto& ctrl = m_controllers[m_selectedCtrl];
 
-    // Determine mode string
-    std::string mode;
-    if (ctrl.source == DetectedController::Source::HID)
-        mode = "hid";
-    else
-        mode = m_modeIsXInput ? "xinput" : "dinput";
+    const std::string mode = "hid";
 
     // Build the new entry as JSON
     json entry;
@@ -1001,10 +942,24 @@ void BindingWizard::saveResult() {
     }
     entry["buttons"] = buttons;
 
-    // Axes
+    // Axes — detect trigger_combined: same source bound as trigger_l + trigger_r pair
     json axes = json::object();
-    for (const auto& a : m_boundAxes)
+    for (const auto& a : m_boundAxes) {
+        if (a.target == "trigger_l" || a.target == "trigger_r") {
+            auto pairedIt = std::find_if(m_boundAxes.begin(), m_boundAxes.end(),
+                [&](const AxisResult& b) {
+                    return b.source == a.source &&
+                           (b.target == "trigger_l" || b.target == "trigger_r") &&
+                           b.target != a.target;
+                });
+            if (pairedIt != m_boundAxes.end()) {
+                if (a.target == "trigger_l")  // write combined once, from the trigger_l entry
+                    axes[a.source] = { { "target", "trigger_combined" }, { "invert", false } };
+                continue; // trigger_r entry is skipped (already merged above)
+            }
+        }
         axes[a.source] = { { "target", a.target }, { "invert", a.invert } };
+    }
     entry["axes"] = axes;
 
     // Dpad

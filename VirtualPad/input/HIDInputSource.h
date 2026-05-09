@@ -1,8 +1,8 @@
 #pragma once
 #include "IInputSource.h"
+#include "HIDDevice.h"
 #include "ControllerConfig.h"
-#include <windows.h>
-#include <vector>
+#include "ComponentTypes.h"
 #include <string>
 #include <unordered_map>
 
@@ -23,35 +23,37 @@ public:
     DWORD       getLastButtonMask()   const override { return m_lastButtonMask; }
     void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
     GamepadState getPhysicalState()   const override { return m_physicalState; }
+    std::vector<std::string> getActiveAxisActions() const override { return m_activeAxisActions; }
+    const std::unordered_map<std::string, ButtonAction>& getActiveAxisRangeActions() const override { return m_activeAxisRangeActions; }
+    void        setPhysicalController(const PhysicalController& ctrl) override {
+        m_physicalController    = ctrl;
+        m_hasPhysicalController = true;
+    }
 
 private:
-    HANDLE           m_device         = INVALID_HANDLE_VALUE;
-    HANDLE           m_event          = nullptr;
-    void*            m_preparsed      = nullptr;  // PHIDP_PREPARSED_DATA (opaque)
-    ULONG            m_inputReportLen = 0;
+    HIDDevice        m_hid;
     ControllerConfig m_config;
     std::string      m_name;
-    std::vector<BYTE> m_reportBuf;
-    bool             m_connected      = false;
     DWORD            m_lastButtonMask = 0;
     int              m_readCount      = 0;
     int              m_btnErrCount    = 0;
-    BYTE             m_buttonReportId = 0xFF; // report ID in descriptor for buttons (0xFF = unknown)
     float            m_lastTouchX      = 0.0f;
     float            m_lastTouchY      = 0.0f;
     bool             m_lastTouchActive = false;
-    GamepadState     m_physicalState;   // estado físico (action.physical), capturado antes del remapping virtual
-
-    struct ValueRange { LONG logMin; LONG logMax; USHORT bitSize; };
-    std::unordered_map<USHORT, ValueRange> m_valueCaps; // HID usage → logical range
-    std::unordered_map<USHORT, USHORT>     m_usagePage; // HID usage → actual page from descriptor
+    GamepadState             m_physicalState;
+    std::vector<std::string> m_activeAxisActions;
+    std::unordered_map<std::string, ButtonAction> m_activeAxisRangeActions;
+    PhysicalController       m_physicalController;
+    bool                     m_hasPhysicalController = false;
 
     struct AxisUsage { USHORT page; USHORT usage; };
     static AxisUsage usageFromAxisName(const std::string& name);
-    float            normalizeHIDAxis(USHORT usage, ULONG rawValue) const;
     static void   parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right);
     void          applyButtons (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);
     void          applyIMU     (PCHAR buf, ULONG bytesRead, GamepadState& state);
+    void          buildPhysicalButtons (PCHAR buf, ULONG bufLen);
+    void          buildPhysicalAxes    (PCHAR buf, ULONG bufLen);
+    void          applyAxesResidual    (PCHAR buf, ULONG bufLen, GamepadState& state);
 };

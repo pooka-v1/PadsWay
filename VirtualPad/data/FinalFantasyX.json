@@ -4,7 +4,7 @@
     {
       "vid": "2DC8",
       "pid": "6009",
-      "_note": "Pro 3 D-mode: Rp=BanishingBlade, Lp=LightningBot, R3=LuluOverdrive",
+      "_note": "8BitDo-Pro2 D-mode: Rp=BanishingBlade, Lp=LightningBot, R3=LuluOverdrive",
       "buttons": {
         "3":  { "type": "macro", "name": "BanishingBlade" },
         "6":  { "type": "bot",   "name": "LightningBot"   },
@@ -14,7 +14,7 @@
     {
       "vid": "2DC8",
       "pid": "6006",
-      "_note": "Pro 2 D-mode: mismos overrides que Pro 3, verificado 2026/03/20",
+      "_note": "8BitDo-Pro2 D-mode: mismos overrides que Pro 3, verificado 2026/03/20",
       "buttons": {
         "3":  { "type": "macro",    "name": "BanishingBlade" },
         "6":  { "type": "bot",      "name": "LightningBot"   },

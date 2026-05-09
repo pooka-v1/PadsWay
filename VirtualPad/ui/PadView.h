@@ -62,6 +62,16 @@ public:
     // Release all D3D11 resources. Call before releasing the D3D device.
     void unload();
 
+    // Render directional arrows around every stick component.
+    // canvasOrigin: screen-space top-left of the canvas (captured before render()).
+    // selectedComp: stick component index whose arrows are shown selected (-1 = none).
+    // selDir: which direction is highlighted ("up","down","left","right","" = none).
+    void renderStickArrows(ImVec2 canvasOrigin, int selectedComp, const std::string& selDir);
+
+    // Returns the stick component index if a click falls on one of its directional arrows,
+    // and sets outDir to "up"/"down"/"left"/"right". Returns -1 if no arrow was hit.
+    int hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const;
+
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
 
 private:
@@ -72,4 +82,7 @@ private:
     PadLayout     m_layout;
 
     std::unordered_map<std::string, PadTexture> m_textures;
+
+    // Directional arrow overlays (loaded once in load(), used by renderStickArrows)
+    PadTexture m_arrowUp, m_arrowDown, m_arrowLeft, m_arrowRight;
 };

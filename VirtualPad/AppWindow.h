@@ -7,12 +7,14 @@
 #include <atomic>
 #include <unordered_map>
 #include "PadEngine.h"
-#include "PadScanner.h"
 #include "input/HIDScanner.h"
+#include "input/RawHIDReader.h"
+#include <memory>
 #include "config/ConfigLoader.h"
 #include "GamepadState.h"
 #include "ui/PadView.h"
 #include "ui/LayoutEditor.h"
+#include "ui/MappingEditor.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -39,7 +41,6 @@ private:
     void renderEngineTab();
     void renderScannerTab();
     void renderPadsTab();
-    void renderMappingSubtab();
     void renderLayoutTab();
 
     // --- Win32 window procedure ---
@@ -57,12 +58,9 @@ private:
     bool                    m_swapChainOccluded = false;
 
     // --- Scanner state (used only on the main/render thread) ---
-    std::vector<PadScanner::DeviceInfo> m_scanDevices;
     std::vector<HIDScanner::DeviceInfo> m_hidDevices;
-    int       m_scanSelected  = -1;   // index into m_scanDevices (-1 = none)
-    int       m_hidSelected   = -1;   // index into m_hidDevices  (-1 = none)
-    ULONGLONG m_lastScanTime  = 0;    // tick of last WinMM refresh
-    ULONGLONG m_lastHidScanTime = 0;  // tick of last HID scan kick-off
+    int       m_hidSelected     = -1;   // index into m_hidDevices (-1 = none)
+    ULONGLONG m_lastHidScanTime = 0;    // tick of last HID scan kick-off
     float     m_scanSplitX    = 340.0f; // width of the left (device list) panel
 
     // --- Async HID scan (runs on a background thread to avoid blocking render) ---
@@ -72,14 +70,21 @@ private:
     // --- Controller configs (for friendly name lookup in the scanner) ---
     std::vector<ControllerConfig> m_controllerConfigs;
 
+    // --- VirtualPad config (loaded once at startup) ---
+    std::vector<std::string> m_acceptedXboxButtons;
+    float                    m_stickSelectThreshold = 0.85f;
+    int                      m_stickHoldMs          = 2000;
+
     // --- Game profiles ---
     std::vector<std::string> m_profilePaths;   // full paths to discovered profile JSONs
     std::vector<std::string> m_profileNames;   // profile_name from each JSON
     int                      m_profileSelected = 0;  // 0 = none, 1+ = index into lists
 
-    // --- HID live monitor (scanner right panel for HID devices) ---
-    // Uses the engine's last read state — avoids competing with the engine on BT HID.
-    GamepadState m_hidScanState = {};
+    // --- HID live monitor (scanner right panel) ---
+    // m_scanDevice holds its own handle — independent of the Engine.
+    std::unique_ptr<RawHIDReader> m_scanDevice;
+    RawHIDState  m_scanRawState  = {};
+    int          m_scanDeviceIdx = -1;  // index of the device currently open in m_scanDevice
 
     // --- Pad layouts ---
     std::vector<PadLayout> m_padLayouts;
@@ -102,15 +107,7 @@ private:
     bool         m_layoutEditorInitialized = false;
     bool         m_layoutsFromBackup       = false;  // true when .bak was the fallback
 
-    // --- Mapping editor (subtab [Mapear] en Pads) ---
-    int      m_mappingSelPhysComp  = -1;  // componente físico seleccionado (-1 = ninguno)
-    ImVec2   m_mappingPhysOrigin   = {};  // canvas origin del pad físico (capturado cada frame)
-    ImVec2   m_mappingVirtOrigin   = {};  // canvas origin del pad virtual
-    uint16_t m_mappingActiveVid    = 0;   // VID del mando activo al cargar edits
-    uint16_t m_mappingActivePid    = 0;   // PID del mando activo al cargar edits
-    int      m_mappingFlashComp    = -1;  // componente virtual en flash de confirmación (-1 = ninguno)
-    float    m_mappingFlashTimer   = 0.0f; // segundos restantes del flash
-    std::unordered_map<std::string, std::string> m_mappingEdits;  // physShort → virtShort
-    PadTexture m_arrowRightTex;
-    void saveMappingEdits();
+    // --- Mapping editor (modo mapping en Pads) ---
+    PadTexture    m_arrowRightTex;   // arrow used in the normal (non-mapping) pad view
+    MappingEditor m_mappingEditor;
 };

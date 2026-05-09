@@ -1,4 +1,5 @@
 #include "PadView.h"
+#include "../config/Strings.h"
 
 #include <wincodec.h>
 #include <unordered_set>
@@ -84,6 +85,10 @@ bool PadView::loadPng(ID3D11Device* device, const char* path, PadTexture& out) {
 bool PadView::load(ID3D11Device* device) {
     m_device = device;
     m_loaded = true;
+    loadPng(device, "images/decorations/ArrowUp.png",    m_arrowUp);
+    loadPng(device, "images/decorations/ArrowDown.png",  m_arrowDown);
+    loadPng(device, "images/decorations/ArrowLeft.png",  m_arrowLeft);
+    loadPng(device, "images/decorations/ArrowRight.png", m_arrowRight);
     return true;
 }
 
@@ -146,6 +151,10 @@ void PadView::unload() {
     for (auto& [name, tex] : m_textures)
         tex.release();
     m_textures.clear();
+    m_arrowUp.release();
+    m_arrowDown.release();
+    m_arrowLeft.release();
+    m_arrowRight.release();
     m_device = nullptr;
     m_loaded = false;
 }
@@ -246,7 +255,7 @@ int PadView::hitTest(ImVec2 mousePos, ImVec2 origin) const {
 
 void PadView::render(const GamepadState& state, int selectedComp) {
     if (!m_loaded) {
-        ImGui::TextDisabled("Assets not loaded.");
+        ImGui::TextDisabled("%s", tr("padview.assets_not_loaded"));
         return;
     }
 
@@ -430,4 +439,76 @@ void PadView::render(const GamepadState& state, int selectedComp) {
 
     // Advance ImGui layout cursor past the drawn area.
     ImGui::Dummy({ L.W, L.FrontH + L.TopH });
+}
+
+// ---------------------------------------------------------------------------
+// renderStickArrows / hitTestStickArrow
+// ---------------------------------------------------------------------------
+
+// Distance constants shared by render and hit-test.
+static constexpr float kArrowRenderSz = 16.0f;  // draw size (px)
+static constexpr float kArrowGap      = 5.0f;   // gap between stick edge and arrow center
+static constexpr float kArrowHitSz    = 11.0f;  // hit half-size (slightly larger than render)
+
+// Returns the screen-space center of a directional arrow for a stick at (cx,cy).
+static ImVec2 arrowCenter(float cx, float cy, float stickR, const char* dir) {
+    float dist = stickR + kArrowGap + kArrowRenderSz * 0.5f;
+    if      (dir[0] == 'u') return { cx,        cy - dist };  // up
+    else if (dir[0] == 'd') return { cx,        cy + dist };  // down
+    else if (dir[0] == 'l') return { cx - dist, cy        };  // left
+    else                    return { cx + dist, cy        };  // right
+}
+
+void PadView::renderStickArrows(ImVec2 canvasOrigin, int selectedComp, const std::string& selDir) {
+    if (!m_loaded) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    const PadTexture* arrowTex[4] = { &m_arrowUp, &m_arrowDown, &m_arrowLeft, &m_arrowRight };
+    const char*       dirs[4]     = { "up", "down", "left", "right" };
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "stick") continue;
+
+        float stickR = c.size > 0.0f ? c.size * 0.5f : 20.0f;
+        float cx     = canvasOrigin.x + c.cx;
+        float cy     = canvasOrigin.y + c.cy;
+        bool  isSel  = (i == selectedComp);
+
+        for (int d = 0; d < 4; ++d) {
+            if (!arrowTex[d]->valid()) continue;
+            bool dirSel = isSel && (selDir == dirs[d]);
+            float alpha = dirSel ? 1.0f : 0.40f;
+            ImVec4 tint = dirSel ? ImVec4{ 1.0f, 0.88f, 0.15f, alpha }
+                                 : ImVec4{ 1.0f, 1.0f,  1.0f,  alpha };
+            ImVec2 ac = arrowCenter(cx, cy, stickR, dirs[d]);
+            ImVec2 p0 = { ac.x - kArrowRenderSz * 0.5f, ac.y - kArrowRenderSz * 0.5f };
+            ImVec2 p1 = { p0.x + kArrowRenderSz,        p0.y + kArrowRenderSz        };
+            dl->AddImage((ImTextureID)(intptr_t)arrowTex[d]->srv, p0, p1,
+                         { 0, 0 }, { 1, 1 }, ImGui::ColorConvertFloat4ToU32(tint));
+        }
+    }
+}
+
+int PadView::hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const {
+    const char* dirs[4] = { "up", "down", "left", "right" };
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "stick") continue;
+
+        float stickR = c.size > 0.0f ? c.size * 0.5f : 20.0f;
+        float cx     = canvasOrigin.x + c.cx;
+        float cy     = canvasOrigin.y + c.cy;
+
+        for (int d = 0; d < 4; ++d) {
+            ImVec2 ac = arrowCenter(cx, cy, stickR, dirs[d]);
+            if (mousePos.x >= ac.x - kArrowHitSz && mousePos.x <= ac.x + kArrowHitSz &&
+                mousePos.y >= ac.y - kArrowHitSz && mousePos.y <= ac.y + kArrowHitSz) {
+                outDir = dirs[d];
+                return i;
+            }
+        }
+    }
+    return -1;
 }
