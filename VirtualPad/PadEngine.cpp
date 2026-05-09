@@ -834,6 +834,7 @@ void PadEngine::threadFunc() {
 
         if (input->read(state)) {
             { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = input->getPhysicalState(); }
+            const bool editorOpen = m_editorOpen.load();
             // Bot and macro toggle detection uses the button mask from the read just performed
             DWORD btns = input->getLastButtonMask();
 
@@ -851,23 +852,25 @@ void PadEngine::threadFunc() {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
                 bool& prev   = macroPrevBtn[bit];
 
-                if (pressed && !prev) {
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                        macro.start();
-                    else
-                        macro.toggle();
-                    if (macro.isActive()) {
-                        macroRotCount[bit] = 0;
-                        macroLastRX[bit]   = 0.0f;
-                        macroLastRY[bit]   = 0.0f;
+                if (!editorOpen) {
+                    if (pressed && !prev) {
+                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                            macro.start();
+                        else
+                            macro.toggle();
+                        if (macro.isActive()) {
+                            macroRotCount[bit] = 0;
+                            macroLastRX[bit]   = 0.0f;
+                            macroLastRY[bit]   = 0.0f;
+                        }
+                        spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
+                               macro.isActive() ? "ON" : "OFF");
+                        pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
                     }
-                    spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
-                           macro.isActive() ? "ON" : "OFF");
-                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
+                    if (!pressed && prev)
+                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                            macro.stop();
                 }
-                if (!pressed && prev)
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                        macro.stop();
                 prev = pressed;
             }
 
@@ -1331,7 +1334,7 @@ void PadEngine::threadFunc() {
             }
 
             { std::lock_guard<std::mutex> lock(m_mutex); m_lastVirtualState = state; }
-            output->update(state);
+            if (!editorOpen) output->update(state);
         }
 
         Sleep(8);
