@@ -298,7 +298,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
                 if (valid) {
                     if (!physShort.empty()) {
-                        m_model.h5ActionEdits.erase(physShort);
+                        m_model.actionEdits.erase(physShort);
                         auto it = m_model.buttonEdits.find(physShort);
                         bool alreadyAssigned = (it != m_model.buttonEdits.end() && it->second == virtShort);
                         m_model.buttonEdits[physShort] = alreadyAssigned ? "" : virtShort;
@@ -312,11 +312,11 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_sel.dpadDir.clear();
                     m_sel.actionType = ActionType::Xbox;
                 } else {
-                    bool hasAssignment = m_model.h5ActionEdits.count(physShort) > 0 ||
+                    bool hasAssignment = m_model.actionEdits.count(physShort) > 0 ||
                         (m_model.buttonEdits.count(physShort) && !m_model.buttonEdits.at(physShort).empty());
                     if (hasAssignment && !physShort.empty()) {
                         m_model.buttonEdits[physShort] = "";
-                        m_model.h5ActionEdits.erase(physShort);
+                        m_model.actionEdits.erase(physShort);
                         m_sel.physComp    = -1;
                         m_sel.stickAsButton = false;
                         m_sel.dpadDir.clear();
@@ -362,17 +362,17 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 };
                 auto doTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
                     if (physShort.empty()) return;
-                    auto h5it = m_model.h5ActionEdits.find(physShort);
-                    bool already = (h5it != m_model.h5ActionEdits.end() &&
+                    auto h5it = m_model.actionEdits.find(physShort);
+                    bool already = (h5it != m_model.actionEdits.end() &&
                                     h5it->second.type == ButtonActionType::Trigger &&
                                     h5it->second.target == trigTarget);
                     if (already) {
-                        m_model.h5ActionEdits.erase(physShort);
+                        m_model.actionEdits.erase(physShort);
                         m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
                     } else {
                         ButtonAction act;
                         act.type = ButtonActionType::Trigger; act.physical = physShort; act.target = trigTarget;
-                        m_model.h5ActionEdits[physShort] = act;
+                        m_model.actionEdits[physShort] = act;
                         m_model.buttonEdits.erase(physShort);
                         m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
                         m_sel.flashTimer     = 0.5f;
@@ -450,7 +450,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         if (it != m_model.buttonEdits.end() && it->second == slotKey) {
                             m_model.buttonEdits.erase(physShort);
                         } else {
-                            m_model.h5ActionEdits.erase(physShort);
+                            m_model.actionEdits.erase(physShort);
                             m_model.buttonEdits[physShort] = slotKey;
                         }
                         m_sel.physComp = -1; m_sel.stickAsButton = false;
@@ -615,8 +615,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         if (m_sel.physComp < (int)physComps.size()) {
             const PadComponent& selComp = physComps[m_sel.physComp];
             auto activateTriggerIfAssigned = [&](const std::string& physShort) -> bool {
-                auto h5trig = m_model.h5ActionEdits.find(physShort);
-                if (h5trig != m_model.h5ActionEdits.end() && h5trig->second.type == ButtonActionType::Trigger) {
+                auto h5trig = m_model.actionEdits.find(physShort);
+                if (h5trig != m_model.actionEdits.end() && h5trig->second.type == ButtonActionType::Trigger) {
                     activateState(virtDisplay, h5trig->second.target == "l2" ? "triggerL" : "triggerR");
                     return true;
                 }
@@ -628,16 +628,16 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::string physShort = stateToShort(physState);
                 if (!activateTriggerIfAssigned(physShort)) {
                     auto it = m_model.buttonEdits.find(physShort);
-                    std::string virtShort = (it != m_model.buttonEdits.end()) ? it->second : physShort;
-                    applyVirtShort(virtShort);
+                    if (it != m_model.buttonEdits.end())
+                        applyVirtShort(it->second);
                 }
             } else if (selComp.type == "stick" && m_sel.stickAsButton) {
                 activateState(physDisplay, selComp.stateClick);
                 std::string physShort = stateToShort(selComp.stateClick);
                 if (!activateTriggerIfAssigned(physShort)) {
                     auto it = m_model.buttonEdits.find(physShort);
-                    std::string virtShort = (it != m_model.buttonEdits.end()) ? it->second : physShort;
-                    applyVirtShort(virtShort);
+                    if (it != m_model.buttonEdits.end())
+                        applyVirtShort(it->second);
                 }
             } else if (selComp.type == "stick") {
                 // Show current axis_action assignment in virtual display
@@ -679,8 +679,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::string physShort = stateToShort(dpadState);
                 if (!activateTriggerIfAssigned(physShort)) {
                     auto it = m_model.buttonEdits.find(physShort);
-                    std::string virtShort = (it != m_model.buttonEdits.end()) ? it->second : physShort;
-                    applyVirtShort(virtShort);
+                    if (it != m_model.buttonEdits.end())
+                        applyVirtShort(it->second);
                 }
             }
         }
@@ -954,11 +954,16 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 } catch (...) {}
                 m_macroNamesLoaded = true;
             }
+            if (m_sel.macroSel.empty() && !physShortSel.empty()) {
+                auto it = m_model.actionEdits.find(physShortSel);
+                if (it != m_model.actionEdits.end() && it->second.type == ButtonActionType::Macro)
+                    m_sel.macroSel = it->second.name;
+            }
             if (ActionPanel::renderMacroCombo("mac_h5", m_sel.macroSel, m_macroNames, availW)) {
                 if (!physShortSel.empty()) {
                     ButtonAction act;
                     act.type = ButtonActionType::Macro; act.physical = physShortSel; act.name = m_sel.macroSel;
-                    m_model.h5ActionEdits[physShortSel] = act;
+                    m_model.actionEdits[physShortSel] = act;
                     m_model.buttonEdits.erase(physShortSel);
                 }
                 m_sel.physComp = -1; m_sel.stickAsButton = false; m_sel.dpadDir.clear();
@@ -974,7 +979,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     ButtonAction act;
                     act.type = ButtonActionType::Keyboard; act.physical = physShortSel;
                     for (const auto& p : m_sel.captureKeys) act.keys.push_back(p.first);
-                    m_model.h5ActionEdits[physShortSel] = act;
+                    m_model.actionEdits[physShortSel] = act;
                     m_model.buttonEdits.erase(physShortSel);
                 }
                 m_sel.physComp = -1; m_sel.stickAsButton = false; m_sel.dpadDir.clear();
@@ -987,7 +992,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (!physShortSel.empty()) {
                     ButtonAction act;
                     act.type = ButtonActionType::MouseClick; act.physical = physShortSel; act.mouseButton = mbResult;
-                    m_model.h5ActionEdits[physShortSel] = act;
+                    m_model.actionEdits[physShortSel] = act;
                     m_model.buttonEdits.erase(physShortSel);
                 }
                 m_sel.physComp = -1; m_sel.stickAsButton = false; m_sel.dpadDir.clear();
@@ -1448,22 +1453,22 @@ void MappingEditor::onVirtHitPhysButton(PadView& phys, PadView& virt, ImVec2 mou
     if (!physShort.empty() && !virtShort.empty()) {
         if (virtShort == "triggerL" || virtShort == "triggerR") {
             std::string trigTarget = (virtShort == "triggerL") ? "l2" : "r2";
-            auto h5it = m_model.h5ActionEdits.find(physShort);
-            bool already = (h5it != m_model.h5ActionEdits.end() &&
+            auto h5it = m_model.actionEdits.find(physShort);
+            bool already = (h5it != m_model.actionEdits.end() &&
                             h5it->second.type == ButtonActionType::Trigger &&
                             h5it->second.target == trigTarget);
             if (already) {
-                m_model.h5ActionEdits.erase(physShort);
+                m_model.actionEdits.erase(physShort);
                 m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
             } else {
                 ButtonAction act;
                 act.type = ButtonActionType::Trigger; act.physical = physShort; act.target = trigTarget;
-                m_model.h5ActionEdits[physShort] = act;
+                m_model.actionEdits[physShort] = act;
                 m_model.buttonEdits.erase(physShort);
                 m_sel.flashComp = virtHit; m_sel.flashTimer = 0.5f; m_sel.flashVirtShort = virtShort;
             }
         } else {
-            m_model.h5ActionEdits.erase(physShort);
+            m_model.actionEdits.erase(physShort);
             auto it = m_model.buttonEdits.find(physShort);
             bool alreadyAssigned = (it != m_model.buttonEdits.end() && it->second == virtShort);
             m_model.buttonEdits[physShort] = alreadyAssigned ? "" : virtShort;
@@ -1497,7 +1502,7 @@ void MappingEditor::onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mous
                         AxisMapping edit = mapping;
                         edit.stickId = sid; edit.btnNeg = edit.btnPos = "";
                         edit.target  = (sid == xId) ? vxId : vyId;
-                        m_model.h6AxisEdits[sid] = edit;
+                        m_model.axisEdits[sid] = edit;
                     }
                 }
                 break;
@@ -1516,7 +1521,7 @@ void MappingEditor::onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mous
                 }
                 break;
             }
-            m_model.h6AxisEdits[id] = edit;
+            m_model.axisEdits[id] = edit;
         };
         buildDpadEdit(xId, "dpad_x");
         if (!yId.empty()) buildDpadEdit(yId, "dpad_y");
@@ -1667,7 +1672,7 @@ void MappingEditor::onVirtArrowHit(PadView& phys, PadView& virt, int virtComp, c
             m_model.buttonEdits.erase(source);
             m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f;
         } else {
-            m_model.h5ActionEdits.erase(source);
+            m_model.actionEdits.erase(source);
             m_model.buttonEdits[source] = slotKey;
             m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
         }

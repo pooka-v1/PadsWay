@@ -614,8 +614,6 @@ void HIDInputSource::buildPhysicalButtons(PCHAR buf, ULONG bufLen) {
     };
     for (const auto& [bit, action] : m_config.buttons) {
         if (action.physical.empty()) continue;
-        if (action.type != ButtonActionType::VirtualButton &&
-            action.type != ButtonActionType::Trigger) continue;
         bool pressed = (m_lastButtonMask & (1u << (bit - 1))) != 0;
         setPhys(action.physical, pressed);
         if (pressed && action.type == ButtonActionType::Trigger) {

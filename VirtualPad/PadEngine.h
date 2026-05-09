@@ -85,6 +85,9 @@ public:
     // Reload controllers.json from disk (call after wizard saves a new entry).
     void reloadConfigs();
 
+    // Suppress macro/keyboard/mouse processing and ViGEm output while the mapping editor is open.
+    void setEditorOpen(bool open) { m_editorOpen.store(open); }
+
 private:
     void threadFunc();
     void monitorFunc();  // background thread: keeps m_availableDevices updated
@@ -94,6 +97,7 @@ private:
     std::atomic<bool>  m_running       { false };
     std::atomic<bool>  m_connected     { false };
     std::atomic<bool>  m_configsDirty  { false };  // set by reloadConfigs(); picked up by run loop
+    std::atomic<bool>  m_editorOpen    { false };  // true while mapping editor is open — suppresses macro/output
 
     mutable std::mutex m_mutex;
     std::string        m_device;   // name of the active input device

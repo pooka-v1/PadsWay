@@ -36,23 +36,23 @@ public:
     // Button remapping: physShort → virtShort (Xbox).
     std::unordered_map<std::string, std::string>    buttonEdits;
 
-    // H5 non-Xbox actions: physShort → ButtonAction (Keyboard/Mouse/Macro/Trigger).
-    std::unordered_map<std::string, ButtonAction>   h5ActionEdits;
+    // Non-Xbox button actions: physShort → ButtonAction (Keyboard/Mouse/Macro/Trigger).
+    std::unordered_map<std::string, ButtonAction>   actionEdits;
 
-    // H6 whole-axis remapping: stickId → AxisMapping.
-    std::unordered_map<std::string, AxisMapping>    h6AxisEdits;
+    // Whole-axis remapping: stickId → AxisMapping.
+    std::unordered_map<std::string, AxisMapping>    axisEdits;
 
-    // H6 half-axis / dpad-direction actions: source key → HalfAxisAction.
+    // Half-axis / dpad-direction actions: source key → HalfAxisAction.
     std::unordered_map<std::string, HalfAxisAction> axisActionEdits;
 
-    // H7 simple trigger actions: "l2"/"r2" → ButtonAction.
+    // Simple trigger actions: "l2"/"r2" → ButtonAction.
     std::unordered_map<std::string, ButtonAction>   trigActionEdits;
 
-    // H7 trigger range edits for L2 and R2.
+    // Trigger range edits for L2 and R2.
     std::vector<RangeEdit> trigLRangeEdits;
     std::vector<RangeEdit> trigRRangeEdits;
 
-    // H6 stick slot assignments: slot key → source name.
+    // Stick slot assignments: slot key → source name.
     std::unordered_map<std::string, std::string> stickSlotEdits;
 
     // Populate edits from the matching config entry (vid/pid must be set first).
