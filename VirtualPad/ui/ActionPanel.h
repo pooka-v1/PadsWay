@@ -31,13 +31,16 @@ bool renderKeyboardCapture(
     bool showWhenEmpty = false);
 
 // Renders a macro combo + Asignar button:
-//   [-- elige macro --  ▼]  [Asignar]
+//   [-- elige macro --  ▼]  [Asignar]  [extraLabel?]
 // Returns true when Asignar is clicked with a non-empty selection.
+// extraLabel/extraClicked: optional extra button rendered on the same row.
 bool renderMacroCombo(
     const char* contextId,
     std::string& sel,
     const std::vector<std::string>& names,
-    float availW);
+    float availW,
+    const char* extraLabel   = nullptr,
+    bool*       extraClicked = nullptr);
 
 // Renders 5 mouse buttons centered:
 //   [Izq] [Der] [Centro] [Atrás] [Adelante]

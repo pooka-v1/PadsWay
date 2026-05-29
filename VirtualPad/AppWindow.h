@@ -15,6 +15,7 @@
 #include "ui/PadView.h"
 #include "ui/LayoutEditor.h"
 #include "ui/MappingEditor.h"
+#include "ui/MacroManagerPanel.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -42,6 +43,9 @@ private:
     void renderScannerTab();
     void renderPadsTab();
     void renderLayoutTab();
+
+    // Re-scan data/*.json for game profiles and update m_profilePaths/Names.
+    void refreshProfileList();
 
     // --- Win32 window procedure ---
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -110,4 +114,7 @@ private:
     // --- Mapping editor (modo mapping en Pads) ---
     PadTexture    m_arrowRightTex;   // arrow used in the normal (non-mapping) pad view
     MappingEditor m_mappingEditor;
+
+    // --- Macro manager panel ---
+    MacroManagerPanel m_macroManager;
 };

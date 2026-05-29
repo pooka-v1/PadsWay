@@ -498,14 +498,17 @@ void PadEngine::threadFunc() {
 
         auto input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
 
-        // Inject PhysicalController for component-system processing (P4)
+        // Inject PhysicalController for component-system processing (P4).
+        // Rebuild button layer from effectiveCfg so profile overrides are reflected.
         {
             auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
                 [&](const PhysicalController& pc) {
                     return pc.vid == selected.vid && pc.pid == selected.pid;
                 });
             if (it != physCtrls.end()) {
-                input->setPhysicalController(*it);
+                PhysicalController pc = *it;
+                rebuildPhysicalControllerButtons(pc, effectiveCfg);
+                input->setPhysicalController(pc);
                 spdlog::info("PhysicalController injected for {:04X}:{:04X}", selected.vid, selected.pid);
             }
         }
@@ -649,13 +652,15 @@ void PadEngine::threadFunc() {
             // Dpad H5 macros
             for (const auto& [dir, action] : cfg->dpadActions) {
                 if (action.type != ButtonActionType::Macro) continue;
-                std::string execution;
-                auto it = macroLibrary.find(action.name);
-                if (it == macroLibrary.end()) {
-                    spdlog::warn("Macro '{}' (dpad {}) not found in library.", action.name, dir);
-                    continue;
+                std::string execution = action.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(action.name);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (dpad {}) not found in library.", action.name, dir);
+                        continue;
+                    }
+                    execution = it->second;
                 }
-                execution = it->second;
                 try {
                     Macro m;
                     MacroParser::parse(execution, m);
@@ -700,13 +705,17 @@ void PadEngine::threadFunc() {
             auto initTrigMacro = [&](const ButtonAction& act, Macro& mac, bool& ok) {
                 ok = false;
                 if (act.type != ButtonActionType::Macro) return;
-                auto it = macroLibrary.find(act.name);
-                if (it == macroLibrary.end()) {
-                    spdlog::warn("Macro '{}' (trigger) not found in library.", act.name);
-                    return;
+                std::string execution = act.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(act.name);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (trigger) not found in library.", act.name);
+                        return;
+                    }
+                    execution = it->second;
                 }
                 try {
-                    MacroParser::parse(it->second, mac);
+                    MacroParser::parse(execution, mac);
                     ok = true;
                     spdlog::info("Macro '{}' assigned to trigger.", act.name);
                 } catch (const std::exception& ex) {
@@ -761,9 +770,9 @@ void PadEngine::threadFunc() {
     int          reconnectTries    = 0;
 
     while (m_running && !m_switchPending.load()) {
-        // Profile hot-swap: detect change and re-apply without reopening the device
+        // Profile hot-swap: detect change or explicit reload request.
         std::string newProfile = getProfilePath();
-        if (newProfile != currentProfilePath) {
+        if (newProfile != currentProfilePath || m_profileDirty.exchange(false)) {
             currentProfilePath = newProfile;
             effectiveCfg = *cfgBase;
             if (!currentProfilePath.empty()) {
@@ -780,10 +789,33 @@ void PadEngine::threadFunc() {
                 m_activeProfileName.clear();
             }
             input->setConfig(*cfg);   // cfg == &effectiveCfg, now updated
+            // Rebuild PhysicalController button layer to reflect profile's type overrides.
+            {
+                auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
+                    [&](const PhysicalController& pc) {
+                        return pc.vid == selected.vid && pc.pid == selected.pid;
+                    });
+                if (it != physCtrls.end()) {
+                    PhysicalController pc = *it;
+                    rebuildPhysicalControllerButtons(pc, effectiveCfg);
+                    input->setPhysicalController(pc);
+                }
+            }
             if (bot.isActive()) bot.toggle();
             botBtnPrev  = false;
             mouseAccumX = 0.0f;
             mouseAccumY = 0.0f;
+            initMacros();
+        }
+
+        // Macro library hot-reload: pick up macros.json changes saved by the macro manager.
+        if (m_macroLibDirty.exchange(false)) {
+            try {
+                macroLibrary = loadMacroLibrary("data/macros.json");
+                spdlog::info("Macro library reloaded: {} macros.", macroLibrary.size());
+            } catch (const std::exception& ex) {
+                spdlog::warn("Macro library reload failed: {}", ex.what());
+            }
             initMacros();
         }
 

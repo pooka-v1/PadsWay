@@ -19,72 +19,161 @@ void MappingModel::clear() {
 }
 
 // ---------------------------------------------------------------------------
-void MappingModel::reload(const std::vector<ControllerConfig>& configs) {
+void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
     clear();
 
+    for (const auto& [idx, action] : cfg.buttons) {
+        if (action.physical.empty()) continue;
+        switch (action.type) {
+        case ButtonActionType::VirtualButton:
+            if (!action.name.empty() && action.physical != action.name)
+                buttonEdits[action.physical] = action.name;
+            break;
+        case ButtonActionType::Keyboard:
+        case ButtonActionType::MouseClick:
+        case ButtonActionType::Macro:
+        case ButtonActionType::Trigger:
+            actionEdits[action.physical] = action;
+            break;
+        default: break;
+        }
+    }
+
+    for (const auto& [dir, vShort] : cfg.dpadRemap)
+        buttonEdits["dpad_" + dir] = vShort;
+    for (const auto& [dir, action] : cfg.dpadActions)
+        actionEdits["dpad_" + dir] = action;
+    for (const auto& [slotDir, srcs] : cfg.stickSlots)
+        for (const auto& src : srcs)
+            if (src.rfind("dpad_", 0) == 0)
+                buttonEdits[src] = slotDir;
+
+    if (cfg.triggerLHasAction) trigActionEdits["l2"] = cfg.triggerLAction;
+    if (cfg.triggerRHasAction) trigActionEdits["r2"] = cfg.triggerRAction;
+    for (const auto& [slotDir, srcs] : cfg.stickSlots)
+        for (const auto& src : srcs)
+            if (src == "l2" || src == "r2") {
+                ButtonAction act;
+                act.type = ButtonActionType::VirtualButton; act.physical = src; act.name = slotDir;
+                trigActionEdits[src] = act;
+            }
+
+    auto loadRanges = [](const std::vector<TriggerRange>& src,
+                          std::vector<RangeEdit>& dst) {
+        dst.clear();
+        for (const auto& r : src) {
+            RangeEdit re;
+            re.from      = r.from;
+            re.to        = r.to;
+            re.action    = r.action;
+            re.hasAction = r.hasAction;
+            dst.push_back(re);
+        }
+    };
+    loadRanges(cfg.triggerLRanges, trigLRangeEdits);
+    loadRanges(cfg.triggerRRanges, trigRRangeEdits);
+
+    for (const auto& [key, action] : cfg.axis_actions)
+        axisActionEdits[key] = action;
+}
+
+// ---------------------------------------------------------------------------
+void MappingModel::reload(const std::vector<ControllerConfig>& configs) {
     for (const auto& cfg : configs) {
         if (cfg.vid != vid || cfg.pid != pid) continue;
-
-        for (const auto& [idx, action] : cfg.buttons) {
-            if (action.physical.empty()) continue;
-            switch (action.type) {
-            case ButtonActionType::VirtualButton:
-                if (!action.name.empty() && action.physical != action.name)
-                    buttonEdits[action.physical] = action.name;
-                break;
-            case ButtonActionType::Keyboard:
-            case ButtonActionType::MouseClick:
-            case ButtonActionType::Macro:
-            case ButtonActionType::Trigger:
-                actionEdits[action.physical] = action;
-                break;
-            default: break;
-            }
-        }
-
-        for (const auto& [dir, vShort] : cfg.dpadRemap)
-            buttonEdits["dpad_" + dir] = vShort;
-        for (const auto& [dir, action] : cfg.dpadActions)
-            actionEdits["dpad_" + dir] = action;
-        // Dpad sources assigned to stick slots are in stickSlots (not dpadRemap).
-        for (const auto& [slotDir, srcs] : cfg.stickSlots)
-            for (const auto& src : srcs)
-                if (src.rfind("dpad_", 0) == 0)
-                    buttonEdits[src] = slotDir;
-
-        if (cfg.triggerLHasAction) trigActionEdits["l2"] = cfg.triggerLAction;
-        if (cfg.triggerRHasAction) trigActionEdits["r2"] = cfg.triggerRAction;
-        // Trigger sources assigned to stick slots are in stickSlots (not triggerL/RAction).
-        for (const auto& [slotDir, srcs] : cfg.stickSlots)
-            for (const auto& src : srcs)
-                if (src == "l2" || src == "r2") {
-                    ButtonAction act;
-                    act.type = ButtonActionType::VirtualButton; act.physical = src; act.name = slotDir;
-                    trigActionEdits[src] = act;
-                }
-
-        auto loadRanges = [](const std::vector<TriggerRange>& src,
-                              std::vector<RangeEdit>& dst) {
-            dst.clear();
-            for (const auto& r : src) {
-                RangeEdit re;
-                re.from      = r.from;
-                re.to        = r.to;
-                re.action    = r.action;
-                re.hasAction = r.hasAction;
-                dst.push_back(re);
-            }
-        };
-        loadRanges(cfg.triggerLRanges, trigLRangeEdits);
-        loadRanges(cfg.triggerRRanges, trigRRangeEdits);
-
-        for (const auto& [key, action] : cfg.axis_actions)
-            axisActionEdits[key] = action;
-
-        // stickSlotEdits reserved for future inverse case (analog stick → virtual component).
-        // Button-sourced slot assignments are loaded via buttonEdits (VirtualButton case above).
+        reloadFromConfig(cfg);
         break;
     }
+}
+
+// ---------------------------------------------------------------------------
+void MappingModel::loadProfile(const ControllerConfig& base, const GameProfile& profile) {
+    vid = base.vid;
+    pid = base.pid;
+    reloadFromConfig(applyProfile(base, profile));
+}
+
+// ---------------------------------------------------------------------------
+void MappingModel::saveProfile(const std::string& path, const std::string& profileName,
+                               const ControllerConfig& base) {
+    // Build physShort -> base action + physShort -> virtual output name.
+    std::unordered_map<std::string, const ButtonAction*> baseByPhys;
+    std::unordered_map<std::string, std::string>         physToVirtual;
+    for (const auto& [bit, action] : base.buttons) {
+        if (action.physical.empty()) continue;
+        baseByPhys[action.physical] = &action;
+        if (action.type == ButtonActionType::VirtualButton && !action.name.empty())
+            physToVirtual[action.physical] = action.name;
+    }
+
+    json buttonsJson = json::object();
+
+    // actionEdits: Macro/KB/Mouse/Trigger — key = virtual output name, or physShort for
+    // extra buttons without a virtual Xbox equivalent (lp, rp, l4, r4).
+    // applyProfile reads both via dual lookup, so physShort is a valid key.
+    for (const auto& [physShort, act] : actionEdits) {
+        if (physShort.rfind("dpad_", 0) == 0) continue;
+        auto vit = physToVirtual.find(physShort);
+        const std::string& vName = (vit != physToVirtual.end()) ? vit->second : physShort;
+
+        auto bit = baseByPhys.find(physShort);
+        if (bit != baseByPhys.end() &&
+            bit->second->type == act.type && bit->second->name == act.name)
+            continue;  // same as base
+
+        json j = json::object();
+        if (act.type == ButtonActionType::Macro) {
+            j["type"] = "macro"; j["name"] = act.name;
+            if (!act.execution.empty()) j["execution"] = act.execution;
+        } else if (act.type == ButtonActionType::Keyboard) {
+            j["type"] = "keyboard";
+            json arr = json::array();
+            for (const auto& k : act.keys) arr.push_back(k);
+            j["keys"] = arr;
+        } else if (act.type == ButtonActionType::MouseClick) {
+            j["type"] = "mouse_click"; j["button"] = act.mouseButton;
+        } else if (act.type == ButtonActionType::Trigger) {
+            j["type"] = "trigger"; j["target"] = act.target;
+        }
+        if (!j.empty()) buttonsJson[vName] = j;
+    }
+
+    // buttonEdits: VirtualButton remaps — key = virtual output name, or physShort fallback.
+    for (const auto& [physShort, virtShort] : buttonEdits) {
+        if (physShort.rfind("dpad_", 0) == 0) continue;
+        auto vit = physToVirtual.find(physShort);
+        const std::string& vName = (vit != physToVirtual.end()) ? vit->second : physShort;
+
+        auto bit = baseByPhys.find(physShort);
+        if (bit != baseByPhys.end() &&
+            bit->second->type == ButtonActionType::VirtualButton &&
+            bit->second->name == virtShort)
+            continue;  // same as base
+
+        buttonsJson[vName] = json{{"virtual", virtShort}};
+    }
+
+    json root;
+    {
+        std::ifstream f(path);
+        if (f.is_open()) root = json::parse(f);
+    }
+    root["profile_name"] = profileName;
+    if (buttonsJson.empty()) root.erase("buttons");
+    else                     root["buttons"] = buttonsJson;
+
+    // Remove legacy overrides array if present.
+    root.erase("overrides");
+
+    std::string dumped = root.dump(2);
+    json::parse(dumped);
+    std::string tmpPath = path + ".tmp";
+    {
+        std::ofstream tmp(tmpPath);
+        if (!tmp.is_open()) return;
+        tmp << dumped;
+    }
+    MoveFileExA(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +225,8 @@ void MappingModel::save(const std::string& path) {
                 } else if (act.type == ButtonActionType::Macro) {
                     newBtn["type"] = "macro";
                     newBtn["name"] = act.name;
+                    if (!act.execution.empty()) newBtn["execution"] = act.execution;
+                    else newBtn.erase("execution");
                     newBtn.erase("keys"); newBtn.erase("button");
                 } else if (act.type == ButtonActionType::Trigger) {
                     newBtn["type"]   = "trigger";
@@ -182,6 +273,7 @@ void MappingModel::save(const std::string& path) {
                     } else if (act.type == ButtonActionType::Macro) {
                         actJson["type"] = "macro";
                         actJson["name"] = act.name;
+                        if (!act.execution.empty()) actJson["execution"] = act.execution;
                     } else if (act.type == ButtonActionType::Trigger) {
                         actJson["type"]   = "trigger";
                         actJson["target"] = act.target;
@@ -219,6 +311,7 @@ void MappingModel::save(const std::string& path) {
                 } else if (act.type == ButtonActionType::Macro) {
                     j["type"] = "macro";
                     j["name"] = act.name;
+                    if (!act.execution.empty()) j["execution"] = act.execution;
                 } else if (act.type == ButtonActionType::Trigger) {
                     j["type"]   = "trigger";
                     j["target"] = act.target;

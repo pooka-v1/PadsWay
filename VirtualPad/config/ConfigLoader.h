@@ -22,11 +22,17 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
 // Returns an empty map if the file does not exist.
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path);
 
+// Saves macro library to a JSON file. Entries are written in the order supplied.
+// Throws std::runtime_error if the file cannot be written.
+void saveMacroLibrary(const std::string& path,
+                      const std::vector<std::pair<std::string, std::string>>& macros);
+
 struct VirtualPadConfig {
     uint16_t                 vid                    = 0x5650;   // defaults if file is missing
     uint16_t                 pid                    = 0x0001;
     std::string              logLevel               = "info";   // trace/debug/info/warn/error
     std::string              locale                 = "en";
+    float                    fontSize               = 17.0f;    // ImGui font size in pixels
     std::vector<std::string> acceptedXboxButtons    = {"a","b","x","y","l1","r1","select","start","home","l3","r3"};
     float                    stickSelectThreshold   = 0.85f;    // normalized [0,1]
     int                      stickHoldMs            = 2000;     // ms held at tope to select direction
@@ -38,26 +44,30 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path);
 
 // ── Game profiles ──────────────────────────────────────────────────────────
 
-// A game profile declares button and axis overrides for one or more controllers.
+// A game profile declares controller-agnostic button overrides.
+// Keys are virtual Xbox output names (a, b, x, y, l1, r1, l2, r2, l3, r3,
+// start, select, home, dpad_up/down/left/right). The profile applies to any
+// controller: overrides for virtual buttons the controller does not produce
+// are silently ignored.
 struct GameProfile {
     std::string profile_name;
-
-    struct Override {
-        uint16_t vid = 0, pid = 0;
-        std::unordered_map<int, ButtonAction>           buttons;       // physical bit -> action
-        std::unordered_map<std::string, AxisMapping>    axes;          // source -> whole-axis mapping
-        std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "source_pos/neg" -> per-direction action
-    };
-    std::vector<Override> overrides;
+    std::unordered_map<std::string, ButtonAction> buttons;  // virtual Xbox name -> action
+    std::unordered_map<std::string, AxisMapping>  axes;     // virtual axis name (right_x, left_y…) -> new mapping
 };
 
 // Loads a game profile JSON. Returns a profile with an empty name if the
 // file does not exist or has no profile_name field.
 GameProfile loadGameProfile(const std::string& path);
 
-// Returns a copy of base with the matching override's buttons applied on top.
-// Axes and dpad are unchanged. If no override matches vid/pid, returns base as-is.
+// Returns a copy of base with the profile's button overrides applied.
+// Resolves each virtual Xbox name to the bit that produces it on this controller.
+// Overrides for virtual buttons not produced by this controller are silently ignored.
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
+
+// Updates the button layer of pc to match cfg's button type assignments.
+// Axes, triggers, and analog components are not modified.
+// Call after applyProfile() to ensure the Component System reflects profile overrides.
+void rebuildPhysicalControllerButtons(PhysicalController& pc, const ControllerConfig& cfg);
 
 // ── Component System ─────────────────────────────────────────────────────────
 

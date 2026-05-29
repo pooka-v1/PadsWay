@@ -239,7 +239,8 @@ int PadView::hitTest(ImVec2 mousePos, ImVec2 origin) const {
         if (c.type == "stick" || c.type == "gyro") {
             hw = hh = c.size > 0.0f ? c.size * 0.5f : 20.0f;
         } else if (c.type == "dpad") {
-            hw = hh = 40.0f;
+            float dpadScale = (c.size > 0.0f) ? c.size : 1.0f;
+            hw = hh = 40.0f * dpadScale;
         } else {
             hw = c.w > 0.0f ? c.w * 0.5f : 20.0f;
             hh = c.h > 0.0f ? c.h * 0.5f : 20.0f;
@@ -393,22 +394,29 @@ void PadView::render(const GamepadState& state, int selectedComp) {
             }
         }
         else if (c.type == "dpad") {
-            // Each arm is sized to its texture's natural dimensions, offset from the dpad center.
+            // Each arm is offset from the dpad center and scaled uniformly.
+            // c.size is the scale factor (0 or 1 = natural texture size).
+            float dpadScale = (c.size > 0.0f) ? c.size : 1.0f;
             auto drawArm = [&](const std::string& imgName, const std::string& stName,
                                float acx, float acy) {
                 const PadTexture* t = getTex(imgName);
                 if (!t) return;
                 bool pressed = resolveState(state, stName, 0.5f);
-                img(*t, acx, acy, (float)t->w, (float)t->h, pressed ? activeCol : col);
+                img(*t, acx, acy, (float)t->w * dpadScale, (float)t->h * dpadScale,
+                    pressed ? activeCol : col);
             };
             const PadTexture* tUp    = getTex(c.imageUp);
             const PadTexture* tDown  = getTex(c.imageDown);
             const PadTexture* tLeft  = getTex(c.imageLeft);
             const PadTexture* tRight = getTex(c.imageRight);
-            if (tUp)    drawArm(c.imageUp,    c.stateUp,    c.cx,                          c.cy - tUp->h    * 0.5f + 2.0f);
-            if (tDown)  drawArm(c.imageDown,  c.stateDown,  c.cx,                          c.cy + tDown->h  * 0.5f);
-            if (tLeft)  drawArm(c.imageLeft,  c.stateLeft,  c.cx - tLeft->w  * 0.5f,       c.cy);
-            if (tRight) drawArm(c.imageRight, c.stateRight, c.cx + tRight->w * 0.5f,       c.cy);
+            if (tUp)    drawArm(c.imageUp,    c.stateUp,
+                                c.cx, c.cy - tUp->h    * dpadScale * 0.5f + 2.0f * dpadScale);
+            if (tDown)  drawArm(c.imageDown,  c.stateDown,
+                                c.cx, c.cy + tDown->h  * dpadScale * 0.5f);
+            if (tLeft)  drawArm(c.imageLeft,  c.stateLeft,
+                                c.cx - tLeft->w  * dpadScale * 0.5f, c.cy);
+            if (tRight) drawArm(c.imageRight, c.stateRight,
+                                c.cx + tRight->w * dpadScale * 0.5f, c.cy);
         }
     }
 
@@ -419,7 +427,8 @@ void PadView::render(const GamepadState& state, int selectedComp) {
         if (c.type == "stick" || c.type == "gyro") {
             hw = hh = c.size > 0.0f ? c.size * 0.5f : 20.0f;
         } else if (c.type == "dpad") {
-            hw = hh = 40.0f;
+            float dpadScale = (c.size > 0.0f) ? c.size : 1.0f;
+            hw = hh = 40.0f * dpadScale;
         } else {
             hw = c.w > 0.0f ? c.w * 0.5f : 20.0f;
             hh = c.h > 0.0f ? c.h * 0.5f : 20.0f;

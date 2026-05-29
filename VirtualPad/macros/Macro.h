@@ -13,6 +13,10 @@ struct MacroEffect {
     bool  dpadU = false, dpadD  = false, dpadL = false, dpadR = false;
     bool  btnSt = false, btnSe  = false;   // Start, Select/Back
 
+    // When true, applyEffect assigns dpad bits (overrides physical input).
+    // Set automatically when any dpad token is present in a macro step.
+    bool hasDpad = false;
+
     float leftX  = 0.0f, leftY  = 0.0f;
     float rightX = 0.0f, rightY = 0.0f;
 
@@ -58,8 +62,11 @@ public:
     void stop();       // deactivate
     void toggle();     // start if stopped, stop if running
 
-    bool            isActive() const { return m_active; }
-    MacroRepeatMode getMode()  const { return m_mode;   }
+    bool            isActive() const { return m_active;  }
+    MacroRepeatMode getMode()  const { return m_mode;    }
+    int             getTotalMs() const { return m_totalMs; }
+    int             getCycleMs() const { return m_cycleMs; }
+    const std::vector<CompiledStep>& getSteps() const { return m_steps; }
 
     // Advances the macro and ORs/overrides its effects into state.
     // Returns true while the macro was active this tick.

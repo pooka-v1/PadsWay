@@ -1,0 +1,17 @@
+{
+  "buttons": {
+    "lp": {
+      "name": "MonsterHunterStoriesCharge",
+      "type": "macro"
+    },
+    "r3": {
+      "name": "MonsterHunterStoriesFlame",
+      "type": "macro"
+    },
+    "rp": {
+      "name": "MonsterHunterStoriesFly",
+      "type": "macro"
+    }
+  },
+  "profile_name": "Monster Hunter Stories 2"
+}

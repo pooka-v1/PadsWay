@@ -322,6 +322,17 @@ std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string&
     return result;
 }
 
+void saveMacroLibrary(const std::string& path,
+                      const std::vector<std::pair<std::string, std::string>>& macros) {
+    json root;
+    for (const auto& [name, dsl] : macros)
+        root[name] = dsl;
+    std::ofstream f(path);
+    if (!f.is_open())
+        throw std::runtime_error("Cannot write " + path);
+    f << root.dump(4);
+}
+
 VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
     VirtualPadConfig cfg;
     std::ifstream f(path);
@@ -335,6 +346,8 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
         cfg.logLevel = root["log_level"].get<std::string>();
     if (root.contains("locale"))
         cfg.locale = root["locale"].get<std::string>();
+    if (root.contains("font_size") && root["font_size"].is_number())
+        cfg.fontSize = root["font_size"].get<float>();
     if (root.contains("pad_configurations") && root["pad_configurations"].is_object()) {
         const auto& pc = root["pad_configurations"];
         if (pc.contains("accepted_xbox_buttons") && pc["accepted_xbox_buttons"].is_array()) {
@@ -358,57 +371,67 @@ GameProfile loadGameProfile(const std::string& path) {
     json root = json::parse(f);
     profile.profile_name = root.value("profile_name", "");
 
-    for (const auto& ov : root.value("overrides", json::array())) {
-        GameProfile::Override o;
-        o.vid = static_cast<uint16_t>(std::stoul(ov.at("vid").get<std::string>(), nullptr, 16));
-        o.pid = static_cast<uint16_t>(std::stoul(ov.at("pid").get<std::string>(), nullptr, 16));
-        if (ov.contains("buttons"))
-            o.buttons = parseButtonsJson(ov.at("buttons"));
-        if (ov.contains("axes")) {
-            for (const auto& [source, axisJson] : ov.at("axes").items()) {
-                AxisMapping m;
-                m.target    = axisJson.at("target").get<std::string>();
-                m.invert    = axisJson.value("invert",    false);
-                m.speed     = axisJson.value("speed",     15.0f);
-                m.stickId   = axisJson.value("stick_id",  std::string{});
-                m.btnNeg    = axisJson.value("btn_neg",   std::string{});
-                m.btnPos    = axisJson.value("btn_pos",   std::string{});
-                m.threshold = axisJson.value("threshold", 0.5f);
-                if (m.stickId.empty() &&
-                    (m.target == "left_x" || m.target == "left_y" ||
-                     m.target == "right_x" || m.target == "right_y"))
-                    m.stickId = m.target;
-                o.axes[source] = m;
-            }
+    if (root.contains("buttons") && root["buttons"].is_object()) {
+        for (const auto& [key, val] : root["buttons"].items()) {
+            if (!key.empty() && key[0] == '_') continue;
+            profile.buttons[key] = parseButtonAction(val);
         }
-        if (ov.contains("axis_actions"))
-            o.axis_actions = parseAxisActionsJson(ov.at("axis_actions"));
-        profile.overrides.push_back(std::move(o));
+    }
+    if (root.contains("axes") && root["axes"].is_object()) {
+        for (const auto& [key, val] : root["axes"].items()) {
+            if (!key.empty() && key[0] == '_') continue;
+            AxisMapping m;
+            m.target    = val.value("target",   std::string{});
+            m.invert    = val.value("invert",    false);
+            m.speed     = val.value("speed",     15.0f);
+            m.stickId   = val.value("stick_id",  std::string{});
+            m.threshold = val.value("threshold", 0.5f);
+            profile.axes[key] = m;
+        }
     }
     return profile;
 }
 
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile) {
     ControllerConfig result = base;
-    for (const auto& ov : profile.overrides) {
-        if (ov.vid != base.vid || ov.pid != base.pid) continue;
-        for (const auto& [bit, override_action] : ov.buttons) {
-            // Preservar el physical del botón base aunque el perfil sobreescriba la acción
-            std::string phys;
-            auto it = result.buttons.find(bit);
-            if (it != result.buttons.end())
-                phys = it->second.physical;
 
-            result.buttons[bit] = override_action;
+    // ── Buttons ──────────────────────────────────────────────────────────────
+    std::unordered_map<std::string, int> virtualToBit;
+    for (const auto& [bit, action] : base.buttons)
+        if (action.type == ButtonActionType::VirtualButton && !action.name.empty())
+            virtualToBit[action.name] = bit;
 
-            if (!phys.empty() && result.buttons[bit].physical.empty())
-                result.buttons[bit].physical = phys;
-        }
-        for (const auto& [source, mapping] : ov.axes)
-            result.axes[source] = mapping;
-        for (const auto& [key, action] : ov.axis_actions)
-            result.axis_actions[key] = action;
+    // Fallback for buttons without a virtual Xbox equivalent (lp, rp, l4, r4, touch…)
+    std::unordered_map<std::string, int> physShortToBit;
+    for (const auto& [bit, action] : base.buttons)
+        if (!action.physical.empty())
+            physShortToBit[action.physical] = bit;
+
+    for (const auto& [key, override_action] : profile.buttons) {
+        int targetBit = -1;
+        if (auto it = virtualToBit.find(key); it != virtualToBit.end())
+            targetBit = it->second;
+        else if (auto it = physShortToBit.find(key); it != physShortToBit.end())
+            targetBit = it->second;
+        if (targetBit == -1) continue;
+        result.buttons[targetBit] = override_action;
+        if (result.buttons[targetBit].physical.empty())
+            result.buttons[targetBit].physical = base.buttons.at(targetBit).physical;
     }
+
+    // ── Axes ─────────────────────────────────────────────────────────────────
+    // Build virtual axis target -> HID source map from the base config.
+    std::unordered_map<std::string, std::string> virtualToSource;
+    for (const auto& [source, mapping] : base.axes)
+        if (!mapping.target.empty())
+            virtualToSource[mapping.target] = source;
+
+    for (const auto& [virtualAxis, newMapping] : profile.axes) {
+        auto it = virtualToSource.find(virtualAxis);
+        if (it == virtualToSource.end()) continue;  // controller doesn't have this axis
+        result.axes[it->second] = newMapping;
+    }
+
     return result;
 }
 
@@ -778,6 +801,18 @@ static PhysicalController parsePhysicalController(const json& c) {
         setBase(ComponentId::Gyro, PhysicalGyro{});
 
     return ctrl;
+}
+
+void rebuildPhysicalControllerButtons(PhysicalController& pc, const ControllerConfig& cfg) {
+    for (const auto& [bit, action] : cfg.buttons) {
+        if (action.physical.empty()) continue;
+        auto cid = physicalNameToComponentId(action.physical);
+        if (!cid) continue;
+        auto vt = buttonActionToVT(action);
+        if (!vt) continue;
+        pc.baseLayer[static_cast<size_t>(*cid)] =
+            PhysicalButton{static_cast<uint8_t>(bit), *vt};
+    }
 }
 
 std::vector<PhysicalController> loadPhysicalControllers(const std::string& path) {

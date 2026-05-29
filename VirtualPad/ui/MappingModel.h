@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include "../input/ControllerConfig.h"
+#include "../config/ConfigLoader.h"
 
 // ---------------------------------------------------------------------------
 // RangeEdit — working copy of a trigger range while the editor is open.
@@ -58,9 +59,21 @@ public:
     // Populate edits from the matching config entry (vid/pid must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 
+    // Populate edits directly from a pre-resolved config (no file I/O).
+    void reloadFromConfig(const ControllerConfig& cfg);
+
+    // Populate edits from base config with profile overrides applied on top.
+    // Sets vid/pid from base.
+    void loadProfile(const ControllerConfig& base, const GameProfile& profile);
+
     // Serialize all edits to controllers.json.
     // Throws on JSON parse errors; does NOT reload engine configs.
     void save(const std::string& path);
+
+    // Write only the delta (buttons that differ from base) to a profile JSON file.
+    // Preserves existing overrides for other controllers in the file.
+    void saveProfile(const std::string& path, const std::string& profileName,
+                     const ControllerConfig& base);
 
     // Clear all edit maps (does not reset vid/pid).
     void clear();

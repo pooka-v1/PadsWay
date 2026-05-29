@@ -1,0 +1,36 @@
+{
+  "axes": {
+    "right_x": {
+      "invert": false,
+      "speed": 15,
+      "target": "mouse_x"
+    },
+    "right_y": {
+      "invert": false,
+      "speed": 15,
+      "target": "mouse_y"
+    }
+  },
+  "buttons": {
+    "home": {
+      "keys": [
+        "alt",
+        "tab"
+      ],
+      "type": "keyboard"
+    },
+    "l3": {
+      "button": "left",
+      "type": "mouse_click"
+    },
+    "lp": {
+      "name": "BanishingBlade",
+      "type": "macro"
+    },
+    "r3": {
+      "name": "LuluOverdrive",
+      "type": "macro"
+    }
+  },
+  "profile_name": "Final Fantasy X"
+}

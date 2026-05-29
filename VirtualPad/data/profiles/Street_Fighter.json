@@ -1,0 +1,23 @@
+{
+  "overrides": [
+    {
+      "buttons": {
+        "l1": {
+          "name": "RightSoryuken",
+          "type": "macro"
+        },
+        "x": {
+          "name": "RightTatsumakiSenpuKyaku",
+          "type": "macro"
+        },
+        "y": {
+          "name": "RightHadoken",
+          "type": "macro"
+        }
+      },
+      "pid": "6006",
+      "vid": "2DC8"
+    }
+  ],
+  "profile_name": "Street Fighter"
+}

@@ -1,0 +1,8 @@
+{
+  "profile_name": "Castlevania Circle of the Moon",
+  "buttons": {
+    "b": { "type": "macro", "name": "CastlevaniaDropDown" },
+    "y": { "type": "macro", "name": "CastlevaniaSubWeaponAttack" },
+    "x": { "virtual": "b" }
+  }
+}

@@ -298,6 +298,7 @@
           "virtual": "y"
         },
         "5": {
+          "execution": "CD=30, CDR=30, CR+R2=30",
           "physical": "y",
           "virtual": "x"
         },

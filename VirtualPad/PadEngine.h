@@ -88,6 +88,14 @@ public:
     // Suppress macro/keyboard/mouse processing and ViGEm output while the mapping editor is open.
     void setEditorOpen(bool open) { m_editorOpen.store(open); }
 
+    // Force the engine to re-apply the current game profile on the next tick.
+    // Call after saving changes to a profile JSON that is already active.
+    void requestProfileReload() { m_profileDirty.store(true); }
+
+    // Reload macros.json and re-parse all active macros on the next tick.
+    // Call after saving changes to macros.json via the macro manager.
+    void reloadMacros() { m_macroLibDirty.store(true); }
+
 private:
     void threadFunc();
     void monitorFunc();  // background thread: keeps m_availableDevices updated
@@ -97,6 +105,8 @@ private:
     std::atomic<bool>  m_running       { false };
     std::atomic<bool>  m_connected     { false };
     std::atomic<bool>  m_configsDirty  { false };  // set by reloadConfigs(); picked up by run loop
+    std::atomic<bool>  m_profileDirty  { false };  // set by requestProfileReload(); forces profile re-apply
+    std::atomic<bool>  m_macroLibDirty { false };  // set by reloadMacros(); reloads macros.json
     std::atomic<bool>  m_editorOpen    { false };  // true while mapping editor is open — suppresses macro/output
 
     mutable std::mutex m_mutex;

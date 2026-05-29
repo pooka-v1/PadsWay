@@ -21,6 +21,7 @@ void MappingEditor::init(ID3D11Device* device, PadEngine* engine,
     m_acceptedXbox         = acceptedXbox;
     m_stickSelectThreshold = stickSelectThreshold;
     m_stickHoldMs          = stickHoldMs;
+    m_macroModal.init(device);
 }
 
 void MappingEditor::setConfigs(const std::vector<ControllerConfig>& configs) {
@@ -38,7 +39,47 @@ void MappingEditor::unload() {
 }
 
 // ---------------------------------------------------------------------------
+void MappingEditor::activateProfile(const std::vector<std::string>& profilePaths,
+                                    const std::vector<std::string>& profileNames,
+                                    int preselectedIdx) {
+    m_mode         = Mode::kProfile;
+    m_active       = true;
+    m_profilePaths = profilePaths;
+    m_profileNames = profileNames;
+    m_profIdx      = preselectedIdx;
+    m_profToast    = false;
+    memset(m_profNameBuf, 0, sizeof(m_profNameBuf));
+
+    DeviceCandidate dev = m_engine->getActiveDevice();
+    m_model.vid = dev.vid;
+    m_model.pid = dev.pid;
+    m_sel.physComp = -1;
+    reload();
+}
+
 void MappingEditor::reload() {
+    if (m_mode == Mode::kProfile) {
+        if (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size()) {
+            DeviceCandidate dev = m_engine->getActiveDevice();
+            const ControllerConfig* base = findConfig(m_configs, dev.vid, dev.pid);
+            if (base) {
+                GameProfile profile = loadGameProfile(m_profilePaths[m_profIdx]);
+                m_model.loadProfile(*base, profile);
+                strncpy_s(m_profNameBuf, profile.profile_name.c_str(), sizeof(m_profNameBuf) - 1);
+            }
+        } else {
+            // New profile: load base config as starting point
+            DeviceCandidate dev = m_engine->getActiveDevice();
+            const ControllerConfig* base = findConfig(m_configs, dev.vid, dev.pid);
+            if (base) m_model.reloadFromConfig(*base);
+            memset(m_profNameBuf, 0, sizeof(m_profNameBuf));
+        }
+        m_sel.triggerSrc.clear();
+        m_sel.h9HoldTriggerSrc.clear();
+        m_sel.h9HoldTriggerTimer = 0.0f;
+        return;
+    }
+
     m_model.reload(m_configs);
     m_sel.triggerSrc.clear();
     m_sel.h9HoldTriggerSrc.clear();
@@ -46,6 +87,23 @@ void MappingEditor::reload() {
 }
 
 void MappingEditor::save() {
+    if (m_mode == Mode::kProfile) {
+        if (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size()) {
+            DeviceCandidate dev = m_engine->getActiveDevice();
+            const ControllerConfig* base = findConfig(m_configs, dev.vid, dev.pid);
+            if (base) {
+                try {
+                    m_model.saveProfile(m_profilePaths[m_profIdx],
+                                        m_profNameBuf[0] ? m_profNameBuf : m_profileNames[m_profIdx].c_str(),
+                                        *base);
+                    m_engine->requestProfileReload();
+                    m_profToast     = true;
+                    m_profToastTime = GetTickCount64();
+                } catch (...) {}
+            }
+        }
+        return;
+    }
     try { m_model.save("data/controllers.json"); } catch (...) {}
     m_configs = loadControllerConfigs("data/controllers.json");
     m_engine->reloadConfigs();
@@ -83,13 +141,113 @@ static std::pair<int, std::string> slotKeyToArrow(const PadLayout& vLayout, cons
 // render — full mapping editor UI (called each frame when active)
 // ---------------------------------------------------------------------------
 void MappingEditor::render(PadView& phys, PadView& virt) {
-    // ── Pre-populate edits cuando cambia el mando activo ─────────────────────
-    DeviceCandidate dev = m_engine->getActiveDevice();
-    if (dev.vid != m_model.vid || dev.pid != m_model.pid) {
-        m_model.vid   = dev.vid;
-        m_model.pid   = dev.pid;
-        m_sel.physComp = -1;
-        reload();
+    // ── Pre-populate edits cuando cambia el mando activo (normal mode only) ──
+    if (m_mode == Mode::kNormal) {
+        DeviceCandidate dev = m_engine->getActiveDevice();
+        if (dev.vid != m_model.vid || dev.pid != m_model.pid) {
+            m_model.vid    = dev.vid;
+            m_model.pid    = dev.pid;
+            m_sel.physComp = -1;
+            reload();
+        }
+    }
+
+    // ── Profile mode header ───────────────────────────────────────────────────
+    if (m_mode == Mode::kProfile) {
+        if (ImGui::Button(tr("btn.back"))) {
+            m_mode   = Mode::kNormal;
+            m_active = false;
+            return;
+        }
+        ImGui::SameLine(0.0f, 16.0f);
+        ImGui::Text("%s", tr("profiles.title"));
+
+        // Toast
+        if (m_profToast) {
+            if (GetTickCount64() - m_profToastTime < 2500) {
+                ImGui::SameLine(0.0f, 16.0f);
+                ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "%s", tr("profiles.toast_saved"));
+            } else {
+                m_profToast = false;
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Profile selector
+        std::vector<const char*> items;
+        items.push_back(tr("profiles.new"));
+        for (const auto& n : m_profileNames) items.push_back(n.c_str());
+
+        int comboIdx = m_profIdx + 1;  // 0 = new, 1+ = existing
+        ImGui::SetNextItemWidth(240.0f);
+        if (ImGui::Combo("##profsel", &comboIdx, items.data(), (int)items.size())) {
+            m_profIdx = comboIdx - 1;
+            m_sel.physComp = -1;
+            reload();
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+
+        // Name field (always editable)
+        ImGui::SetNextItemWidth(200.0f);
+        ImGui::InputText(tr("profiles.name_label"), m_profNameBuf, sizeof(m_profNameBuf));
+        ImGui::SameLine(0.0f, 8.0f);
+
+        if (m_profIdx < 0) {
+            // New profile: create button (needs a name and a connected device)
+            DeviceCandidate dev = m_engine->getActiveDevice();
+            bool canCreate = m_profNameBuf[0] != '\0' && (dev.vid != 0 || dev.pid != 0);
+            ImGui::BeginDisabled(!canCreate);
+            if (ImGui::Button(tr("profiles.btn_create"))) {
+                // Build a path from the name
+                std::string safeName(m_profNameBuf);
+                for (auto& c : safeName) if (c == ' ' || c == '/' || c == '\\') c = '_';
+                std::string newPath = "data/profiles/" + safeName + ".json";
+                m_profilePaths.push_back(newPath);
+                m_profileNames.push_back(m_profNameBuf);
+                m_profIdx = (int)m_profilePaths.size() - 1;
+                m_profileListChanged = true;
+                save();
+            }
+            ImGui::EndDisabled();
+        } else {
+            // Existing profile: save + delete
+            if (ImGui::Button(tr("btn.save")))
+                save();
+            ImGui::SameLine(0.0f, 4.0f);
+            ImGui::PushStyleColor(ImGuiCol_Button,        { 0.6f, 0.15f, 0.15f, 1.0f });
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.75f, 0.2f, 0.2f, 1.0f });
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  { 0.5f, 0.1f, 0.1f, 1.0f });
+            if (ImGui::Button(tr("btn.delete")))
+                ImGui::OpenPopup("##prof_del_confirm");
+            ImGui::PopStyleColor(3);
+
+            if (ImGui::BeginPopupModal("##prof_del_confirm", nullptr,
+                                       ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::Text("%s", tr("profiles.confirm_delete"));
+                ImGui::Spacing();
+                if (ImGui::Button(tr("btn.delete"), { 100.0f, 0.0f })) {
+                    DeleteFileA(m_profilePaths[m_profIdx].c_str());
+                    m_profilePaths.erase(m_profilePaths.begin() + m_profIdx);
+                    m_profileNames.erase(m_profileNames.begin() + m_profIdx);
+                    m_profileListChanged = true;
+                    m_profIdx = -1;
+                    memset(m_profNameBuf, 0, sizeof(m_profNameBuf));
+                    m_sel.physComp = -1;
+                    reload();
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine(0.0f, 8.0f);
+                if (ImGui::Button(tr("btn.cancel"), { 100.0f, 0.0f }))
+                    ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
     }
 
     ImGui::Spacing();
@@ -216,15 +374,15 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 }
             }
         } else if (m_sel.physComp >= 0 && m_sel.actionType == ActionType::Xbox) {
-            // Paso 2 (solo modo Xbox): detectar rising edge → asignar botón virtual
-            const PadComponent& selComp2 = physComps[m_sel.physComp];
+            // Xbox mode: detect rising edge on physical input → assign virtual button
+            const PadComponent& selPhysComp = physComps[m_sel.physComp];
             std::string selState;
             if (m_sel.stickAsButton)
-                selState = selComp2.stateClick;
-            else if (selComp2.type == "dpad" && !m_sel.dpadDir.empty())
-                selState = dpadDirToState(selComp2, m_sel.dpadDir);
+                selState = selPhysComp.stateClick;
+            else if (selPhysComp.type == "dpad" && !m_sel.dpadDir.empty())
+                selState = dpadDirToState(selPhysComp, m_sel.dpadDir);
             else
-                selState = selComp2.state;
+                selState = selPhysComp.state;
             std::string physShort = stateToShort(selState);
 
             std::vector<std::string> candidateStates;
@@ -252,31 +410,31 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
                 // ── Axis-action mode: stick direction seleccionada → asignar VirtualButton/Dpad ──
                 if (!m_sel.stickDir.empty()) {
-                    auto [xId9, yId9] = stickIdsFromStateX(selComp2.stateX);
-                    std::string axisKey9;
-                    if      (m_sel.stickDir == "up")    axisKey9 = yId9 + "_pos";
-                    else if (m_sel.stickDir == "down")  axisKey9 = yId9 + "_neg";
-                    else if (m_sel.stickDir == "right") axisKey9 = xId9 + "_pos";
-                    else if (m_sel.stickDir == "left")  axisKey9 = xId9 + "_neg";
+                    auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
+                    std::string axisKey;
+                    if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
+                    else if (m_sel.stickDir == "down")  axisKey = yId + "_neg";
+                    else if (m_sel.stickDir == "right") axisKey = xId + "_pos";
+                    else if (m_sel.stickDir == "left")  axisKey = xId + "_neg";
                     bool isDpad9 = (virtShort.rfind("dpad_", 0) == 0);
-                    if ((valid || isDpad9) && !axisKey9.empty()) {
-                        HalfAxisAction ha9;
+                    if ((valid || isDpad9) && !axisKey.empty()) {
+                        HalfAxisAction axisAction;
                         if (isDpad9) {
-                            ha9.type = HalfAxisActionType::Dpad;
-                            ha9.target = virtShort.substr(5); // "up"/"down"/"left"/"right"
+                            axisAction.type = HalfAxisActionType::Dpad;
+                            axisAction.target = virtShort.substr(5); // "up"/"down"/"left"/"right"
                         } else {
-                            ha9.type = HalfAxisActionType::VirtualButton;
-                            ha9.target = virtShort;
+                            axisAction.type = HalfAxisActionType::VirtualButton;
+                            axisAction.target = virtShort;
                         }
-                        auto it9 = m_model.axisActionEdits.find(axisKey9);
-                        bool already9 = (it9 != m_model.axisActionEdits.end() &&
-                                         it9->second.type == ha9.type &&
-                                         it9->second.target == ha9.target);
-                        if (already9) {
-                            m_model.axisActionEdits.erase(axisKey9);
+                        auto axisEditIt = m_model.axisActionEdits.find(axisKey);
+                        bool alreadyAssigned = (axisEditIt != m_model.axisActionEdits.end() &&
+                                         axisEditIt->second.type == axisAction.type &&
+                                         axisEditIt->second.target == axisAction.target);
+                        if (alreadyAssigned) {
+                            m_model.axisActionEdits.erase(axisKey);
                             m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
                         } else {
-                            m_model.axisActionEdits[axisKey9] = ha9;
+                            m_model.axisActionEdits[axisKey] = axisAction;
                             if (!isDpad9) {
                                 int fc = findCompByState(virt.getLayout(), shortToState(virtShort));
                                 m_sel.flashComp = fc; m_sel.flashTimer = 0.5f;
@@ -332,25 +490,25 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             {
                 constexpr float kTrigThresh = 0.5f;
                 auto doAxisTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
-                    auto [xId9, yId9] = stickIdsFromStateX(selComp2.stateX);
-                    std::string axisKey9;
-                    if      (m_sel.stickDir == "up")    axisKey9 = yId9 + "_pos";
-                    else if (m_sel.stickDir == "down")  axisKey9 = yId9 + "_neg";
-                    else if (m_sel.stickDir == "right") axisKey9 = xId9 + "_pos";
-                    else if (m_sel.stickDir == "left")  axisKey9 = xId9 + "_neg";
-                    if (axisKey9.empty()) return;
-                    HalfAxisAction ha9;
-                    ha9.type = HalfAxisActionType::Trigger;
-                    ha9.target = trigTarget;
-                    auto it9 = m_model.axisActionEdits.find(axisKey9);
-                    bool already9 = (it9 != m_model.axisActionEdits.end() &&
-                                     it9->second.type == ha9.type &&
-                                     it9->second.target == ha9.target);
-                    if (already9) {
-                        m_model.axisActionEdits.erase(axisKey9);
+                    auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
+                    std::string axisKey;
+                    if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
+                    else if (m_sel.stickDir == "down")  axisKey = yId + "_neg";
+                    else if (m_sel.stickDir == "right") axisKey = xId + "_pos";
+                    else if (m_sel.stickDir == "left")  axisKey = xId + "_neg";
+                    if (axisKey.empty()) return;
+                    HalfAxisAction axisAction;
+                    axisAction.type = HalfAxisActionType::Trigger;
+                    axisAction.target = trigTarget;
+                    auto axisEditIt = m_model.axisActionEdits.find(axisKey);
+                    bool alreadyAssigned = (axisEditIt != m_model.axisActionEdits.end() &&
+                                     axisEditIt->second.type == axisAction.type &&
+                                     axisEditIt->second.target == axisAction.target);
+                    if (alreadyAssigned) {
+                        m_model.axisActionEdits.erase(axisKey);
                         m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
                     } else {
-                        m_model.axisActionEdits[axisKey9] = ha9;
+                        m_model.axisActionEdits[axisKey] = axisAction;
                         m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
                         m_sel.flashTimer     = 1.0f;
                         m_sel.flashVirtShort = trigState;
@@ -362,10 +520,10 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 };
                 auto doTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
                     if (physShort.empty()) return;
-                    auto h5it = m_model.actionEdits.find(physShort);
-                    bool already = (h5it != m_model.actionEdits.end() &&
-                                    h5it->second.type == ButtonActionType::Trigger &&
-                                    h5it->second.target == trigTarget);
+                    auto trigAssignIt = m_model.actionEdits.find(physShort);
+                    bool already = (trigAssignIt != m_model.actionEdits.end() &&
+                                    trigAssignIt->second.type == ButtonActionType::Trigger &&
+                                    trigAssignIt->second.target == trigTarget);
                     if (already) {
                         m_model.actionEdits.erase(physShort);
                         m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
@@ -393,17 +551,17 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             // Analog stick tilt → assign source to a stick slot destination.
             // physShort is empty for stick sources (state field unused), so also check stickDir.
             if (m_sel.physComp >= 0 && (!physShort.empty() || !m_sel.stickDir.empty())) {
-                const auto& virtComps2 = virt.getLayout().components;
-                for (int i = 0; i < (int)virtComps2.size(); ++i) {
-                    if (virtComps2[i].type != "stick") continue;
+                const auto& virtComps = virt.getLayout().components;
+                for (int i = 0; i < (int)virtComps.size(); ++i) {
+                    if (virtComps[i].type != "stick") continue;
                     // Rising-edge: require stick to have been below threshold last frame.
                     // Prevents immediate fire when physComp is set while a stick is held.
                     float prevSx = 0.0f, prevSy = 0.0f;
-                    readStickXY(m_sel.h9PrevPhysState, virtComps2[i].stateX, prevSx, prevSy);
+                    readStickXY(m_sel.h9PrevPhysState, virtComps[i].stateX, prevSx, prevSy);
                     if (prevSx >=  m_stickSelectThreshold || prevSx <= -m_stickSelectThreshold ||
                         prevSy >=  m_stickSelectThreshold || prevSy <= -m_stickSelectThreshold) continue;
                     float sx = 0.0f, sy = 0.0f;
-                    readStickXY(physNow, virtComps2[i].stateX, sx, sy);
+                    readStickXY(physNow, virtComps[i].stateX, sx, sy);
                     std::string slotDir;
                     if      (sy >=  m_stickSelectThreshold) slotDir = "up";
                     else if (sy <= -m_stickSelectThreshold) slotDir = "down";
@@ -411,7 +569,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     else if (sx <= -m_stickSelectThreshold) slotDir = "left";
                     if (slotDir.empty()) continue;
 
-                    auto [vxId, vyId] = stickIdsFromStateX(virtComps2[i].stateX);
+                    auto [vxId, vyId] = stickIdsFromStateX(virtComps[i].stateX);
                     std::string slotKey;
                     if      (slotDir == "up")    slotKey = vyId + "_pos";
                     else if (slotDir == "down")  slotKey = vyId + "_neg";
@@ -420,24 +578,24 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
                     if (!m_sel.stickDir.empty()) {
                         // Axis-action source: assign StickSlot target.
-                        auto [xId9, yId9] = stickIdsFromStateX(selComp2.stateX);
-                        std::string axisKey9;
-                        if      (m_sel.stickDir == "up")    axisKey9 = yId9 + "_pos";
-                        else if (m_sel.stickDir == "down")  axisKey9 = yId9 + "_neg";
-                        else if (m_sel.stickDir == "right") axisKey9 = xId9 + "_pos";
-                        else if (m_sel.stickDir == "left")  axisKey9 = xId9 + "_neg";
-                        if (!axisKey9.empty()) {
+                        auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
+                        std::string axisKey;
+                        if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
+                        else if (m_sel.stickDir == "down")  axisKey = yId + "_neg";
+                        else if (m_sel.stickDir == "right") axisKey = xId + "_pos";
+                        else if (m_sel.stickDir == "left")  axisKey = xId + "_neg";
+                        if (!axisKey.empty()) {
                             HalfAxisAction ha;
                             ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
-                            auto it9 = m_model.axisActionEdits.find(axisKey9);
-                            bool already9 = (it9 != m_model.axisActionEdits.end() &&
-                                             it9->second.type == ha.type &&
-                                             it9->second.target == ha.target);
-                            if (already9) {
-                                m_model.axisActionEdits.erase(axisKey9);
+                            auto axisEditIt = m_model.axisActionEdits.find(axisKey);
+                            bool alreadyAssigned = (axisEditIt != m_model.axisActionEdits.end() &&
+                                             axisEditIt->second.type == ha.type &&
+                                             axisEditIt->second.target == ha.target);
+                            if (alreadyAssigned) {
+                                m_model.axisActionEdits.erase(axisKey);
                                 m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f; m_sel.flashComp = -1;
                             } else {
-                                m_model.axisActionEdits[axisKey9] = ha;
+                                m_model.axisActionEdits[axisKey] = ha;
                                 m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
                                 m_sel.flashPhysArrowComp = m_sel.physComp;
                                 m_sel.flashPhysArrowDir  = m_sel.stickDir;
@@ -500,11 +658,11 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
             // Virtual stick tilt → assign trigger source to a stick slot.
             if (!m_sel.triggerSrc.empty()) {
-                const auto& virtComps2 = virt.getLayout().components;
-                for (int i = 0; i < (int)virtComps2.size(); ++i) {
-                    if (virtComps2[i].type != "stick") continue;
+                const auto& virtComps = virt.getLayout().components;
+                for (int i = 0; i < (int)virtComps.size(); ++i) {
+                    if (virtComps[i].type != "stick") continue;
                     float sx = 0.0f, sy = 0.0f;
-                    readStickXY(physNow, virtComps2[i].stateX, sx, sy);
+                    readStickXY(physNow, virtComps[i].stateX, sx, sy);
                     std::string slotDir;
                     if      (sy >=  m_stickSelectThreshold) slotDir = "up";
                     else if (sy <= -m_stickSelectThreshold) slotDir = "down";
@@ -512,7 +670,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     else if (sx <= -m_stickSelectThreshold) slotDir = "left";
                     if (slotDir.empty()) continue;
 
-                    auto [vxId, vyId] = stickIdsFromStateX(virtComps2[i].stateX);
+                    auto [vxId, vyId] = stickIdsFromStateX(virtComps[i].stateX);
                     std::string slotKey;
                     if      (slotDir == "up")    slotKey = vyId + "_pos";
                     else if (slotDir == "down")  slotKey = vyId + "_neg";
@@ -615,9 +773,9 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         if (m_sel.physComp < (int)physComps.size()) {
             const PadComponent& selComp = physComps[m_sel.physComp];
             auto activateTriggerIfAssigned = [&](const std::string& physShort) -> bool {
-                auto h5trig = m_model.actionEdits.find(physShort);
-                if (h5trig != m_model.actionEdits.end() && h5trig->second.type == ButtonActionType::Trigger) {
-                    activateState(virtDisplay, h5trig->second.target == "l2" ? "triggerL" : "triggerR");
+                auto trigEdit = m_model.actionEdits.find(physShort);
+                if (trigEdit != m_model.actionEdits.end() && trigEdit->second.type == ButtonActionType::Trigger) {
+                    activateState(virtDisplay, trigEdit->second.target == "l2" ? "triggerL" : "triggerR");
                     return true;
                 }
                 return false;
@@ -904,7 +1062,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         }
     }
 
-    // ── H5/H6: UI específica según el tipo de componente seleccionado ──────────
+    // ── Action panel for the selected physical component ────────────────────────
     if (m_sel.physComp >= 0) {
         const auto& physComps = phys.getLayout().components;
         const std::string& selType = physComps[m_sel.physComp].type;
@@ -934,23 +1092,29 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
             if (sel) ImGui::PopStyleColor();
         };
-        char lbT1[64], lbT2[64], lbT3[64];
-        snprintf(lbT1, sizeof(lbT1), "%s##t1", tr("action.type_macro"));
-        snprintf(lbT2, sizeof(lbT2), "%s##t2", tr("action.type_keyboard"));
-        snprintf(lbT3, sizeof(lbT3), "%s##t3", tr("action.type_mouse"));
-        typeBtn("Xbox##t0", ActionType::Xbox);    ImGui::SameLine();
-        typeBtn(lbT1,       ActionType::Macro);   ImGui::SameLine();
-        typeBtn(lbT2,       ActionType::Keyboard); ImGui::SameLine();
-        typeBtn(lbT3,       ActionType::Mouse);
+        char lblMacro[64], lblKeyboard[64], lblMouse[64];
+        snprintf(lblMacro,    sizeof(lblMacro),    "%s##btnMacro",  tr("action.type_macro"));
+        snprintf(lblKeyboard, sizeof(lblKeyboard), "%s##btnKb",     tr("action.type_keyboard"));
+        snprintf(lblMouse,    sizeof(lblMouse),    "%s##btnMouse",  tr("action.type_mouse"));
+        typeBtn("Xbox##btnXbox", ActionType::Xbox);     ImGui::SameLine();
+        typeBtn(lblMacro,        ActionType::Macro);    ImGui::SameLine();
+        typeBtn(lblKeyboard,     ActionType::Keyboard); ImGui::SameLine();
+        typeBtn(lblMouse,        ActionType::Mouse);
 
         ImGui::Spacing();
 
         if (m_sel.actionType == ActionType::Macro) {
             if (!m_macroNamesLoaded) {
-                m_macroNames.clear();
+                m_macroNames.clear(); m_macroLibrary.clear();
                 try {
                     std::ifstream f("data/macros.json");
-                    if (f.is_open()) { json j = json::parse(f); for (auto& [k,v] : j.items()) m_macroNames.push_back(k); }
+                    if (f.is_open()) {
+                        json j = json::parse(f);
+                        for (auto& [k,v] : j.items()) {
+                            m_macroNames.push_back(k);
+                            m_macroLibrary.emplace_back(k, v.get<std::string>());
+                        }
+                    }
                 } catch (...) {}
                 m_macroNamesLoaded = true;
             }
@@ -959,7 +1123,9 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (it != m_model.actionEdits.end() && it->second.type == ButtonActionType::Macro)
                     m_sel.macroSel = it->second.name;
             }
-            if (ActionPanel::renderMacroCombo("mac_h5", m_sel.macroSel, m_macroNames, availW)) {
+            bool editInlineMacro = false;
+            if (ActionPanel::renderMacroCombo("macButton", m_sel.macroSel, m_macroNames, availW,
+                                              tr("btn.edit_macro"), &editInlineMacro)) {
                 if (!physShortSel.empty()) {
                     ButtonAction act;
                     act.type = ButtonActionType::Macro; act.physical = physShortSel; act.name = m_sel.macroSel;
@@ -969,12 +1135,22 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 m_sel.physComp = -1; m_sel.stickAsButton = false; m_sel.dpadDir.clear();
                 m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear();
             }
+            if (editInlineMacro && !physShortSel.empty()) {
+                m_macroModalPending.ctx = MacroModalPending::Ctx::Button;
+                m_macroModalPending.key = physShortSel;
+                m_macroModal.setMacroLibrary(m_macroLibrary);
+                std::string currentDsl;
+                auto actIt = m_model.actionEdits.find(physShortSel);
+                if (actIt != m_model.actionEdits.end() && actIt->second.type == ButtonActionType::Macro)
+                    currentDsl = actIt->second.execution;
+                m_macroModal.open(MacroCreatorModal::Mode::kInline, "", currentDsl);
+            }
 
         } else if (m_sel.actionType == ActionType::Keyboard) {
             bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
             if (cancel) {
                 m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
-            } else if (ActionPanel::renderKeyboardCapture("kb_h5", m_sel.captureKeys, availW)) {
+            } else if (ActionPanel::renderKeyboardCapture("kbButton", m_sel.captureKeys, availW)) {
                 if (!physShortSel.empty()) {
                     ButtonAction act;
                     act.type = ButtonActionType::Keyboard; act.physical = physShortSel;
@@ -988,7 +1164,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
         } else if (m_sel.actionType == ActionType::Mouse) {
             std::string mbResult;
-            if (ActionPanel::renderMouseButtons("mb_h5", mbResult, availW)) {
+            if (ActionPanel::renderMouseButtons("mbButton", mbResult, availW)) {
                 if (!physShortSel.empty()) {
                     ButtonAction act;
                     act.type = ButtonActionType::MouseClick; act.physical = physShortSel; act.mouseButton = mbResult;
@@ -999,30 +1175,30 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 m_sel.actionType = ActionType::Xbox;
             }
         }
-    } // H5 block
-    // ── H6 T4: axis_actions panel (stick direction selected) ─────────────────
+    } // button action panel
+    // ── Stick axis action panel ───────────────────────────────────────────────
     if (m_sel.physComp >= 0) {
-        const auto& physComps4 = phys.getLayout().components;
-        if (m_sel.physComp < (int)physComps4.size() &&
-            physComps4[m_sel.physComp].type == "stick" &&
+        const auto& stickComps = phys.getLayout().components;
+        if (m_sel.physComp < (int)stickComps.size() &&
+            stickComps[m_sel.physComp].type == "stick" &&
             !m_sel.stickAsButton && !m_sel.stickDir.empty()) {
 
-            const auto& selComp4 = physComps4[m_sel.physComp];
-            auto [xId4, yId4] = stickIdsFromStateX(selComp4.stateX);
+            const auto& stickComp = stickComps[m_sel.physComp];
+            auto [stickXId, stickYId] = stickIdsFromStateX(stickComp.stateX);
             std::string axisKey;
-            if      (m_sel.stickDir == "up")    axisKey = yId4 + "_pos";
-            else if (m_sel.stickDir == "down")  axisKey = yId4 + "_neg";
-            else if (m_sel.stickDir == "right") axisKey = xId4 + "_pos";
-            else if (m_sel.stickDir == "left")  axisKey = xId4 + "_neg";
+            if      (m_sel.stickDir == "up")    axisKey = stickYId + "_pos";
+            else if (m_sel.stickDir == "down")  axisKey = stickYId + "_neg";
+            else if (m_sel.stickDir == "right") axisKey = stickXId + "_pos";
+            else if (m_sel.stickDir == "left")  axisKey = stickXId + "_neg";
 
             if (!axisKey.empty()) {
-                float availW4 = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
+                float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
                 ImGui::Spacing();
 
                 // Direction label
                 {
                     float hdrW = ImGui::CalcTextSize(axisKey.c_str()).x;
-                    float offX = (availW4 - hdrW) * 0.5f;
+                    float offX = (availW - hdrW) * 0.5f;
                     if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
                     ImGui::TextColored({ 1.0f, 0.86f, 0.0f, 1.0f }, "%s", axisKey.c_str());
                 }
@@ -1030,35 +1206,35 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 // Tab buttons
                 constexpr float kBtnW = 80.0f;
                 float totalW = kBtnW * 6 + ImGui::GetStyle().ItemSpacing.x * 5;
-                float offX = (availW4 - totalW) * 0.5f;
+                float offX = (availW - totalW) * 0.5f;
                 if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
-                auto typeBtn4 = [&](const char* label, ActionType type) {
+                auto renderTypeTab = [&](const char* label, ActionType type) {
                     bool s = (m_sel.actionType == type);
                     if (s) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
                     if (ImGui::Button(label, { kBtnW, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
                     if (s) ImGui::PopStyleColor();
                 };
-                char lbA0[64], lbA1[64], lbA2[64], lbA3[64], lbA4[64];
-                snprintf(lbA0, sizeof(lbA0), "%s##axt0", tr("action.type_gamepad"));
-                snprintf(lbA1, sizeof(lbA1), "%s##axt1", tr("action.type_macro"));
-                snprintf(lbA2, sizeof(lbA2), "%s##axt2", tr("action.type_keyboard"));
-                snprintf(lbA3, sizeof(lbA3), "%s##axt3", tr("action.type_mouse"));
-                snprintf(lbA4, sizeof(lbA4), "%s##axt4", tr("action.type_mousemove"));
-                typeBtn4(lbA0, ActionType::Xbox);       ImGui::SameLine();
-                typeBtn4(lbA1, ActionType::Macro);      ImGui::SameLine();
-                typeBtn4(lbA2, ActionType::Keyboard);   ImGui::SameLine();
-                typeBtn4(lbA3, ActionType::Mouse);      ImGui::SameLine();
-                typeBtn4(lbA4, ActionType::MouseMove);  ImGui::SameLine();
+                char lblGamepad[64], lblMacro[64], lblKeyboard[64], lblMouse[64], lblMouseMove[64];
+                snprintf(lblGamepad,   sizeof(lblGamepad),   "%s##axGamepad", tr("action.type_gamepad"));
+                snprintf(lblMacro,     sizeof(lblMacro),     "%s##axMacro",   tr("action.type_macro"));
+                snprintf(lblKeyboard,  sizeof(lblKeyboard),  "%s##axKb",      tr("action.type_keyboard"));
+                snprintf(lblMouse,     sizeof(lblMouse),     "%s##axMouse",   tr("action.type_mouse"));
+                snprintf(lblMouseMove, sizeof(lblMouseMove), "%s##axMMove",   tr("action.type_mousemove"));
+                renderTypeTab(lblGamepad,   ActionType::Xbox);      ImGui::SameLine();
+                renderTypeTab(lblMacro,     ActionType::Macro);     ImGui::SameLine();
+                renderTypeTab(lblKeyboard,  ActionType::Keyboard);  ImGui::SameLine();
+                renderTypeTab(lblMouse,     ActionType::Mouse);     ImGui::SameLine();
+                renderTypeTab(lblMouseMove, ActionType::MouseMove); ImGui::SameLine();
                 {
-                    auto it4 = m_model.axisActionEdits.find(axisKey);
-                    bool hasRanges4 = (it4 != m_model.axisActionEdits.end() &&
-                                       it4->second.type == HalfAxisActionType::Ranges &&
-                                       !it4->second.ranges.empty());
-                    if (hasRanges4) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                    if (ImGui::Button(trid("btn.ranges", "axt5").c_str(), { kBtnW, 0.0f })) {
+                    auto axisEdit = m_model.axisActionEdits.find(axisKey);
+                    bool hasRanges = (axisEdit != m_model.axisActionEdits.end() &&
+                                      axisEdit->second.type == HalfAxisActionType::Ranges &&
+                                      !axisEdit->second.ranges.empty());
+                    if (hasRanges) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                    if (ImGui::Button(trid("btn.ranges", "axisRanges").c_str(), { kBtnW, 0.0f })) {
                         std::vector<RangeEdit> cur;
-                        if (hasRanges4)
-                            for (const auto& tr : it4->second.ranges) {
+                        if (hasRanges)
+                            for (const auto& tr : axisEdit->second.ranges) {
                                 RangeEdit re; re.from = tr.from; re.to = tr.to;
                                 re.action = tr.action; re.hasAction = tr.hasAction;
                                 cur.push_back(re);
@@ -1067,31 +1243,49 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         m_sel.actionType = ActionType::Xbox;
                         m_sel.captureKeys.clear(); m_sel.macroSel.clear();
                     }
-                    if (hasRanges4) ImGui::PopStyleColor();
+                    if (hasRanges) ImGui::PopStyleColor();
                 }
 
                 ImGui::Spacing();
 
                 if (m_sel.actionType == ActionType::Macro) {
                     if (!m_macroNamesLoaded) {
-                        m_macroNames.clear();
+                        m_macroNames.clear(); m_macroLibrary.clear();
                         try {
                             std::ifstream f("data/macros.json");
-                            if (f.is_open()) { json j = json::parse(f); for (auto& [k,v] : j.items()) m_macroNames.push_back(k); }
+                            if (f.is_open()) {
+                                json j = json::parse(f);
+                                for (auto& [k,v] : j.items()) {
+                                    m_macroNames.push_back(k);
+                                    m_macroLibrary.emplace_back(k, v.get<std::string>());
+                                }
+                            }
                         } catch (...) {}
                         m_macroNamesLoaded = true;
                     }
-                    if (ActionPanel::renderMacroCombo("mac_ax", m_sel.macroSel, m_macroNames, availW4)) {
+                    bool editInlineMacro = false;
+                    if (ActionPanel::renderMacroCombo("macAxis", m_sel.macroSel, m_macroNames, availW,
+                                                      tr("btn.edit_macro"), &editInlineMacro)) {
                         HalfAxisAction ha;
                         ha.type = HalfAxisActionType::Macro; ha.target = m_sel.macroSel;
                         m_model.axisActionEdits[axisKey] = ha;
                         m_sel.physComp = -1; m_sel.stickDir.clear();
                         m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear();
                     }
+                    if (editInlineMacro && !axisKey.empty()) {
+                        m_macroModalPending.ctx = MacroModalPending::Ctx::Axis;
+                        m_macroModalPending.key = axisKey;
+                        m_macroModal.setMacroLibrary(m_macroLibrary);
+                        std::string currentDsl;
+                        auto actIt = m_model.axisActionEdits.find(axisKey);
+                        if (actIt != m_model.axisActionEdits.end() && actIt->second.type == HalfAxisActionType::Macro)
+                            currentDsl = actIt->second.execution;
+                        m_macroModal.open(MacroCreatorModal::Mode::kInline, "", currentDsl);
+                    }
                 } else if (m_sel.actionType == ActionType::Keyboard) {
                     bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
                     if (cancel) { m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear(); }
-                    else if (ActionPanel::renderKeyboardCapture("kb_ax", m_sel.captureKeys, availW4)) {
+                    else if (ActionPanel::renderKeyboardCapture("kbAxis", m_sel.captureKeys, availW)) {
                         HalfAxisAction ha;
                         ha.type = HalfAxisActionType::Keyboard;
                         for (const auto& p : m_sel.captureKeys) ha.keys.push_back(p.first);
@@ -1101,7 +1295,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     }
                 } else if (m_sel.actionType == ActionType::Mouse) {
                     std::string mbResult;
-                    if (ActionPanel::renderMouseButtons("mb_ax", mbResult, availW4)) {
+                    if (ActionPanel::renderMouseButtons("mbAxis", mbResult, availW)) {
                         HalfAxisAction ha;
                         ha.type = HalfAxisActionType::MouseClick; ha.mouseButton = mbResult;
                         m_model.axisActionEdits[axisKey] = ha;
@@ -1110,20 +1304,20 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     }
                 } else if (m_sel.actionType == ActionType::MouseMove) {
                     float panelW = 280.0f;
-                    float offX2 = (availW4 - panelW) * 0.5f;
+                    float offX2 = (availW - panelW) * 0.5f;
                     if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
                     ImGui::TextDisabled("%s", tr("mapper.axis_hint"));
                     if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
                     ImGui::SetNextItemWidth(100.0f);
-                    ImGui::SliderFloat(trid("mapper.mouse_speed", "axspd").c_str(), &m_sel.axisMouseSpeed, 1.0f, 50.0f, "%.0f");
+                    ImGui::SliderFloat(trid("mapper.mouse_speed", "mouseSpeed").c_str(), &m_sel.axisMouseSpeed, 1.0f, 50.0f, "%.0f");
                     ImGui::SameLine();
                     const char* mouseAxes[] = { "X", "Y" };
                     int axIdx = (m_sel.axisMouseAxis == "mouse_y") ? 1 : 0;
                     ImGui::SetNextItemWidth(60.0f);
-                    if (ImGui::Combo(trid("mapper.mouse_axis", "axax").c_str(), &axIdx, mouseAxes, 2))
+                    if (ImGui::Combo(trid("mapper.mouse_axis", "mouseAxis").c_str(), &axIdx, mouseAxes, 2))
                         m_sel.axisMouseAxis = (axIdx == 1) ? "mouse_y" : "mouse_x";
                     ImGui::SameLine();
-                    if (ImGui::Button(trid("btn.assign", "axmov").c_str())) {
+                    if (ImGui::Button(trid("btn.assign", "mouseAssign").c_str())) {
                         HalfAxisAction ha;
                         ha.type = HalfAxisActionType::MouseMove;
                         ha.target = m_sel.axisMouseAxis; ha.speed = m_sel.axisMouseSpeed;
@@ -1148,9 +1342,9 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (m_model.axisActionEdits.count(axisKey)) {
                     ImGui::Spacing();
                     float clearW = 100.0f;
-                    float offX3 = (availW4 - clearW) * 0.5f;
+                    float offX3 = (availW - clearW) * 0.5f;
                     if (offX3 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX3);
-                    if (ImGui::Button(trid("btn.clear", "axclr").c_str(), { clearW, 0.0f })) {
+                    if (ImGui::Button(trid("btn.clear", "axisClear").c_str(), { clearW, 0.0f })) {
                         auto it = m_model.axisActionEdits.find(axisKey);
                         bool isMouseMove = (it != m_model.axisActionEdits.end() &&
                                             it->second.type == HalfAxisActionType::MouseMove);
@@ -1169,10 +1363,10 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 }
             }
         }
-    } // H6 T4
-    } // physComp >= 0 (H5/H6 panel)
+    } // stick axis action panel
+    } // action panels
 
-    // ── H7: UI para gatillo como fuente ──────────────────────────────────────
+    // ── Trigger action panel ─────────────────────────────────────────────────
     if (!m_sel.triggerSrc.empty()) {
         ImGui::Spacing();
         float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
@@ -1188,7 +1382,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         float totalW = btnW * 5 + ImGui::GetStyle().ItemSpacing.x * 4;
         float offX   = (availW - totalW) * 0.5f;
         if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
-        auto typeBtn7 = [&](const char* label, ActionType type) {
+        auto renderTypeTab = [&](const char* label, ActionType type) {
             bool sel = (m_sel.actionType == type);
             if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
             if (ImGui::Button(label, { btnW, 0.0f })) {
@@ -1196,19 +1390,19 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
             if (sel) ImGui::PopStyleColor();
         };
-        char lbH1[64], lbH2[64], lbH3[64];
-        snprintf(lbH1, sizeof(lbH1), "%s##h7t1", tr("action.type_macro"));
-        snprintf(lbH2, sizeof(lbH2), "%s##h7t2", tr("action.type_keyboard"));
-        snprintf(lbH3, sizeof(lbH3), "%s##h7t3", tr("action.type_mouse"));
-        typeBtn7("Xbox/Anal.##h7t0", ActionType::Xbox);    ImGui::SameLine();
-        typeBtn7(lbH1,               ActionType::Macro);   ImGui::SameLine();
-        typeBtn7(lbH2,               ActionType::Keyboard); ImGui::SameLine();
-        typeBtn7(lbH3,               ActionType::Mouse);   ImGui::SameLine();
+        char lblMacro[64], lblKeyboard[64], lblMouse[64];
+        snprintf(lblMacro,    sizeof(lblMacro),    "%s##trigMacro",  tr("action.type_macro"));
+        snprintf(lblKeyboard, sizeof(lblKeyboard), "%s##trigKb",     tr("action.type_keyboard"));
+        snprintf(lblMouse,    sizeof(lblMouse),    "%s##trigMouse",  tr("action.type_mouse"));
+        renderTypeTab("Xbox/Anal.##trigXbox", ActionType::Xbox);     ImGui::SameLine();
+        renderTypeTab(lblMacro,               ActionType::Macro);    ImGui::SameLine();
+        renderTypeTab(lblKeyboard,            ActionType::Keyboard); ImGui::SameLine();
+        renderTypeTab(lblMouse,               ActionType::Mouse);    ImGui::SameLine();
         {
             const std::vector<RangeEdit>& curRanges = (m_sel.triggerSrc == "l2") ? m_model.trigLRangeEdits : m_model.trigRRangeEdits;
             bool hasRanges = !curRanges.empty();
             if (hasRanges) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-            if (ImGui::Button(trid("btn.ranges", "h7t4").c_str(), { btnW, 0.0f })) {
+            if (ImGui::Button(trid("btn.ranges", "trigRanges").c_str(), { btnW, 0.0f })) {
                 m_trigRangeModal.open(m_sel.triggerSrc, curRanges);
                 m_sel.actionType = ActionType::Xbox;
                 m_sel.captureKeys.clear(); m_sel.macroSel.clear();
@@ -1220,24 +1414,42 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
         if (m_sel.actionType == ActionType::Macro) {
             if (!m_macroNamesLoaded) {
-                m_macroNames.clear();
+                m_macroNames.clear(); m_macroLibrary.clear();
                 try {
                     std::ifstream f("data/macros.json");
-                    if (f.is_open()) { json j = json::parse(f); for (auto& [k,v] : j.items()) m_macroNames.push_back(k); }
+                    if (f.is_open()) {
+                        json j = json::parse(f);
+                        for (auto& [k,v] : j.items()) {
+                            m_macroNames.push_back(k);
+                            m_macroLibrary.emplace_back(k, v.get<std::string>());
+                        }
+                    }
                 } catch (...) {}
                 m_macroNamesLoaded = true;
             }
-            if (ActionPanel::renderMacroCombo("mac_h7", m_sel.macroSel, m_macroNames, availW)) {
+            bool editInlineMacro = false;
+            if (ActionPanel::renderMacroCombo("macTrigger", m_sel.macroSel, m_macroNames, availW,
+                                              tr("btn.edit_macro"), &editInlineMacro)) {
                 ButtonAction act;
                 act.type = ButtonActionType::Macro; act.physical = m_sel.triggerSrc; act.name = m_sel.macroSel;
                 m_model.trigActionEdits[m_sel.triggerSrc] = act;
                 m_sel.triggerSrc.clear(); m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear();
             }
+            if (editInlineMacro && !m_sel.triggerSrc.empty()) {
+                m_macroModalPending.ctx = MacroModalPending::Ctx::Trigger;
+                m_macroModalPending.key = m_sel.triggerSrc;
+                m_macroModal.setMacroLibrary(m_macroLibrary);
+                std::string currentDsl;
+                auto actIt = m_model.trigActionEdits.find(m_sel.triggerSrc);
+                if (actIt != m_model.trigActionEdits.end() && actIt->second.type == ButtonActionType::Macro)
+                    currentDsl = actIt->second.execution;
+                m_macroModal.open(MacroCreatorModal::Mode::kInline, "", currentDsl);
+            }
 
         } else if (m_sel.actionType == ActionType::Keyboard) {
             bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
             if (cancel) { m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear(); }
-            else if (ActionPanel::renderKeyboardCapture("kb_h7", m_sel.captureKeys, availW)) {
+            else if (ActionPanel::renderKeyboardCapture("kbTrigger", m_sel.captureKeys, availW)) {
                 ButtonAction act;
                 act.type = ButtonActionType::Keyboard; act.physical = m_sel.triggerSrc;
                 for (const auto& p : m_sel.captureKeys) act.keys.push_back(p.first);
@@ -1247,14 +1459,14 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
         } else if (m_sel.actionType == ActionType::Mouse) {
             std::string mbResult;
-            if (ActionPanel::renderMouseButtons("mb_h7", mbResult, availW)) {
+            if (ActionPanel::renderMouseButtons("mbTrigger", mbResult, availW)) {
                 ButtonAction act;
                 act.type = ButtonActionType::MouseClick; act.physical = m_sel.triggerSrc; act.mouseButton = mbResult;
                 m_model.trigActionEdits[m_sel.triggerSrc] = act;
                 m_sel.triggerSrc.clear(); m_sel.actionType = ActionType::Xbox;
             }
         }
-    } // H7 block
+    } // trigger action panel
 
     // ── Modal Rangos ──────────────────────────────────────────────────────────
     if (m_trigRangeModal.render()) {
@@ -1285,31 +1497,61 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         m_sel.captureKeys.clear(); m_sel.macroSel.clear();
     }
 
+    // ── Modal macro inline ────────────────────────────────────────────────────
+    if (m_macroModal.render()) {
+        const std::string ex = m_macroModal.getExecution();
+        if (!ex.empty() && m_macroModalPending.ctx != MacroModalPending::Ctx::None) {
+            const std::string& key = m_macroModalPending.key;
+            if (m_macroModalPending.ctx == MacroModalPending::Ctx::Button) {
+                ButtonAction act;
+                act.type = ButtonActionType::Macro;
+                act.physical = key; act.name = ""; act.execution = ex;
+                m_model.actionEdits[key] = act;
+                m_model.buttonEdits.erase(key);
+            } else if (m_macroModalPending.ctx == MacroModalPending::Ctx::Axis) {
+                HalfAxisAction ha;
+                ha.type = HalfAxisActionType::Macro; ha.target = ""; ha.execution = ex;
+                m_model.axisActionEdits[key] = ha;
+            } else if (m_macroModalPending.ctx == MacroModalPending::Ctx::Trigger) {
+                ButtonAction act;
+                act.type = ButtonActionType::Macro;
+                act.physical = key; act.name = ""; act.execution = ex;
+                m_model.trigActionEdits[key] = act;
+            }
+        }
+        m_macroModalPending.ctx = MacroModalPending::Ctx::None;
+        m_sel.physComp = -1; m_sel.stickAsButton = false; m_sel.dpadDir.clear();
+        m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear();
+        m_sel.stickDir.clear(); m_sel.triggerSrc.clear();
+    }
+
     // ── Gestión de clicks ─────────────────────────────────────────────────────
     if (mouseClicked)
         handleClick(phys, virt, mouse);
 
-    // ── Guardar / Cancelar ────────────────────────────────────────────────────
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-    if (ImGui::Button(trid("btn.save", "mapSave").c_str(), { 120.0f, 0.0f })) {
-        save();
-        m_active = false;
+    // ── Guardar / Cancelar (normal mode only — profile mode uses the header) ──
+    if (m_mode == Mode::kNormal) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        if (ImGui::Button(trid("btn.save", "mapSave").c_str(), { 120.0f, 0.0f })) {
+            save();
+            m_active = false;
+        }
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Button,        { 0.35f, 0.35f, 0.35f, 1.0f });
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.45f, 0.45f, 0.45f, 1.0f });
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  { 0.25f, 0.25f, 0.25f, 1.0f });
+        if (ImGui::Button(trid("btn.cancel", "mapCancel").c_str(), { 100.0f, 0.0f })) {
+            m_sel.physComp = -1; m_sel.stickDir.clear(); m_sel.stickAsButton = false;
+            m_sel.dpadDir.clear(); m_sel.triggerSrc.clear();
+            m_sel.actionType = ActionType::Xbox;
+            m_sel.captureKeys.clear(); m_sel.macroSel.clear();
+            reload();
+            m_active = false;
+        }
+        ImGui::PopStyleColor(3);
     }
-    ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button,        { 0.35f, 0.35f, 0.35f, 1.0f });
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, { 0.45f, 0.45f, 0.45f, 1.0f });
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  { 0.25f, 0.25f, 0.25f, 1.0f });
-    if (ImGui::Button(trid("btn.cancel", "mapCancel").c_str(), { 100.0f, 0.0f })) {
-        m_sel.physComp = -1; m_sel.stickDir.clear(); m_sel.stickAsButton = false;
-        m_sel.dpadDir.clear(); m_sel.triggerSrc.clear();
-        m_sel.actionType = ActionType::Xbox;
-        m_sel.captureKeys.clear(); m_sel.macroSel.clear();
-        reload();
-        m_active = false;
-    }
-    ImGui::PopStyleColor(3);
 }
 
 // ---------------------------------------------------------------------------
@@ -1453,10 +1695,10 @@ void MappingEditor::onVirtHitPhysButton(PadView& phys, PadView& virt, ImVec2 mou
     if (!physShort.empty() && !virtShort.empty()) {
         if (virtShort == "triggerL" || virtShort == "triggerR") {
             std::string trigTarget = (virtShort == "triggerL") ? "l2" : "r2";
-            auto h5it = m_model.actionEdits.find(physShort);
-            bool already = (h5it != m_model.actionEdits.end() &&
-                            h5it->second.type == ButtonActionType::Trigger &&
-                            h5it->second.target == trigTarget);
+            auto trigAssignIt = m_model.actionEdits.find(physShort);
+            bool already = (trigAssignIt != m_model.actionEdits.end() &&
+                            trigAssignIt->second.type == ButtonActionType::Trigger &&
+                            trigAssignIt->second.target == trigTarget);
             if (already) {
                 m_model.actionEdits.erase(physShort);
                 m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();

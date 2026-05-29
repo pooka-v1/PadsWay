@@ -11,7 +11,10 @@
 void MacroParser::parse(const std::string& execution, Macro& macro) {
     if (execution.empty())
         throw std::runtime_error("Macro execution string is empty");
-    MacroParser p(execution);
+    std::string upper(execution);
+    std::transform(upper.begin(), upper.end(), upper.begin(),
+                   [](unsigned char c) { return std::toupper(c); });
+    MacroParser p(upper);
     p.doParse(macro);
 }
 
@@ -289,14 +292,14 @@ void MacroParser::parseToken(MacroEffect& effect) {
     else if (name == "R2")  effect.btnR2 = true;
     else if (name == "L3")  effect.btnL3 = true;
     else if (name == "R3")  effect.btnR3 = true;
-    else if (name == "CU")  effect.dpadU = true;
-    else if (name == "CD")  effect.dpadD = true;
-    else if (name == "CL")  effect.dpadL = true;
-    else if (name == "CR")  effect.dpadR = true;
-    else if (name == "CUR") { effect.dpadU = true; effect.dpadR = true; }
-    else if (name == "CUL") { effect.dpadU = true; effect.dpadL = true; }
-    else if (name == "CDR") { effect.dpadD = true; effect.dpadR = true; }
-    else if (name == "CDL") { effect.dpadD = true; effect.dpadL = true; }
+    else if (name == "CU")  { effect.dpadU = true; effect.hasDpad = true; }
+    else if (name == "CD")  { effect.dpadD = true; effect.hasDpad = true; }
+    else if (name == "CL")  { effect.dpadL = true; effect.hasDpad = true; }
+    else if (name == "CR")  { effect.dpadR = true; effect.hasDpad = true; }
+    else if (name == "CUR") { effect.dpadU = true; effect.dpadR = true; effect.hasDpad = true; }
+    else if (name == "CUL") { effect.dpadU = true; effect.dpadL = true; effect.hasDpad = true; }
+    else if (name == "CDR") { effect.dpadD = true; effect.dpadR = true; effect.hasDpad = true; }
+    else if (name == "CDL") { effect.dpadD = true; effect.dpadL = true; effect.hasDpad = true; }
     else if (name == "ST")  effect.btnSt = true;
     else if (name == "SE")  effect.btnSe = true;
     else if (name == "HO")  { /* home button — not injectable on Xbox 360 virtual pad */ }

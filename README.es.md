@@ -1,6 +1,6 @@
 # VirtualPad
 
-Lee mandos físicos (WinMM, HID, XInput) y los reenvía como un mando Xbox 360 virtual via ViGEm.
+Lee mandos físicos (HID) y los reenvía como un mando Xbox 360 virtual via ViGEm.
 Soporta macros, bots y configuración por JSON sin tocar el código.
 
 [Read in English](README.md)
@@ -13,7 +13,7 @@ Soporta macros, bots y configuración por JSON sin tocar el código.
 
 | Dependencia | Motivo |
 |---|---|
-| Windows 10/11 | API requeridas: WinMM, HID, DirectX 11 |
+| Windows 10/11 | API requeridas: HID, DirectX 11 |
 | [ViGEmBus driver](https://github.com/nefarius/ViGEmBus/releases) | Crea el mando Xbox 360 virtual |
 | [HidHide driver](https://github.com/nefarius/HidHide/releases) | Oculta el mando físico a los juegos para evitar doble input |
 
@@ -44,109 +44,9 @@ El campo obligatorio es el **VID y PID** del mando (se ven en el Tab Scanner o e
 }
 ```
 
-El campo `"mode"` determina qué API se usa para leerlo:
+El campo `"mode"` debe ser `"hid"` — todos los mandos se leen via HID raw (`HidP_*`).
 
-| mode | API | Cuándo usarlo |
-|---|---|---|
-| `"dinput"` | WinMM (`joyGetPosEx`) | Mando que aparece en `joy.cpl` y en WinMM |
-| `"hid"` | HID raw (`HidP_*`) | Mando que aparece en `joy.cpl` pero **no** en WinMM |
-| `"xinput"` | WinMM compat layer | Mando XInput (pasa por WinMM en modo compatibilidad) |
-
-> **Tip:** abre el Tab Scanner con el mando conectado. Si aparece en la sección **WinMM**, usa `"dinput"`. Si solo aparece en **HID-only**, usa `"hid"`.
-
----
-
-## Modo `"dinput"` — WinMM
-
-Los ejes usan los nombres de `JOYINFOEX`:
-
-| Nombre eje | Campo WinMM | Uso típico |
-|---|---|---|
-| `"dwXpos"` | `dwXpos` | Stick izquierdo X |
-| `"dwYpos"` | `dwYpos` | Stick izquierdo Y |
-| `"dwZpos"` | `dwZpos` | Stick derecho X (D-mode) o gatillos combinados (X-mode) |
-| `"dwRpos"` | `dwRpos` | Stick derecho Y |
-| `"dwUpos"` | `dwUpos` | Stick derecho X (X-mode en algunos mandos) |
-| `"dwVpos"` | `dwVpos` | Eje auxiliar |
-
-El D-pad en DInput suele ser un POV hat:
-```json
-"dpad": "pov"
-```
-
-### Ejemplo — 8BitDo Pro 3 (D-mode, Bluetooth)
-```json
-{
-  "vid": "2DC8", "pid": "6009",
-  "source_name": "8BitDo Pro 3 (D-mode)",
-  "mode": "dinput",
-  "buttons": {
-    "1":  { "physical": "b",      "virtual": "b"      },
-    "2":  { "physical": "a",      "virtual": "a"      },
-    "3":  { "physical": "rp"                          },
-    "4":  { "physical": "y",      "virtual": "y"      },
-    "5":  { "physical": "x",      "virtual": "x"      },
-    "6":  { "physical": "lp"                          },
-    "7":  { "physical": "l1",     "virtual": "l1"     },
-    "8":  { "physical": "r1",     "virtual": "r1"     },
-    "9":  { "physical": "l2",     "type": "trigger",  "target": "l2" },
-    "10": { "physical": "r2",     "type": "trigger",  "target": "r2" },
-    "11": { "physical": "select", "virtual": "select" },
-    "12": { "physical": "start",  "virtual": "start"  },
-    "13": { "physical": "home",   "virtual": "home"   },
-    "14": { "physical": "l3",     "virtual": "l3"     },
-    "15": { "physical": "r3",     "virtual": "r3"     },
-    "17": { "physical": "l4"                          },
-    "18": { "physical": "r4"                          }
-  },
-  "axes": {
-    "dwXpos": { "target": "left_x",  "invert": false },
-    "dwYpos": { "target": "left_y",  "invert": true  },
-    "dwZpos": { "target": "right_x", "invert": false },
-    "dwRpos": { "target": "right_y", "invert": true  }
-  },
-  "dpad": "pov"
-}
-```
-
----
-
-## Modo `"xinput"` — WinMM compat layer
-
-Los mandos XInput (Pro 3/Pro 2 en X-mode, F310 en X-mode) no exponen ejes separados para
-L2 y R2 — los comparten en un único eje Z: positivo → L2, negativo → R2.
-Esto es una limitación de WinMM; los dos gatillos no se pueden pulsar a la vez.
-
-```json
-"dwZpos": { "target": "trigger_combined", "invert": false }
-```
-
-La cruceta en X-mode también va como POV hat:
-```json
-"dpad": "pov"
-```
-
-### Ejemplo — 8BitDo Pro 3 (X-mode, Bluetooth)
-```json
-{
-  "vid": "2DC8", "pid": "310B",
-  "source_name": "8BitDo Pro 3 (X-mode)",
-  "mode": "xinput",
-  "buttons": {
-    "1": "a", "2": "b", "3": "x", "4": "y",
-    "5": "l1", "6": "r1",
-    "7": "select", "8": "start", "9": "l3", "10": "r3"
-  },
-  "axes": {
-    "dwXpos": { "target": "left_x",  "invert": false },
-    "dwYpos": { "target": "left_y",  "invert": true  },
-    "dwZpos": { "target": "trigger_combined", "invert": false },
-    "dwRpos": { "target": "right_y", "invert": true  },
-    "dwUpos": { "target": "right_x", "invert": false }
-  },
-  "dpad": "pov"
-}
-```
+> **Tip:** abre el Tab Scanner con el mando conectado. El log de consola al arrancar lista todos los ejes detectados (Usage ID + rango). Úsalos para rellenar la sección `"axes"`.
 
 ---
 
@@ -346,12 +246,11 @@ pero el convenio de VirtualPad es `+1.0 = arriba`. Ajusta según lo que veas en 
 ## Cómo descubrir el mapping de un mando nuevo
 
 1. Conecta el mando
-2. Abre el **Tab Scanner** en VirtualPad
-3. Si aparece en **WinMM**: pulsa cada botón y anota qué número se ilumina → usa `mode: "dinput"` o `"xinput"`
-4. Si aparece en **HID-only**: el log de consola al arrancar muestra todos los `ValCap` (Usage ID y rango) → usa `mode: "hid"` y mapea los usages que veas
-5. Mueve cada stick y observa qué eje cambia y en qué dirección
-6. Para los gatillos: busca en el log `Usage=0xC4` / `Usage=0xC5` (Simulation Controls) o `Usage=0x33`/`0x34` (Rx/Ry en Generic Desktop)
-7. Añade la entrada en `controllers.json` y reinicia VirtualPad
+2. Abre el **Tab Scanner** en VirtualPad y pulsa cada botón — anota qué número se ilumina
+3. El log de consola al arrancar muestra todos los `ValCap` (Usage ID y rango) — úsalos para identificar los ejes
+4. Mueve cada stick y observa qué eje cambia y en qué dirección
+5. Para los gatillos: busca en el log `Usage=0xC4` / `Usage=0xC5` (Simulation Controls) o `Usage=0x33`/`0x34` (Rx/Ry en Generic Desktop)
+6. Añade la entrada en `controllers.json` con `"mode": "hid"` y reinicia VirtualPad
 
 ---
 
@@ -376,7 +275,7 @@ Esto significa:
 - En un perfil de juego se pueden asignar a macros, bots, combos de teclado, etc.
 - Incluso con perfil activo, la UI sigue reflejando que el botón físico está pulsado.
 
-| Botón WinMM | Físico | Virtual Xbox | Uso |
+| Botón HID | Físico | Virtual Xbox | Uso |
 |---|---|---|---|
 | 3 | Rp (paddle derecho) | — | macro / bot en perfil de juego |
 | 6 | Lp (paddle izquierdo) | — | macro / bot en perfil de juego |
@@ -385,34 +284,64 @@ Esto significa:
 
 ### Formato del perfil de juego
 
+Los perfiles son **independientes del mando** — las claves usan el nombre virtual del botón (`physShort`) en lugar de un índice específico del hardware. El mismo perfil funciona con cualquier mando conectado.
+
 ```json
 {
   "profile_name": "Final Fantasy X",
-  "overrides": [
-    {
-      "vid": "2DC8",
-      "pid": "6009",
-      "_note": "Pro 3 D-mode: Rp=BanishingBlade, Lp=LightningBot, R3=LuluOverdrive",
-      "buttons": {
-        "3":  { "type": "macro", "name": "BanishingBlade" },
-        "6":  { "type": "bot",   "name": "LightningBot"   },
-        "15": { "type": "macro", "name": "LuluOverdrive"  }
-      }
-    }
-  ]
+  "buttons": {
+    "r3":   { "type": "macro",       "name": "LuluOverdrive"  },
+    "home": { "type": "keyboard",    "keys": ["alt", "tab"]   },
+    "l3":   { "type": "mouse_click", "button": "left"         }
+  },
+  "axes": {
+    "right_x": { "target": "mouse_x", "invert": false, "speed": 15 },
+    "right_y": { "target": "mouse_y", "invert": false, "speed": 15 }
+  }
 }
 ```
 
-- Solo se declaran los botones que cambian respecto a la base. El resto se hereda sin tocar.
-- Se puede añadir una entrada `"overrides"` por cada mando que se quiera personalizar (distinto VID/PID).
-- Si en un perfil se reasigna un botón estándar (como el 15 = R3), ese botón deja de funcionar como botón virtual mientras el perfil esté activo. Es una decisión consciente.
-- JSON no admite comentarios nativos. Los campos prefijados con `_` (`_note`, `_button_map`, `_hid_prototype`) son ignorados por el parser y sirven como anotaciones.
+- Solo se declaran los botones/ejes que cambian respecto a la base. El resto se hereda sin tocar.
+- Si el mando conectado no tiene un botón con ese physShort, el override se ignora silenciosamente.
+- Si se reasigna un botón estándar (ej. `r3`), ese botón deja de funcionar como botón virtual mientras el perfil esté activo. Es una decisión consciente.
+- JSON no admite comentarios nativos. Los campos prefijados con `_` (`_note`, `_hid_prototype`) son ignorados por el parser y sirven como anotaciones.
 
 ### Añadir un perfil nuevo
 
-1. Crea `data/NombreJuego.json` con la estructura anterior.
-2. Declara solo los botones que necesitas cambiar; deja el resto en la base.
-3. Selecciona el perfil desde la UI de VirtualPad (pendiente de implementar) o desde `virtualpad.json`.
+1. Crea `data/profiles/NombreJuego.json` con la estructura anterior.
+2. Declara solo los botones/ejes que necesitas cambiar; deja el resto en la base.
+3. Selecciona el perfil desde la UI de VirtualPad.
+
+---
+
+## Biblioteca de macros
+
+Accesible desde la **pestaña Pads → botón Macros**. Las macros se almacenan en `data/macros.json` y son reutilizables desde cualquier mando o perfil de juego.
+
+### Panel izquierdo
+
+Lista todas las macros de la biblioteca. Al seleccionar una se muestra una vista previa visual de los steps (chips con iconos de botón) directamente en el panel.
+
+| Botón | Acción |
+|---|---|
+| **Nuevo** | Abre el editor con una macro en blanco |
+| **Editar** | Abre la macro seleccionada en el editor |
+| **Copiar** | Duplica la macro seleccionada como punto de partida |
+| **Eliminar** | Borra la macro seleccionada de la biblioteca |
+
+### Editor visual
+
+El modal de edición permite construir macros sin escribir DSL a mano:
+
+- **Selector de tokens** — botones de cara, direcciones de cruceta, posiciones de analógico y presets de movimiento (QCF/HCF para cruceta y ambos sticks analógicos). Click en un icono para crear un nuevo step Press; click en el mismo icono con el step seleccionado para añadirlo como combo simultáneo.
+- **Secuencia de steps** — cada step se muestra como un chip. Click en un chip para seleccionarlo; click en otro para extender el rango de selección.
+- **Controles de repetición** — con uno o más steps seleccionados, aplica un bucle (ms), repetición por conteo (`N veces en ms`), mientras pulsado o toggle.
+- **Hold ms** — con un step Press seleccionado, fija cuánto tiempo se mantiene el botón pulsado (por defecto 80ms).
+- **Campo DSL** — el string de macro en bruto siempre es visible y editable. Editarlo manualmente activa el modo complejo para macros arbitrariamente avanzadas.
+
+Los cambios se escriben en `data/macros.json` y se recargan en caliente de inmediato — sin reiniciar.
+
+Ver [MACROS.md](MACROS.md) para la sintaxis DSL completa y la referencia del editor.
 
 ---
 
@@ -526,12 +455,12 @@ El asistente usa `state_map.json` para saber el nombre físico del botón (`phys
 | Archivo | Descripción |
 |---|---|
 | `data/controllers.json` | Configuración base de mandos físicos |
-| `data/FinalFantasyX.json` | Perfil de juego para FFX (overrides sobre la base) |
-| `data/MonsterHunterStories2.json` | Perfil de juego para MHS2 (overrides sobre la base) |
+| `data/profiles/` | Perfiles de juego — un JSON por juego |
 | `data/macros.json` | Biblioteca de macros reutilizables |
 | `data/virtualpad.json` | VID/PID del mando virtual, idioma, nivel de log y umbrales de stick |
 | `data/strings/strings_en.json` | Textos de la interfaz — inglés |
 | `data/strings/strings_es.json` | Textos de la interfaz — español |
+| `images/input_tokens/` | Iconos PNG para el creador de macros (24×24) |
 
 Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
 
@@ -563,7 +492,7 @@ No producen ningún output virtual por defecto — solo son útiles asignándolo
 
 ### 8BitDo Pro 3 — D-mode (VID:2DC8 PID:6009)
 
-| Botón WinMM | Físico | Virtual Xbox |
+| Botón HID | Físico | Virtual Xbox |
 |---|---|---|
 | 1 | B | b |
 | 2 | A | a |
@@ -589,7 +518,7 @@ No producen ningún output virtual por defecto — solo son útiles asignándolo
 
 En X-mode el firmware solo expone los 10 botones estándar Xbox. Los botones Home, Lp, Rp, L4 y R4 no están accesibles.
 
-| Botón WinMM | Físico | Virtual Xbox |
+| Botón HID | Físico | Virtual Xbox |
 |---|---|---|
 | 1 | A | a |
 | 2 | B | b |
@@ -602,7 +531,7 @@ En X-mode el firmware solo expone los 10 botones estándar Xbox. Los botones Hom
 | 9 | L3 | l3 |
 | 10 | R3 | r3 |
 
-> L2 y R2 son analógicos pero comparten el eje Z (trigger_combined). No se pueden pulsar ambos a la vez.
+> L2 y R2 comparten un único eje (trigger_combined) — limitación del firmware en X-mode. No se pueden pulsar ambos a la vez.
 
 ---
 
@@ -634,7 +563,7 @@ En X-mode el firmware solo expone los 10 botones estándar Xbox. Los botones Hom
 
 Mismo layout que Pro 3 X-mode. 10 botones estándar Xbox, sin extras.
 
-| Botón WinMM | Físico | Virtual Xbox |
+| Botón HID | Físico | Virtual Xbox |
 |---|---|---|
 | 1 | A | a |
 | 2 | B | b |
@@ -647,13 +576,13 @@ Mismo layout que Pro 3 X-mode. 10 botones estándar Xbox, sin extras.
 | 9 | L3 | l3 |
 | 10 | R3 | r3 |
 
-> L2/R2 comparten el eje Z (trigger_combined).
+> L2/R2 comparten un único eje (trigger_combined) — limitación del firmware en X-mode.
 
 ---
 
 ### Logitech F310 — D-mode (VID:046D PID:C216)
 
-| Botón WinMM | Físico | Virtual Xbox |
+| Botón HID | Físico | Virtual Xbox |
 |---|---|---|
 | 1 | X | x |
 | 2 | A | a |
@@ -676,7 +605,7 @@ Mismo layout que Pro 3 X-mode. 10 botones estándar Xbox, sin extras.
 
 Funciona igual en USB y Bluetooth (mismo VID/PID).
 
-| Botón WinMM | Físico | Virtual Xbox |
+| Botón HID | Físico | Virtual Xbox |
 |---|---|---|
 | 1 | Square | x |
 | 2 | Cross | a |

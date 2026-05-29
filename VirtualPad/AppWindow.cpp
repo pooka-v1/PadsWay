@@ -45,11 +45,31 @@ int AppWindow::run() {
     if (!initWindow()) return 1;
     if (!initD3D())    { DestroyWindow(m_hwnd); return 1; }
 
+    // Load virtualpad.json early to get font_size before ImGui font init.
+    VirtualPadConfig vpCfgEarly;
+    try { vpCfgEarly = loadVirtualPadConfig("data/virtualpad.json"); } catch (...) {}
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename  = nullptr;
+
+    // Load Segoe UI with an extended glyph range for full Unicode coverage.
+    // Covers Latin, Spanish/French accents, arrows, and general punctuation.
+    // Falls back to ImGui's built-in bitmap font if the file is not found.
+    {
+        static const ImWchar kRanges[] = {
+            0x0020, 0x00FF,  // Basic Latin + Latin-1 Supplement (accented chars, ñ, etc.)
+            0x2000, 0x206F,  // General Punctuation
+            0x2190, 0x21FF,  // Arrows (←→↑↓ etc.)
+            0,
+        };
+        ImFont* font = io.Fonts->AddFontFromFileTTF(
+            "C:\\Windows\\Fonts\\segoeui.ttf", vpCfgEarly.fontSize, nullptr, kRanges);
+        if (!font)
+            io.Fonts->AddFontDefault();
+    }
 
     ImGui::StyleColorsDark();
     ImGuiStyle& style       = ImGui::GetStyle();
@@ -82,29 +102,8 @@ int AppWindow::run() {
         m_layoutsFromBackup = !m_padLayouts.empty();
     }
 
-    // Discover game profiles in data/ (any .json that has a profile_name field)
-    m_profilePaths.clear();
-    m_profileNames.clear();
-    {
-        WIN32_FIND_DATAA fd = {};
-        HANDLE h = FindFirstFileA("data\\*.json", &fd);
-        if (h != INVALID_HANDLE_VALUE) {
-            do {
-                std::string fname = fd.cFileName;
-                if (fname == "controllers.json" || fname == "macros.json" || fname == "virtualpad.json")
-                    continue;
-                std::string path = "data/" + fname;
-                try {
-                    GameProfile p = loadGameProfile(path);
-                    if (!p.profile_name.empty()) {
-                        m_profilePaths.push_back(path);
-                        m_profileNames.push_back(p.profile_name);
-                    }
-                } catch (...) {}
-            } while (FindNextFileA(h, &fd));
-            FindClose(h);
-        }
-    }
+    // Discover game profiles
+    refreshProfileList();
 
     m_padView.load(m_device);
     m_virtualPadView.load(m_device);
@@ -112,6 +111,7 @@ int AppWindow::run() {
     m_mappingEditor.init(m_device, &m_engine, m_padLayouts,
                          m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs);
     m_mappingEditor.setConfigs(m_controllerConfigs);
+    m_macroManager.init(m_device);
 
     m_engine.start();
 
@@ -689,6 +689,26 @@ void AppWindow::cleanupRenderTarget() {
     if (m_renderTarget) { m_renderTarget->Release(); m_renderTarget = nullptr; }
 }
 
+void AppWindow::refreshProfileList() {
+    m_profilePaths.clear();
+    m_profileNames.clear();
+    WIN32_FIND_DATAA fd = {};
+    HANDLE h = FindFirstFileA("data\\profiles\\*.json", &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            std::string path = "data/profiles/" + std::string(fd.cFileName);
+            try {
+                GameProfile p = loadGameProfile(path);
+                if (!p.profile_name.empty()) {
+                    m_profilePaths.push_back(path);
+                    m_profileNames.push_back(p.profile_name);
+                }
+            } catch (...) {}
+        } while (FindNextFileA(h, &fd));
+        FindClose(h);
+    }
+}
+
 void AppWindow::renderPadsTab() {
     // Physical pad: update layout when the active controller changes, or when
     // the editor has just saved (forceSetLayout bypasses the id-cache guard).
@@ -711,7 +731,7 @@ void AppWindow::renderPadsTab() {
     }
 
     {
-      if (!m_mappingEditor.isActive()) {
+      if (!m_mappingEditor.isActive() && !m_macroManager.isActive()) {
         ImGui::Spacing();
 
         if (!m_engine.isConnected()) {
@@ -742,7 +762,27 @@ void AppWindow::renderPadsTab() {
         ImGui::EndGroup();
         } // isConnected
 
-            // â"€â"€ Marquee â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+        // ── Botones Mapper / Perfiles / Macros ────────────────────────────────
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            m_mappingEditor.activate();
+            m_engine.setEditorOpen(true);
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("profiles.title", "openProfiles").c_str(), { 140.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            int presel = m_profileSelected > 0 ? m_profileSelected - 1 : -1;
+            m_mappingEditor.activateProfile(m_profilePaths, m_profileNames, presel);
+            m_engine.setEditorOpen(true);
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
+            m_macroManager.activate();
+
+            // ── Marquee ───────────────────────────────────────────────────────────
 
     for (const auto& ev : m_engine.pollEvents()) {
         MarqueeEntry entry;
@@ -802,16 +842,7 @@ void AppWindow::renderPadsTab() {
         }
     }
 
-        // â"€â"€ BotÃ³n Mapear â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
-            m_mappingEditor.setConfigs(m_controllerConfigs);
-            m_mappingEditor.activate();
-            m_engine.setEditorOpen(true);
-        }
-      } // !m_mappingEditor.isActive()
+      } // !m_mappingEditor.isActive() && !m_macroManager.isActive()
     }
 
     if (m_mappingEditor.isActive()) {
@@ -822,7 +853,16 @@ void AppWindow::renderPadsTab() {
             m_controllerConfigs = loadControllerConfigs("data/controllers.json");
             m_mappingEditor.setConfigs(m_controllerConfigs);
         }
+        if (m_mappingEditor.pollProfileListChanged()) {
+            refreshProfileList();
+            m_mappingEditor.updateProfileList(m_profilePaths, m_profileNames);
+        }
     }
+
+    if (m_macroManager.isActive())
+        m_macroManager.render();
+    if (m_macroManager.pollMacrosSaved())
+        m_engine.reloadMacros();
 }
 
 // ---------------------------------------------------------------------------

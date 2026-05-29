@@ -436,7 +436,11 @@ void LayoutEditor::renderRightPanel(float w) {
         ImGui::DragFloat("size",       &c.size,      0.5f, 1.0f, 500.0f, "size: %.1f");
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::DragFloat("max_offset", &c.maxOffset, 0.5f, 0.0f, 100.0f, "max_offset: %.1f");
-    } else if (c.type != "dpad") {
+    } else if (c.type == "dpad") {
+        if (c.size <= 0.0f) c.size = 1.0f;  // initialize for editing (0 = natural = 1.0)
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat("scale", &c.size, 0.01f, 0.1f, 5.0f, "scale: %.2f");
+    } else {
         bool prevLock = m_lockAspect;
         float origW = c.w, origH = c.h;
         ImGui::Checkbox(tr("layout.keep_ratio"), &m_lockAspect);
@@ -751,6 +755,8 @@ void LayoutEditor::addComponent(const char* type) {
             c.stateX = "gyroZ";
             c.stateY = "gyroX";
         }
+    } else if (strcmp(type, "dpad") == 0) {
+        c.size = 1.0f;  // scale factor: 1.0 = natural texture size
     } else {
         c.w = 50.0f;
         c.h = 50.0f;

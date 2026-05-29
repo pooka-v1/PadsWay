@@ -4,4 +4,5 @@
   </Configurations>
   <Folder Name="/Elementos de la solución/" />
   <Project Path="VirtualPad/VirtualPad.vcxproj" Id="51506331-12a2-4ec3-a608-f929699433eb" />
+  <Project Path="VirtualPadTests/VirtualPadTests.vcxproj" Id="f3f80621-4b85-47ca-a667-666ba6c419aa" />
 </Solution>

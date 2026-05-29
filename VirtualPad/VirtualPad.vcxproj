@@ -155,6 +155,10 @@
     <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="ui\MappingEditor.cpp" />
+    <ClCompile Include="ui\MacroManagerPanel.cpp" />
+    <ClCompile Include="ui\MacroCreatorModal.cpp" />
+    <ClCompile Include="ui\MacroStep.cpp" />
+    <ClCompile Include="ui\MacroStepGrid.cpp" />
     <ClCompile Include="ui\MappingModel.cpp" />
     <ClCompile Include="ui\TriggerRangeModal.cpp" />
     <ClCompile Include="VirtualPad.cpp" />
@@ -192,6 +196,10 @@
     <ClInclude Include="ui\BindingWizard.h" />
     <ClInclude Include="ui\PadView.h" />
     <ClInclude Include="ui\LayoutEditor.h" />
+    <ClInclude Include="ui\MacroManagerPanel.h" />
+    <ClInclude Include="ui\MacroCreatorModal.h" />
+    <ClInclude Include="ui\MacroStep.h" />
+    <ClInclude Include="ui\MacroStepGrid.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
