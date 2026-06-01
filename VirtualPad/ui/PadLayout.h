@@ -7,7 +7,7 @@
 struct PadComponent {
     std::string id;
     std::string view;   // "front" | "top"
-    std::string type;   // "template" | "button" | "stick" | "dpad" | "decoration"
+    std::string type;   // "template" | "button" | "stick" | "dpad" | "analog_dpad" | "decoration"
 
     // Images (filenames relative to images/)
     std::string image;

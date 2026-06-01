@@ -10,13 +10,16 @@
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path);
 
 // Returns a pointer to the best-matching config, or nullptr if not found.
-// Matches on VID+PID (required). connection (+2) and sourceName (+1) are optional
-// secondary discriminators. Entries that declare these fields are skipped when the
-// incoming value doesn't match; entries without them act as generic fallbacks.
+// Matches on VID+PID (required). Optional discriminators add to a score;
+// entries that declare a discriminator but don't match are skipped entirely.
+//   connection  (+2): "usb"/"bt" — transport type
+//   product_name(+2): partial case-insensitive match against the device's HID name
+//   sourceName  (+1): exact match, used only by the wizard for re-pair
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
-                                   const std::string& connection  = "",
-                                   const std::string& sourceName  = "");
+                                   const std::string& connection   = "",
+                                   const std::string& sourceName   = "",
+                                   const std::string& productName  = "");
 
 // Loads macro library from a JSON file (name -> execution string).
 // Returns an empty map if the file does not exist.

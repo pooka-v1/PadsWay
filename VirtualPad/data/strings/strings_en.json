@@ -100,7 +100,9 @@
         "conn_usb":          "USB",
         "conn_unknown":      "unknown",
         "press_button":      "Press button  [ %s ]",
-        "press_dpad":        "Press any D-pad direction"
+        "press_dpad":        "Press any D-pad direction",
+        "press_dpad_down":   "Press D-pad  DOWN  (detects Y axis)",
+        "press_dpad_right":  "Press D-pad  RIGHT  (detects X axis)"
     },
     "ranges": {
         "title":        "Trigger Ranges",
@@ -130,6 +132,7 @@
         "delete_warning": "This action cannot be undone.",
         "add_button":     "+ Button",
         "add_dpad":       "+ D-pad",
+        "add_analog_dpad": "+ Analog D-pad",
         "add_stick":      "+ Stick",
         "add_deco":       "+ Decoration",
         "add_gyro":       "+ Gyro",

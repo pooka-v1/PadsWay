@@ -100,7 +100,9 @@
         "conn_usb":          "USB",
         "conn_unknown":      "desconocida",
         "press_button":      "Pulsa el boton  [ %s ]",
-        "press_dpad":        "Pulsa cualquier direccion del D-pad"
+        "press_dpad":        "Pulsa cualquier direccion del D-pad",
+        "press_dpad_down":   "Pulsa el D-pad  ABAJO  (detecta el eje Y)",
+        "press_dpad_right":  "Pulsa el D-pad a la  DERECHA  (detecta el eje X)"
     },
     "ranges": {
         "title":        "Rangos de gatillo",
@@ -130,6 +132,7 @@
         "delete_warning": "Esta accion no se puede deshacer.",
         "add_button":     "+ Boton",
         "add_dpad":       "+ Cruceta",
+        "add_analog_dpad": "+ Cruceta Analog.",
         "add_stick":      "+ Analogico",
         "add_deco":       "+ Deco",
         "add_gyro":       "+ Giroscopio",

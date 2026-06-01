@@ -5,6 +5,8 @@
 #include <vector>
 #include <future>
 #include <atomic>
+#include <thread>
+#include <mutex>
 #include <unordered_map>
 #include "PadEngine.h"
 #include "input/HIDScanner.h"
@@ -86,9 +88,18 @@ private:
 
     // --- HID live monitor (scanner right panel) ---
     // m_scanDevice holds its own handle — independent of the Engine.
+    // For event-driven devices (BT X-mode) a background thread does blocking reads
+    // so the render thread never misses a single-shot report.
     std::unique_ptr<RawHIDReader> m_scanDevice;
     RawHIDState  m_scanRawState  = {};
+    std::mutex   m_scanRawMutex;
     int          m_scanDeviceIdx = -1;  // index of the device currently open in m_scanDevice
+    std::thread           m_scanReaderThread;
+    std::atomic<bool>     m_scanReaderStop        { false };
+    std::atomic<bool>     m_scanDataFromEngine    { false }; // true = engine owns state, bg thread must not write
+
+    void startScanReaderThread();
+    void stopScanReaderThread();
 
     // --- Pad layouts ---
     std::vector<PadLayout> m_padLayouts;

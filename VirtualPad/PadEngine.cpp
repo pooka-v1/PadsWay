@@ -208,6 +208,14 @@ GamepadState PadEngine::getLastVirtualState() const {
     return m_lastVirtualState;
 }
 
+DWORD PadEngine::getLastRawButtonMask() const {
+    return m_lastRawButtonMask.load();
+}
+
+DWORD PadEngine::getLastRawHat() const {
+    return m_lastRawHat.load();
+}
+
 std::vector<PadEvent> PadEngine::pollEvents() {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::vector<PadEvent> out(m_eventQueue.begin(), m_eventQueue.end());
@@ -296,7 +304,7 @@ void PadEngine::monitorFunc() {
         std::vector<DeviceCandidate> candidates;
         for (auto& h : hidEntries) {
             if (vVid && h.vid == vVid && h.pid == vPid) continue;
-            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType);
+            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType, "", h.productName);
             if (!cfg || cfg->mode != "hid") continue;
             DeviceCandidate c;
             c.hidPath        = h.path;
@@ -404,8 +412,12 @@ void PadEngine::threadFunc() {
                 std::vector<DeviceCandidate> allCandidates;
                 for (auto& h : hidEntries) {
                     if (vpCfg.vid && h.vid == vpCfg.vid && h.pid == vpCfg.pid) continue;
-                    const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType);
-                    if (!c || c->mode != "hid") continue;
+                    const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType, "", h.productName);
+                    if (!c || c->mode != "hid") {
+                        spdlog::debug("[Scan] No config: VID={:04X} PID={:04X} conn='{}' name='{}'",
+                                      h.vid, h.pid, h.connectionType, h.productName);
+                        continue;
+                    }
                     DeviceCandidate dc;
                     dc.hidPath        = h.path;
                     dc.vid            = h.vid;
@@ -463,7 +475,7 @@ void PadEngine::threadFunc() {
         { std::lock_guard<std::mutex> lock(m_mutex); m_activeDevice = selected; }
 
         const ControllerConfig* cfgBase = findConfig(configs, selected.vid, selected.pid,
-                                                     selected.connectionType);
+                                                     selected.connectionType, "", selected.name);
         if (!cfgBase) {
             spdlog::error("No config for VID={:04X} PID={:04X} ({}) — add to controllers.json.",
                 selected.vid, selected.pid, selected.name);
@@ -473,8 +485,8 @@ void PadEngine::threadFunc() {
             Sleep(2000);
             continue;  // back to scan
         }
-        spdlog::info("Config loaded: {}", cfgBase->source_name);
-        setDevice(cfgBase->source_name);
+        spdlog::info("Config loaded: {} (HID: {})", cfgBase->source_name, selected.name);
+        setDevice(selected.name);
         { std::lock_guard<std::mutex> lock(m_mutex); m_activeLayoutId = cfgBase->layout_id; }
 
         ControllerConfig effectiveCfg = *cfgBase;
@@ -823,7 +835,7 @@ void PadEngine::threadFunc() {
         if (m_configsDirty.exchange(false)) {
             { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
             // cfgBase pointed into the old configs — re-find it in the refreshed copy.
-            cfgBase = findConfig(configs, selected.vid, selected.pid, selected.connectionType);
+            cfgBase = findConfig(configs, selected.vid, selected.pid, selected.connectionType, "", selected.name);
             if (cfgBase) {
                 effectiveCfg = *cfgBase;
                 if (!currentProfilePath.empty()) {
@@ -874,10 +886,12 @@ void PadEngine::threadFunc() {
         }
 
         if (input->read(state)) {
+            DWORD btns = input->getLastButtonMask();
+            m_lastRawButtonMask.store(btns);
+            m_lastRawHat.store(input->getLastRawHat());
             { std::lock_guard<std::mutex> lock(m_mutex); m_lastState = input->getPhysicalState(); }
             const bool editorOpen = m_editorOpen.load();
             // Bot and macro toggle detection uses the button mask from the read just performed
-            DWORD btns = input->getLastButtonMask();
 
             if (lightningBotBit > 0) {
                 bool pressed = (btns & (1u << (lightningBotBit - 1))) != 0;

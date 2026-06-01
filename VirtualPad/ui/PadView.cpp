@@ -238,7 +238,7 @@ int PadView::hitTest(ImVec2 mousePos, ImVec2 origin) const {
         float hw, hh;
         if (c.type == "stick" || c.type == "gyro") {
             hw = hh = c.size > 0.0f ? c.size * 0.5f : 20.0f;
-        } else if (c.type == "dpad") {
+        } else if (c.type == "dpad" || c.type == "analog_dpad") {
             float dpadScale = (c.size > 0.0f) ? c.size : 1.0f;
             hw = hh = 40.0f * dpadScale;
         } else {
@@ -418,6 +418,34 @@ void PadView::render(const GamepadState& state, int selectedComp) {
             if (tRight) drawArm(c.imageRight, c.stateRight,
                                 c.cx + tRight->w * dpadScale * 0.5f, c.cy);
         }
+        else if (c.type == "analog_dpad") {
+            // Like dpad visually, but driven by float axes (stateX/stateY) instead of bool states.
+            // Joystick convention (same as stick): positive Y = up, negative Y = down.
+            // The wizard calibrates with invert_if_positive:true so this always holds after setup.
+            float dx = resolveFloat(state, c.stateX);
+            float dy = resolveFloat(state, c.stateY);
+            float dpadScale = (c.size > 0.0f) ? c.size : 1.0f;
+            float thr = (c.threshold > 0.0f) ? c.threshold : 0.5f;
+            auto drawArm = [&](const std::string& imgName, bool active,
+                               float acx, float acy) {
+                const PadTexture* t = getTex(imgName);
+                if (!t) return;
+                img(*t, acx, acy, (float)t->w * dpadScale, (float)t->h * dpadScale,
+                    active ? activeCol : col);
+            };
+            const PadTexture* tUp    = getTex(c.imageUp);
+            const PadTexture* tDown  = getTex(c.imageDown);
+            const PadTexture* tLeft  = getTex(c.imageLeft);
+            const PadTexture* tRight = getTex(c.imageRight);
+            if (tUp)    drawArm(c.imageUp,    dy > thr,
+                                c.cx, c.cy - tUp->h    * dpadScale * 0.5f + 2.0f * dpadScale);
+            if (tDown)  drawArm(c.imageDown,  dy < -thr,
+                                c.cx, c.cy + tDown->h  * dpadScale * 0.5f);
+            if (tLeft)  drawArm(c.imageLeft,  dx < -thr,
+                                c.cx - tLeft->w  * dpadScale * 0.5f, c.cy);
+            if (tRight) drawArm(c.imageRight, dx > thr,
+                                c.cx + tRight->w * dpadScale * 0.5f, c.cy);
+        }
     }
 
     // Selection highlight (editor use)
@@ -426,7 +454,7 @@ void PadView::render(const GamepadState& state, int selectedComp) {
         float hw, hh;
         if (c.type == "stick" || c.type == "gyro") {
             hw = hh = c.size > 0.0f ? c.size * 0.5f : 20.0f;
-        } else if (c.type == "dpad") {
+        } else if (c.type == "dpad" || c.type == "analog_dpad") {
             float dpadScale = (c.size > 0.0f) ? c.size : 1.0f;
             hw = hh = 40.0f * dpadScale;
         } else {

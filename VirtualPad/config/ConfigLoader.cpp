@@ -168,7 +168,8 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         cfg.mode         = c.at("mode").get<std::string>();
         cfg.dpad         = c.value("dpad", "");
         cfg.layout_id    = c.value("layout_id", "");
-        cfg.connection   = c.value("connection", "");
+        cfg.connection    = c.value("connection",    "");
+        cfg.product_name  = c.value("product_name", "");
         cfg.buttons     = parseButtonsJson(c.at("buttons"));
         // Derive stick slot assignments from button entries (virtual = slot direction).
         for (const auto& [bit, action] : cfg.buttons) {
@@ -281,9 +282,20 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
                                    const std::string& connection,
-                                   const std::string& sourceName) {
+                                   const std::string& sourceName,
+                                   const std::string& productName) {
     const ControllerConfig* best      = nullptr;
     int                     bestScore = -1;
+
+    // Case-insensitive substring helper
+    auto containsCI = [](const std::string& haystack, const std::string& needle) {
+        if (needle.empty()) return true;
+        auto it = std::search(haystack.begin(), haystack.end(),
+                              needle.begin(),   needle.end(),
+                              [](char a, char b){ return tolower((unsigned char)a)
+                                                       == tolower((unsigned char)b); });
+        return it != haystack.end();
+    };
 
     for (const auto& c : configs) {
         if (c.vid != vid || c.pid != pid) continue;
@@ -297,10 +309,16 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
             score += 2;
         }
 
+        // product_name: partial case-insensitive match against the device's HID name.
+        // If the entry declares it and the device name doesn't contain it → skip.
+        if (!c.product_name.empty()) {
+            if (!containsCI(productName, c.product_name)) continue;
+            score += 2;
+        }
+
         // source_name: only used when caller provides it (e.g. wizard re-pair)
-        // Runtime engine always passes "" → source_name is ignored, entry stays eligible
         if (!sourceName.empty() && !c.source_name.empty()) {
-            if (c.source_name != sourceName) continue; // explicit mismatch → skip
+            if (c.source_name != sourceName) continue;
             score += 1;
         }
 
@@ -975,7 +993,7 @@ void savePadLayouts(const std::string& path, const std::vector<PadLayout>& layou
             if (!c.imageRight.empty()) jc["image_right"] = c.imageRight;
 
             writeColor4(jc, "color", c.colorR, c.colorG, c.colorB, c.colorA);
-            if (c.type == "button" || c.type == "stick" || c.type == "dpad") {
+            if (c.type == "button" || c.type == "stick" || c.type == "dpad" || c.type == "analog_dpad") {
                 writeColor4(jc, "active_color",
                             c.activeColorR, c.activeColorG, c.activeColorB, c.activeColorA);
                 if (c.type == "button") {

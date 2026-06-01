@@ -626,14 +626,34 @@ Works the same over USB and Bluetooth (same VID/PID).
 
 ---
 
-### 8BitDo Zero 2 — Bluetooth (VID:2DC8 PID:6006)
+### 8BitDo Zero 2 — Bluetooth D-mode (VID:2DC8 PID:3230)
 
-⚠️ **Known limitation:** the Zero 2 shares VID and PID with the Pro 2 in Bluetooth mode.
-VirtualPad cannot distinguish between them — it will load the Pro 2 config for both.
+The D-pad is reported as two binary analog axes (X/Y), not a hat switch.
+VirtualPad maps them to virtual d-pad directions via `axis_actions`.
 
-When running with the Zero 2, the D-pad is reported as 4 analog axes instead of a hat switch,
-so directional input does not work correctly with the Pro 2 profile.
+| HID button | Physical | Virtual Xbox |
+|---|---|---|
+| 1 | A | a |
+| 2 | B | b |
+| 4 | X | x |
+| 5 | Y | y |
+| 7 | LB | l1 |
+| 8 | RB | r1 |
+| 11 | Select | select |
+| 12 | Start | start |
 
-**Workaround:** pending investigation. Connect the controller and use the Scanner tab to inspect
-how the Zero 2 actually reports its axes and D-pad, then create a dedicated profile or add a
-distinguishing mechanism.
+---
+
+### 8BitDo Zero 2 — Bluetooth X-mode (VID:045E PID:02E0)
+
+Discriminated from other controllers sharing this VID/PID by `product_name: "8BitDo Zero 2 gamepad"`.
+
+Same button layout as D-mode above.
+
+---
+
+### 8BitDo Zero 2 — USB (VID:2DC8 PID:9018)
+
+Both D-mode and X-mode USB share the same VID/PID (`9018`). The button layout differs between modes, so **only one USB profile can be active at a time**.
+
+> **Recommendation:** configure the USB profile while the controller is connected in **Android mode (D-mode)**. Hold the button combination for D-mode before plugging in the USB cable, then run the Controller Binding Wizard. The resulting config will work correctly for D-mode USB. X-mode USB uses the same VID/PID but different button numbering — configuring it would overwrite the D-mode profile.

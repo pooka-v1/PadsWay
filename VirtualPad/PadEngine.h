@@ -70,6 +70,8 @@ public:
     DeviceCandidate getActiveDevice() const;
     GamepadState          getLastState()        const;
     GamepadState          getLastVirtualState() const;  // state actually sent to ViGEm (post-bot/macro)
+    DWORD                 getLastRawButtonMask() const; // raw HID button bitmask (for Scanner)
+    DWORD                 getLastRawHat()        const; // raw hat value 0-7 / 0xFFFFFFFF=center
     std::vector<PadEvent> pollEvents();                 // drain the event queue (UI calls each frame)
 
     // Game profile — set from UI thread; applied at next Configuring phase
@@ -121,8 +123,10 @@ private:
     std::vector<DeviceCandidate>  m_availableDevices; // live list from monitor; protected by m_mutex
     std::vector<ControllerConfig> m_configs;          // shared with monitor thread; protected by m_mutex
     DeviceCandidate               m_activeDevice;     // currently active physical device; protected by m_mutex
-    GamepadState                  m_lastState;         // protected by m_mutex
+    GamepadState                  m_lastState;          // protected by m_mutex
     GamepadState                  m_lastVirtualState;  // post-bot/macro, sent to ViGEm; protected by m_mutex
+    std::atomic<DWORD>            m_lastRawButtonMask { 0 };        // raw HID button bitmask; atomic
+    std::atomic<DWORD>            m_lastRawHat        { 0xFFFFFFFF }; // raw hat value; atomic
     std::deque<PadEvent>          m_eventQueue;        // max 16 entries; protected by m_mutex
     std::string                   m_profilePath;      // protected by m_mutex
     std::string                   m_activeProfileName; // protected by m_mutex

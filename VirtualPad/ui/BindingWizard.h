@@ -80,6 +80,7 @@ private:
         std::string source;             // "hid_x" / "dwXpos"
         std::string target;             // "left_x" / "trigger_l"
         bool        invert;
+        bool        isAnalogDpad = false; // axis belongs to an analog_dpad component
     };
 
     // ── Render sub-methods ───────────────────────────────────────────────────
@@ -162,6 +163,11 @@ private:
     int   m_axisConfirmCount = 0;
     int   m_axisConfirmBest  = -1;
     float m_axisConfirmSum   = 0.0f;  // sum of signed deltas for direction averaging
+    // Last successfully-read HID state for axis capture.
+    // On event-driven devices (Zero 2 D-mode) the device only sends a report on state change,
+    // so subsequent reads timeout and return nothing — this persists the last known state
+    // across frames so the 6-frame confirmation window can complete.
+    RawHIDState m_axisLastRead{};
 
     // Directional arrow textures for axis step feedback
     PadTexture m_arrowLeft;
