@@ -265,7 +265,15 @@ void BindingWizard::renderBinding() {
                 snprintf(promptBuf, sizeof(promptBuf), tr("wizard.press_button"), id);
                 promptText = promptBuf;
             } else if (t == "axis" || t == "trigger") {
-                promptText = step.mapping.prompt.c_str();
+                // analog_dpad steps use axis detection but show dpad-specific prompts
+                if (step.compIndex >= 0 &&
+                    step.compIndex < (int)m_layout.components.size() &&
+                    m_layout.components[step.compIndex].type == "analog_dpad") {
+                    bool isY = (step.mapping.axis_target.find("_y") != std::string::npos);
+                    promptText = isY ? tr("wizard.press_dpad_down") : tr("wizard.press_dpad_right");
+                } else {
+                    promptText = step.mapping.prompt.c_str();
+                }
             } else if (t == "dpad") {
                 promptText = tr("wizard.press_dpad");
             }
@@ -483,9 +491,11 @@ void BindingWizard::scanControllers() {
         c.productName    = h.productName;
         c.connectionType = h.connectionType;
         c.path           = h.path;
-        c.name = (existing && !existing->source_name.empty())
-                 ? existing->source_name
-                 : (h.productName.empty() ? "HID device" : h.productName);
+        // Hardware name takes priority — the config source_name may belong to a different
+        // model that shares VID/PID (e.g. Pro 2 config showing for a Zero 2 device).
+        c.name = !h.productName.empty() ? h.productName
+               : (existing && !existing->source_name.empty()) ? existing->source_name
+               : "HID device";
         m_controllers.push_back(std::move(c));
     }
 }
@@ -547,6 +557,25 @@ void BindingWizard::buildSteps() {
                 m_steps.push_back(s);
             } else {
                 ++m_noStateCount;
+            }
+            continue;
+        }
+
+        // Analog dpad: reads two float axes (Y first = press DOWN, X second = press RIGHT).
+        if (comp.type == "analog_dpad") {
+            if (!comp.stateY.empty()) {
+                auto it = m_stateMap.find(comp.stateY);
+                if (it != m_stateMap.end()) {
+                    BindStep s; s.compIndex = i; s.state = comp.stateY; s.mapping = it->second;
+                    m_steps.push_back(s);
+                } else { ++m_noStateCount; }
+            }
+            if (!comp.stateX.empty()) {
+                auto it = m_stateMap.find(comp.stateX);
+                if (it != m_stateMap.end()) {
+                    BindStep s; s.compIndex = i; s.state = comp.stateX; s.mapping = it->second;
+                    m_steps.push_back(s);
+                } else { ++m_noStateCount; }
             }
             continue;
         }
@@ -671,6 +700,10 @@ void BindingWizard::commitAxis(const std::string& source, bool invert) {
         r.invert = false;
     else
         r.invert = invert;
+    if (step.compIndex >= 0 &&
+        step.compIndex < (int)m_layout.components.size() &&
+        m_layout.components[step.compIndex].type == "analog_dpad")
+        r.isAnalogDpad = true;
     m_boundAxes.push_back(r);
 
     if (step.compIndex >= 0)
@@ -777,8 +810,8 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
     };
 
     if (m_hidReader && m_hidReader->isOpen()) {
-        RawHIDState cur{};
-        m_hidReader->read(cur);
+        m_hidReader->read(m_axisLastRead); // on timeout keeps previous state (event-driven devices)
+        const RawHIDState& cur = m_axisLastRead;
         float bestDelta = 0.0f;
         int   bestAxis  = -1;
         for (int i = 0; i < 8; ++i) {
@@ -890,6 +923,20 @@ GamepadState BindingWizard::buildFakeState() const {
     } else if (t == "dpad") {
         // Prompt says "any direction" — light up all arms
         s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = true;
+    } else if (t == "axis" && step.compIndex >= 0 &&
+               step.compIndex < (int)m_layout.components.size() &&
+               m_layout.components[step.compIndex].type == "analog_dpad") {
+        // Light the arm we're asking the user to press.
+        // Y convention: negative = down (joystick convention, invert_if_positive:true).
+        // X convention: positive = right.
+        bool isY = (step.mapping.axis_target.find("_y") != std::string::npos);
+        if (isY) {
+            if      (step.state == "leftY")  s.leftY  = -1.0f;
+            else if (step.state == "rightY") s.rightY = -1.0f;
+        } else {
+            if      (step.state == "leftX")  s.leftX  = 1.0f;
+            else if (step.state == "rightX") s.rightX = 1.0f;
+        }
     }
     // axis steps: no fake state — arrows convey the direction instead
 
@@ -904,7 +951,8 @@ void BindingWizard::snapshotBaseline() {
     if (m_hidReader && m_hidReader->isOpen()) {
         RawHIDState s{};
         m_hidReader->read(s);
-        m_axisBaseline   = s;
+        m_axisBaseline  = s;
+        m_axisLastRead  = s; // sync persistent read state with new baseline
         m_prevButtonMask = s.buttonMask;
     }
 }
@@ -930,6 +978,8 @@ void BindingWizard::saveResult() {
     entry["layout_id"]   = m_layout.id;
     if (m_saveWithConnection && !ctrl.connectionType.empty())
         entry["connection"] = ctrl.connectionType;
+    if (!ctrl.productName.empty())
+        entry["product_name"] = ctrl.productName;
 
     // Buttons
     json buttons = json::object();
@@ -961,6 +1011,26 @@ void BindingWizard::saveResult() {
         axes[a.source] = { { "target", a.target }, { "invert", a.invert } };
     }
     entry["axes"] = axes;
+
+    // Analog dpad: generate axis_actions from the two captured axes.
+    // Convention: positive Y = down, positive X = right.
+    // Invert flag (already absorbed into axes) flips both halves.
+    {
+        json axActions = json::object();
+        for (const auto& a : m_boundAxes) {
+            if (!a.isAnalogDpad) continue;
+            bool isY = (a.target.find("_y") != std::string::npos);
+            // Base assumption: raw positive = down/right. The invert flag (set by the wizard
+            // when the device sends positive for down) swaps pos/neg so the final axis_actions
+            // always read: left_y_pos→dpad_up, left_y_neg→dpad_down (joystick convention).
+            std::string posDir = isY ? "dpad_down" : "dpad_right";
+            std::string negDir = isY ? "dpad_up"   : "dpad_left";
+            if (a.invert) std::swap(posDir, negDir);
+            axActions[a.target + "_pos"] = { {"virtual", posDir} };
+            axActions[a.target + "_neg"] = { {"virtual", negDir} };
+        }
+        if (!axActions.empty()) entry["axis_actions"] = axActions;
+    }
 
     // Dpad
     if (m_hasDpad) entry["dpad"] = m_dpadType;

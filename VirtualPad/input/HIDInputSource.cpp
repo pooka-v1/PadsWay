@@ -102,14 +102,19 @@ bool HIDInputSource::read(GamepadState& state) {
             }
             bool hatUp = false, hatDown = false, hatLeft = false, hatRight = false;
             auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
+            DWORD normHat = 0xFFFFFFFF;
             if (hatCapIt != m_hid.valueCaps().end()) {
                 ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
                 ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
-                if (hatValue >= hatMin && hatValue <= hatMax)
-                    parseHIDDpad(hatValue - hatMin, hatUp, hatDown, hatLeft, hatRight);
+                if (hatValue >= hatMin && hatValue <= hatMax) {
+                    normHat = hatValue - hatMin;
+                    parseHIDDpad(normHat, hatUp, hatDown, hatLeft, hatRight);
+                }
             } else {
+                normHat = hatValue;
                 parseHIDDpad(hatValue, hatUp, hatDown, hatLeft, hatRight);
             }
+            m_lastRawHat.store(normHat);
             m_physicalState.dpadUp    = hatUp;
             m_physicalState.dpadDown  = hatDown;
             m_physicalState.dpadLeft  = hatLeft;
@@ -141,14 +146,19 @@ bool HIDInputSource::read(GamepadState& state) {
             }
             bool hatUp = false, hatDown = false, hatLeft = false, hatRight = false;
             auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
+            DWORD normHat = 0xFFFFFFFF;
             if (hatCapIt != m_hid.valueCaps().end()) {
                 ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
                 ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
-                if (hatValue >= hatMin && hatValue <= hatMax)
-                    parseHIDDpad(hatValue - hatMin, hatUp, hatDown, hatLeft, hatRight);
+                if (hatValue >= hatMin && hatValue <= hatMax) {
+                    normHat = hatValue - hatMin;
+                    parseHIDDpad(normHat, hatUp, hatDown, hatLeft, hatRight);
+                }
             } else {
+                normHat = hatValue;
                 parseHIDDpad(hatValue, hatUp, hatDown, hatLeft, hatRight);
             }
+            m_lastRawHat.store(normHat);
             m_physicalState.dpadUp    = hatUp;
             m_physicalState.dpadDown  = hatDown;
             m_physicalState.dpadLeft  = hatLeft;
@@ -309,6 +319,9 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
         }
     }
     m_physicalState = physDisplay;
+    // Restore axis values overwritten by the button-only physDisplay assignment.
+    // applyAxes() already wrote stickId axes to m_physicalState, but physDisplay zeroed them.
+    buildPhysicalAxes(buf, bufLen);
 
     // Reset virtual button states before remapping so OR logic works correctly
     // regardless of unordered_map iteration order.

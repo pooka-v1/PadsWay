@@ -231,7 +231,9 @@ void LayoutEditor::renderLeftPanel(float w) {
     if (ImGui::Button(tr("layout.add_stick"), { hw, 0.0f })) addComponent("stick");
     ImGui::SameLine();
     if (ImGui::Button(tr("layout.add_deco"), { hw, 0.0f })) addComponent("decoration");
-    if (ImGui::Button(tr("layout.add_gyro"), { -1.0f, 0.0f })) addComponent("gyro");
+    if (ImGui::Button(tr("layout.add_analog_dpad"), { hw, 0.0f })) addComponent("analog_dpad");
+    ImGui::SameLine();
+    if (ImGui::Button(tr("layout.add_gyro"), { hw, 0.0f })) addComponent("gyro");
 
     ImGui::Separator();
 
@@ -436,7 +438,7 @@ void LayoutEditor::renderRightPanel(float w) {
         ImGui::DragFloat("size",       &c.size,      0.5f, 1.0f, 500.0f, "size: %.1f");
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::DragFloat("max_offset", &c.maxOffset, 0.5f, 0.0f, 100.0f, "max_offset: %.1f");
-    } else if (c.type == "dpad") {
+    } else if (c.type == "dpad" || c.type == "analog_dpad") {
         if (c.size <= 0.0f) c.size = 1.0f;  // initialize for editing (0 = natural = 1.0)
         ImGui::SetNextItemWidth(-1.0f);
         ImGui::DragFloat("scale", &c.size, 0.01f, 0.1f, 5.0f, "scale: %.2f");
@@ -461,7 +463,7 @@ void LayoutEditor::renderRightPanel(float w) {
     ImGui::Text("%s", tr("layout.images"));
 
     bool imageChanged = false;
-    if (c.type == "dpad") {
+    if (c.type == "dpad" || c.type == "analog_dpad") {
         imageChanged |= comboImage("image_up",    c.imageUp,    "cross");
         imageChanged |= comboImage("image_down",  c.imageDown,  "cross");
         imageChanged |= comboImage("image_left",  c.imageLeft,  "cross");
@@ -513,6 +515,13 @@ void LayoutEditor::renderRightPanel(float w) {
         stateCombo("state_x##sx",     c.stateX);
         stateCombo("state_y##sy",     c.stateY);
         stateCombo("state_click##sc", c.stateClick);
+    } else if (c.type == "analog_dpad") {
+        ImGui::Spacing();
+        ImGui::Text("%s", tr("layout.states"));
+        stateCombo("state_x##ax", c.stateX);
+        stateCombo("state_y##ay", c.stateY);
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::DragFloat("threshold##athr", &c.threshold, 0.01f, 0.1f, 0.9f, "thr: %.2f");
     } else if (c.type == "dpad") {
         ImGui::Spacing();
         ImGui::Text("%s", tr("layout.states"));
@@ -563,7 +572,7 @@ void LayoutEditor::renderRightPanel(float w) {
             { c.colorR=v[0]; c.colorG=v[1]; c.colorB=v[2]; c.colorA=v[3]; }
     }
 
-    if (c.type == "button" || c.type == "stick" || c.type == "dpad") {
+    if (c.type == "button" || c.type == "stick" || c.type == "dpad" || c.type == "analog_dpad") {
         ImGui::SameLine(0, 12);
         float v[4] = { c.activeColorR, c.activeColorG, c.activeColorB, c.activeColorA };
         ImGui::Text("%s", tr("layout.color_active"));  ImGui::SameLine();
@@ -755,7 +764,7 @@ void LayoutEditor::addComponent(const char* type) {
             c.stateX = "gyroZ";
             c.stateY = "gyroX";
         }
-    } else if (strcmp(type, "dpad") == 0) {
+    } else if (strcmp(type, "dpad") == 0 || strcmp(type, "analog_dpad") == 0) {
         c.size = 1.0f;  // scale factor: 1.0 = natural texture size
     } else {
         c.w = 50.0f;

@@ -29,6 +29,10 @@ public:
     // Bit N-1 is set if physical button N is pressed. Used for bot/macro toggle detection.
     virtual DWORD getLastButtonMask() const = 0;
 
+    // Returns the normalized hat switch value (0=N,1=NE...7=NW, 0xFFFFFFFF=center).
+    // Used by the Scanner to display dpad state for the active engine device.
+    virtual DWORD getLastRawHat() const { return 0xFFFFFFFF; }
+
     // Human-readable name used for logging and diagnostics.
     virtual const char* getName() const = 0;
 

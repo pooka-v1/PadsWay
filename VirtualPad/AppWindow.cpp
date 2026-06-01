@@ -237,19 +237,20 @@ void AppWindow::renderEngineTab() {
         for (int i = 0; i < (int)displayList.size(); ++i) {
             const auto& dev = displayList[i];
             const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid,
-                                                     dev.connectionType);
-            const char* displayName = cfg ? cfg->source_name.c_str() : dev.name.c_str();
+                                                     dev.connectionType, "", dev.name);
+            // Show hardware name; config source_name in gray when it differs.
+            const std::string& hwName  = dev.name;
             bool isActive = (dev.vid == activeDevice.vid && dev.pid == activeDevice.pid
                           && dev.hidPath == activeDevice.hidPath);
 
             if (isActive) {
                 ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "  >");
                 ImGui::SameLine();
-                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", displayName, dev.vid, dev.pid);
+                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", hwName.c_str(), dev.vid, dev.pid);
             } else {
                 ImGui::Text("   ");
                 ImGui::SameLine();
-                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", displayName, dev.vid, dev.pid);
+                ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", hwName.c_str(), dev.vid, dev.pid);
                 ImGui::SameLine();
 
                 char btnLabel[64];
@@ -447,11 +448,11 @@ void AppWindow::renderScannerTab() {
         for (int i = 0; i < (int)m_hidDevices.size(); ++i) {
             const auto& dev = m_hidDevices[i];
             const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
+            // Always show the raw device name so we can see what the hardware reports.
+            const std::string& rawName = dev.productName;
             char label[128];
-            if (cfg)
-                snprintf(label, sizeof(label), "[HID] %s", cfg->source_name.c_str());
-            else if (!dev.productName.empty())
-                snprintf(label, sizeof(label), "[HID] %s", dev.productName.c_str());
+            if (!rawName.empty())
+                snprintf(label, sizeof(label), "[HID] %s", rawName.c_str());
             else
                 snprintf(label, sizeof(label), "[HID] VID:%04X PID:%04X", dev.vid, dev.pid);
 
@@ -459,7 +460,10 @@ void AppWindow::renderScannerTab() {
             if (ImGui::Selectable(label, sel, 0, { 0, 0 }))
                 m_hidSelected = i;
             ImGui::SameLine();
-            ImGui::TextDisabled("  VID:%04X PID:%04X", dev.vid, dev.pid);
+            if (cfg)
+                ImGui::TextDisabled("  %s  VID:%04X PID:%04X", cfg->source_name.c_str(), dev.vid, dev.pid);
+            else
+                ImGui::TextDisabled("  VID:%04X PID:%04X", dev.vid, dev.pid);
         }
     }
 
@@ -480,7 +484,12 @@ void AppWindow::renderScannerTab() {
 
     // â"€â"€ HID device live monitor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     if (m_hidSelected < 0 || m_hidSelected >= (int)m_hidDevices.size()) {
-        if (m_scanDevice) { m_scanDevice.reset(); m_scanRawState = {}; m_scanDeviceIdx = -1; }
+        if (m_scanDevice) {
+            stopScanReaderThread();
+            m_scanDevice.reset();
+            { std::lock_guard<std::mutex> lk(m_scanRawMutex); m_scanRawState = {}; }
+            m_scanDeviceIdx = -1;
+        }
         ImGui::Spacing();
         ImGui::TextDisabled("%s", tr("scanner.hint"));
         ImGui::EndChild();
@@ -493,26 +502,49 @@ void AppWindow::renderScannerTab() {
 
     // Open/close m_scanDevice when the selection changes
     if (m_hidSelected != m_scanDeviceIdx) {
+        stopScanReaderThread();     // stop before resetting device handle
         m_scanDevice.reset();
-        m_scanRawState  = {};
+        { std::lock_guard<std::mutex> lk(m_scanRawMutex); m_scanRawState = {}; }
         m_scanDeviceIdx = m_hidSelected;
         char nameLabel[64];
         snprintf(nameLabel, sizeof(nameLabel), "VID:%04X PID:%04X", hdev.vid, hdev.pid);
         m_scanDevice = std::make_unique<RawHIDReader>(
             hdev.path,
             hdev.productName.empty() ? nameLabel : hdev.productName);
+        startScanReaderThread();    // background thread for event-driven devices
     }
 
-    // Read new data (timeout=0 — non-blocking from the render thread)
-    if (m_scanDevice) {
-        if (!m_scanDevice->isOpen()) {
+    // Read new data. For devices using XInput/Xbox HID filter the driver only
+    // delivers reports to the first opener (the engine). When the selected device
+    // is the active engine device, read from the engine instead of the raw handle.
+    DeviceCandidate activeDevice = m_engine.getActiveDevice();
+    bool useEngineData = (!activeDevice.hidPath.empty() &&
+                          activeDevice.hidPath == hdev.path);
+    if (useEngineData) {
+        // Engine owns the device handle; background thread can't read independently.
+        // Use the engine's stored raw state (buttons + hat + axes) instead.
+        m_scanDataFromEngine = true;
+        std::lock_guard<std::mutex> lk(m_scanRawMutex);
+        m_scanRawState.buttonMask = m_engine.getLastRawButtonMask();
+        m_scanRawState.hat        = m_engine.getLastRawHat();
+        GamepadState phys = m_engine.getLastState();
+        m_scanRawState.axisX  = phys.leftX;
+        m_scanRawState.axisY  = phys.leftY;
+        m_scanRawState.axisZ  = phys.triggerL;
+        m_scanRawState.axisRx = phys.rightX;
+        m_scanRawState.axisRy = phys.rightY;
+        m_scanRawState.axisRz = phys.triggerR;
+    } else {
+        m_scanDataFromEngine = false;  // background thread can write freely
+        if (m_scanDevice && !m_scanDevice->isOpen()) {
+            // Device disconnected — stop background thread and clean up.
+            stopScanReaderThread();
             m_scanDevice.reset();
-            m_scanRawState  = {};
+            { std::lock_guard<std::mutex> lk(m_scanRawMutex); m_scanRawState = {}; }
             m_scanDeviceIdx = -1;
-        } else {
-            m_scanDevice->read(m_scanRawState, 0);
         }
     }
+    // Background thread handles reading for non-engine devices; render thread just reads the shared state.
 
     // Header
     ImGui::Spacing();
@@ -526,7 +558,7 @@ void AppWindow::renderScannerTab() {
         ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"",
                             hdev.vid, hdev.pid);
     }
-    if (!m_scanDevice || !m_scanDevice->isOpen()) {
+    if (!useEngineData && (!m_scanDevice || !m_scanDevice->isOpen())) {
         ImGui::Spacing();
         ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", tr("scanner.disconnected"));
         ImGui::EndChild();
@@ -536,6 +568,10 @@ void AppWindow::renderScannerTab() {
     ImGui::Separator();
     ImGui::Spacing();
 
+    // Take a snapshot of the raw state under the mutex so the render thread is consistent.
+    RawHIDState snap;
+    { std::lock_guard<std::mutex> lk(m_scanRawMutex); snap = m_scanRawState; }
+
     const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
 
     // Buttons — raw HID button numbers 1-32
@@ -543,7 +579,7 @@ void AppWindow::renderScannerTab() {
     ImGui::Separator();
     ImGui::Spacing();
     for (int i = 0; i < 32; ++i) {
-        bool pressed = (m_scanRawState.buttonMask & (1u << i)) != 0;
+        bool pressed = (snap.buttonMask & (1u << i)) != 0;
         ImGui::PushStyleColor(ImGuiCol_Button,
             pressed ? ImVec4(0.15f, 0.75f, 0.15f, 1.0f) : ImVec4(0.20f, 0.20f, 0.22f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
@@ -561,14 +597,14 @@ void AppWindow::renderScannerTab() {
     ImGui::Separator();
     ImGui::Spacing();
     struct { const char* name; float v; } axes[] = {
-        { "X",     m_scanRawState.axisX     },
-        { "Y",     m_scanRawState.axisY     },
-        { "Z",     m_scanRawState.axisZ     },
-        { "Rx",    m_scanRawState.axisRx    },
-        { "Ry",    m_scanRawState.axisRy    },
-        { "Rz",    m_scanRawState.axisRz    },
-        { "Brake", m_scanRawState.axisBrake },
-        { "Accel", m_scanRawState.axisAccel },
+        { "X",     snap.axisX     },
+        { "Y",     snap.axisY     },
+        { "Z",     snap.axisZ     },
+        { "Rx",    snap.axisRx    },
+        { "Ry",    snap.axisRy    },
+        { "Rz",    snap.axisRz    },
+        { "Brake", snap.axisBrake },
+        { "Accel", snap.axisAccel },
     };
     for (auto& a : axes) {
         float dev_f = fabsf(a.v);
@@ -582,16 +618,16 @@ void AppWindow::renderScannerTab() {
     }
 
     // Gyro (raw bytes offset 13 — DS4 USB only; other controllers may show noise)
-    if (m_scanRawState.gyroRawValid) {
+    if (snap.gyroRawValid) {
         ImGui::Spacing();
         ImGui::Spacing();
         ImGui::Text("Gyro (IMU)");
         ImGui::Separator();
         ImGui::Spacing();
         struct { const char* name; float v; } gyros[] = {
-            { "Gx", m_scanRawState.gyroRawX },
-            { "Gy", m_scanRawState.gyroRawY },
-            { "Gz", m_scanRawState.gyroRawZ },
+            { "Gx", snap.gyroRawX },
+            { "Gy", snap.gyroRawY },
+            { "Gz", snap.gyroRawZ },
         };
         for (auto& g : gyros) {
             float dev_f = fabsf(g.v);
@@ -612,8 +648,8 @@ void AppWindow::renderScannerTab() {
     ImGui::Separator();
     ImGui::Spacing();
     DWORD pov = JOY_POVCENTERED;
-    if (m_scanRawState.hat < 8)
-        pov = m_scanRawState.hat * 4500;
+    if (snap.hat < 8)
+        pov = snap.hat * 4500;
     drawPOVCompass(pov);
 
     ImGui::EndChild();
@@ -896,7 +932,33 @@ void AppWindow::renderLayoutTab() {
 
 // ---------------------------------------------------------------------------
 
+void AppWindow::startScanReaderThread() {
+    m_scanReaderStop     = false;
+    m_scanDataFromEngine = false;
+    m_scanReaderThread = std::thread([this] {
+        RawHIDState local {};  // persists last known state across reads
+        while (!m_scanReaderStop) {
+            if (m_scanDevice && m_scanDevice->isOpen()) {
+                m_scanDevice->read(local, 20);  // blocking; keeps last state on timeout
+                if (!m_scanDataFromEngine) {    // don't overwrite when engine owns the state
+                    std::lock_guard<std::mutex> lk(m_scanRawMutex);
+                    m_scanRawState = local;
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+        }
+    });
+}
+
+void AppWindow::stopScanReaderThread() {
+    m_scanReaderStop = true;
+    if (m_scanReaderThread.joinable())
+        m_scanReaderThread.join();
+}
+
 void AppWindow::cleanup() {
+    stopScanReaderThread();
     m_mappingEditor.unload();
     m_layoutEditor.unload();
     m_virtualPadView.unload();

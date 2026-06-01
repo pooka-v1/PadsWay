@@ -5,6 +5,7 @@
 #include "ComponentTypes.h"
 #include <string>
 #include <unordered_map>
+#include <atomic>
 
 // Reads a HID joystick/gamepad device using the HidP API.
 // Axis mapping uses HID usage names in controllers.json:
@@ -21,6 +22,7 @@ public:
     bool        read(GamepadState& state) override;
     const char* getName()             const override { return m_name.c_str(); }
     DWORD       getLastButtonMask()   const override { return m_lastButtonMask; }
+    DWORD       getLastRawHat()       const override { return m_lastRawHat.load(); }
     void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
     GamepadState getPhysicalState()   const override { return m_physicalState; }
     std::vector<std::string> getActiveAxisActions() const override { return m_activeAxisActions; }
@@ -35,6 +37,7 @@ private:
     ControllerConfig m_config;
     std::string      m_name;
     DWORD            m_lastButtonMask = 0;
+    std::atomic<DWORD> m_lastRawHat  { 0xFFFFFFFF };
     int              m_readCount      = 0;
     int              m_btnErrCount    = 0;
     float            m_lastTouchX      = 0.0f;

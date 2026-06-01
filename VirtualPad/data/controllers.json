@@ -648,6 +648,276 @@
         "mouse_enabled": true
       },
       "vid": "054C"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "dpad_remap": {
+        "down": "left_y_neg",
+        "left": "left_x_neg",
+        "right": "left_x_pos",
+        "up": "left_y_pos"
+      },
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "3230",
+      "source_name": "Bluetooth Wireless Controller   ",
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        }
+      },
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "02E0",
+      "product_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 (X-mode)",
+      "vid": "045E"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "3230",
+      "product_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 gamepad",
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "connection": "usb",
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "9018",
+      "product_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 gamepad",
+      "vid": "2DC8"
     }
   ]
 }
