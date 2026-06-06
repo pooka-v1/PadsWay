@@ -30,7 +30,7 @@
     <ClCompile Include="input\HIDInputSource.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="bots\LightningBot.cpp">
+    <ClCompile Include="bots\BotLoader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="macros\Macro.cpp">
@@ -113,7 +113,10 @@
     <ClInclude Include="input\HIDInputSource.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
-    <ClInclude Include="bots\LightningBot.h">
+    <ClInclude Include="bots\bot_api.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="bots\BotLoader.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="macros\Macro.h">

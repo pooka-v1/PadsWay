@@ -170,6 +170,9 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         cfg.layout_id    = c.value("layout_id", "");
         cfg.connection    = c.value("connection",    "");
         cfg.product_name  = c.value("product_name", "");
+        if (c.contains("context_bots") && c["context_bots"].is_array())
+            for (const auto& b : c["context_bots"])
+                cfg.context_bots.push_back(b.get<std::string>());
         cfg.buttons     = parseButtonsJson(c.at("buttons"));
         // Derive stick slot assignments from button entries (virtual = slot direction).
         for (const auto& [bit, action] : cfg.buttons) {
@@ -407,6 +410,9 @@ GameProfile loadGameProfile(const std::string& path) {
             profile.axes[key] = m;
         }
     }
+    if (root.contains("context_bots") && root["context_bots"].is_array())
+        for (const auto& b : root["context_bots"])
+            profile.context_bots.push_back(b.get<std::string>());
     return profile;
 }
 

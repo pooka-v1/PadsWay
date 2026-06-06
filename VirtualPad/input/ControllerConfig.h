@@ -123,4 +123,7 @@ struct ControllerConfig {
     // Undefined slots fall through to the axes mapping for that axis.
     // Trigger sources without ranges: analog (0..1). With ranges: digital (0 or 1).
     std::unordered_map<std::string, std::vector<std::string>> stickSlots; // slot → [sources] (OR: any active drives the slot)
+
+    // Bots that start automatically when this device is active (by name, matching a loaded DLL).
+    std::vector<std::string> context_bots;
 };

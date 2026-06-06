@@ -144,7 +144,7 @@
     <ClCompile Include="input\HIDScanner.cpp" />
     <ClCompile Include="input\HIDDevice.cpp" />
     <ClCompile Include="input\HIDInputSource.cpp" />
-    <ClCompile Include="bots\LightningBot.cpp" />
+    <ClCompile Include="bots\BotLoader.cpp" />
     <ClCompile Include="input\RawHIDReader.cpp" />
     <ClCompile Include="macros\Macro.cpp" />
     <ClCompile Include="macros\MacroParser.cpp" />
@@ -180,7 +180,8 @@
     <ClInclude Include="input\HIDScanner.h" />
     <ClInclude Include="input\HIDDevice.h" />
     <ClInclude Include="input\HIDInputSource.h" />
-    <ClInclude Include="bots\LightningBot.h" />
+    <ClInclude Include="bots\bot_api.h" />
+    <ClInclude Include="bots\BotLoader.h" />
     <ClInclude Include="input\RawHIDReader.h" />
     <ClInclude Include="macros\Macro.h" />
     <ClInclude Include="macros\MacroParser.h" />

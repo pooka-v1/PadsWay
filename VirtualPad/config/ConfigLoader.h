@@ -56,6 +56,7 @@ struct GameProfile {
     std::string profile_name;
     std::unordered_map<std::string, ButtonAction> buttons;  // virtual Xbox name -> action
     std::unordered_map<std::string, AxisMapping>  axes;     // virtual axis name (right_x, left_y…) -> new mapping
+    std::vector<std::string> context_bots;                  // bots to start when this profile is active
 };
 
 // Loads a game profile JSON. Returns a profile with an empty name if the
