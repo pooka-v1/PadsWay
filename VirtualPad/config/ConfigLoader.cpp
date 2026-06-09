@@ -1,5 +1,6 @@
 #include "ConfigLoader.h"
 #include "../nlohmann/json.hpp"
+#include <algorithm>
 #include <fstream>
 #include <stdexcept>
 
@@ -142,6 +143,47 @@ static std::unordered_map<std::string, HalfAxisAction> parseAxisActionsJson(cons
     return result;
 }
 
+// Parses a dpad_remap JSON object. String values that are stick slot dirs go
+// to slots; other strings to remap; objects to actions.
+static void parseDpadRemapJson(const json& j,
+                               std::unordered_map<std::string, std::string>&  remap,
+                               std::unordered_map<std::string, ButtonAction>& actions,
+                               std::unordered_map<std::string, std::string>&  slots) {
+    for (const auto& [dir, btn] : j.items()) {
+        if (!dir.empty() && dir[0] == '_') continue;
+        if (btn.is_string()) {
+            const std::string val = btn.get<std::string>();
+            if (isStickSlotDir(val))
+                slots[dir] = val;
+            else
+                remap[dir] = val;
+        } else if (btn.is_object())
+            actions[dir] = parseButtonAction(btn);
+    }
+}
+
+// Parses one trigger_actions side ("l2"/"r2" value): either a ranges object
+// or a simple action.
+static void parseTrigSideJson(const json& t,
+                              ButtonAction& simpleAct, bool& hasSimple,
+                              std::vector<TriggerRange>& ranges) {
+    if (t.is_object() && t.contains("ranges") && t["ranges"].is_array()) {
+        for (const auto& r : t["ranges"]) {
+            TriggerRange tr;
+            tr.from = r.value("from", 0.0f);
+            tr.to   = r.value("to",   1.0f);
+            if (r.contains("action")) {
+                tr.action    = parseButtonAction(r["action"]);
+                tr.hasAction = true;
+            }
+            ranges.push_back(tr);
+        }
+    } else {
+        simpleAct = parseButtonAction(t);
+        hasSimple = true;
+    }
+}
+
 // Parses a buttons JSON object into a map.
 // Keys starting with '_' are skipped (they are pseudo-comments).
 static std::unordered_map<int, ButtonAction> parseButtonsJson(const json& buttonsJson) {
@@ -204,17 +246,12 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         if (c.contains("axis_actions"))
             cfg.axis_actions = parseAxisActionsJson(c.at("axis_actions"));
 
-        if (c.contains("dpad_remap") && c["dpad_remap"].is_object())
-            for (const auto& [dir, btn] : c["dpad_remap"].items()) {
-                if (btn.is_string()) {
-                    const std::string val = btn.get<std::string>();
-                    if (isStickSlotDir(val))
-                        cfg.stickSlots[val].push_back("dpad_" + dir);
-                    else
-                        cfg.dpadRemap[dir] = val;
-                } else if (btn.is_object())
-                    cfg.dpadActions[dir] = parseButtonAction(btn);
-            }
+        if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
+            std::unordered_map<std::string, std::string> dpadSlots;
+            parseDpadRemapJson(c["dpad_remap"], cfg.dpadRemap, cfg.dpadActions, dpadSlots);
+            for (const auto& [dir, slot] : dpadSlots)
+                cfg.stickSlots[slot].push_back("dpad_" + dir);
+        }
 
         if (c.contains("trigger_actions") && c["trigger_actions"].is_object()) {
             const auto& ta = c["trigger_actions"];
@@ -222,22 +259,7 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
                                      ButtonAction& simpleAct, bool& hasSimple,
                                      std::vector<TriggerRange>& ranges) {
                 if (!ta.contains(key)) return;
-                const auto& t = ta[key];
-                if (t.is_object() && t.contains("ranges") && t["ranges"].is_array()) {
-                    for (const auto& r : t["ranges"]) {
-                        TriggerRange tr;
-                        tr.from   = r.value("from", 0.0f);
-                        tr.to     = r.value("to",   1.0f);
-                        if (r.contains("action")) {
-                            tr.action    = parseButtonAction(r["action"]);
-                            tr.hasAction = true;
-                        }
-                        ranges.push_back(tr);
-                    }
-                } else {
-                    simpleAct  = parseButtonAction(t);
-                    hasSimple  = true;
-                }
+                parseTrigSideJson(ta[key], simpleAct, hasSimple, ranges);
             };
             parseTrigSide("l2", cfg.triggerLAction, cfg.triggerLHasAction, cfg.triggerLRanges);
             parseTrigSide("r2", cfg.triggerRAction, cfg.triggerRHasAction, cfg.triggerRRanges);
@@ -409,14 +431,53 @@ GameProfile loadGameProfile(const std::string& path) {
             m.invert    = val.value("invert",    false);
             m.speed     = val.value("speed",     15.0f);
             m.stickId   = val.value("stick_id",  std::string{});
+            m.btnNeg    = val.value("btn_neg",   std::string{});
+            m.btnPos    = val.value("btn_pos",   std::string{});
             m.threshold = val.value("threshold", 0.5f);
             profile.axes[key] = m;
+        }
+    }
+    if (root.contains("axis_actions") && root["axis_actions"].is_object()) {
+        profile.hasAxisActions = true;
+        profile.axis_actions   = parseAxisActionsJson(root["axis_actions"]);
+    }
+    if (root.contains("dpad_remap") && root["dpad_remap"].is_object()) {
+        profile.hasDpadRemap = true;
+        parseDpadRemapJson(root["dpad_remap"],
+                           profile.dpadRemap, profile.dpadActions, profile.dpadSlots);
+    }
+    if (root.contains("trigger_actions") && root["trigger_actions"].is_object()) {
+        const auto& ta = root["trigger_actions"];
+        // A null side is a tombstone: reset that trigger to default behaviour.
+        if (ta.contains("l2")) {
+            profile.hasTriggerL = true;
+            if (!ta["l2"].is_null())
+                parseTrigSideJson(ta["l2"], profile.triggerLAction,
+                                  profile.triggerLHasAction, profile.triggerLRanges);
+        }
+        if (ta.contains("r2")) {
+            profile.hasTriggerR = true;
+            if (!ta["r2"].is_null())
+                parseTrigSideJson(ta["r2"], profile.triggerRAction,
+                                  profile.triggerRHasAction, profile.triggerRRanges);
         }
     }
     if (root.contains("context_bots") && root["context_bots"].is_array())
         for (const auto& b : root["context_bots"])
             profile.context_bots.push_back(b.get<std::string>());
     return profile;
+}
+
+// Removes a source ("a", "dpad_up", "l2"…) from every stick slot entry.
+static void removeSlotSource(
+        std::unordered_map<std::string, std::vector<std::string>>& slots,
+        const std::string& source) {
+    for (auto it = slots.begin(); it != slots.end(); ) {
+        auto& v = it->second;
+        v.erase(std::remove(v.begin(), v.end(), source), v.end());
+        if (v.empty()) it = slots.erase(it);
+        else           ++it;
+    }
 }
 
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile) {
@@ -441,23 +502,79 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
         else if (auto it = physShortToBit.find(key); it != physShortToBit.end())
             targetBit = it->second;
         if (targetBit == -1) continue;
+        const ButtonAction& baseAct = base.buttons.at(targetBit);
+        // Keep stick slot sources in sync with the overridden assignment.
+        if (baseAct.type == ButtonActionType::VirtualButton &&
+            isStickSlotDir(baseAct.name) && !baseAct.physical.empty())
+            removeSlotSource(result.stickSlots, baseAct.physical);
         result.buttons[targetBit] = override_action;
-        if (result.buttons[targetBit].physical.empty())
-            result.buttons[targetBit].physical = base.buttons.at(targetBit).physical;
+        ButtonAction& newAct = result.buttons[targetBit];
+        if (newAct.physical.empty())
+            newAct.physical = baseAct.physical;
+        if (newAct.type == ButtonActionType::VirtualButton &&
+            isStickSlotDir(newAct.name) && !newAct.physical.empty())
+            result.stickSlots[newAct.name].push_back(newAct.physical);
     }
 
     // ── Axes ─────────────────────────────────────────────────────────────────
-    // Build virtual axis target -> HID source map from the base config.
+    // Build virtual axis name -> HID source map from the base config.
+    // stick_id (the physical stick identity, which the editor uses as key) wins
+    // over target so profiles keep addressing the same physical axis even when
+    // the base config already remaps it.
     std::unordered_map<std::string, std::string> virtualToSource;
     for (const auto& [source, mapping] : base.axes)
-        if (!mapping.target.empty())
+        if (!mapping.target.empty() && !virtualToSource.count(mapping.target))
             virtualToSource[mapping.target] = source;
+    for (const auto& [source, mapping] : base.axes)
+        if (!mapping.stickId.empty())
+            virtualToSource[mapping.stickId] = source;
 
     for (const auto& [virtualAxis, newMapping] : profile.axes) {
         auto it = virtualToSource.find(virtualAxis);
         if (it == virtualToSource.end()) continue;  // controller doesn't have this axis
         result.axes[it->second] = newMapping;
     }
+
+    // ── Axis actions (whole-section replace) ─────────────────────────────────
+    if (profile.hasAxisActions)
+        result.axis_actions = profile.axis_actions;
+
+    // ── Dpad (whole-section replace) ─────────────────────────────────────────
+    if (profile.hasDpadRemap) {
+        result.dpadRemap.clear();
+        result.dpadActions.clear();
+        for (const char* d : { "up", "down", "left", "right" })
+            removeSlotSource(result.stickSlots, std::string("dpad_") + d);
+        result.dpadRemap   = profile.dpadRemap;
+        result.dpadActions = profile.dpadActions;
+        for (const auto& [dir, slot] : profile.dpadSlots)
+            result.stickSlots[slot].push_back("dpad_" + dir);
+    }
+
+    // ── Triggers (per-side replace) ──────────────────────────────────────────
+    auto applyTrigSide = [&result](bool hasSide, const ButtonAction& act, bool hasAct,
+                                   const std::vector<TriggerRange>& ranges, const char* src,
+                                   ButtonAction& outAct, bool& outHas,
+                                   std::vector<TriggerRange>& outRanges) {
+        if (!hasSide) return;
+        removeSlotSource(result.stickSlots, src);
+        outAct    = act;
+        outHas    = hasAct;
+        outRanges = ranges;
+        // Same derivation as the controller loader: a simple action targeting a
+        // stick slot dir becomes a slot source instead of a trigger action.
+        if (outHas && outAct.type == ButtonActionType::VirtualButton &&
+            isStickSlotDir(outAct.name)) {
+            result.stickSlots[outAct.name].push_back(src);
+            outHas = false;
+        }
+    };
+    applyTrigSide(profile.hasTriggerL, profile.triggerLAction, profile.triggerLHasAction,
+                  profile.triggerLRanges, "l2",
+                  result.triggerLAction, result.triggerLHasAction, result.triggerLRanges);
+    applyTrigSide(profile.hasTriggerR, profile.triggerRAction, profile.triggerRHasAction,
+                  profile.triggerRRanges, "r2",
+                  result.triggerRAction, result.triggerRHasAction, result.triggerRRanges);
 
     return result;
 }
@@ -832,15 +949,100 @@ static PhysicalController parsePhysicalController(const json& c) {
     return ctrl;
 }
 
-void rebuildPhysicalControllerButtons(PhysicalController& pc, const ControllerConfig& cfg) {
+void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg) {
+    auto setBase = [&](ComponentId id, std::optional<PhysicalComponent> comp) {
+        pc.baseLayer[static_cast<size_t>(id)] = std::move(comp);
+    };
+    auto slotForSource = [&](const std::string& src) -> std::optional<StickSlotId> {
+        for (const auto& [slot, srcs] : cfg.stickSlots)
+            if (std::find(srcs.begin(), srcs.end(), src) != srcs.end())
+                return slotStringToStickSlotId(slot);
+        return std::nullopt;
+    };
+    auto hasAxisTarget = [&](const char* tgt) {
+        for (const auto& [src, m] : cfg.axes)
+            if (m.target == tgt) return true;
+        return false;
+    };
+
+    // ── Buttons ──────────────────────────────────────────────────────────────
     for (const auto& [bit, action] : cfg.buttons) {
         if (action.physical.empty()) continue;
         auto cid = physicalNameToComponentId(action.physical);
         if (!cid) continue;
         auto vt = buttonActionToVT(action);
-        if (!vt) continue;
-        pc.baseLayer[static_cast<size_t>(*cid)] =
-            PhysicalButton{static_cast<uint8_t>(bit), *vt};
+        if (vt) setBase(*cid, PhysicalButton{static_cast<uint8_t>(bit), *vt});
+        else    setBase(*cid, std::nullopt);   // unbound (e.g. cleared by a profile)
+    }
+
+    // ── Dpad ─────────────────────────────────────────────────────────────────
+    if (!cfg.dpad.empty()) {
+        static const struct { const char* name; DpadDir dir; ComponentId cid; } kDirs[] = {
+            {"up",    DpadDir::Up,    ComponentId::DpadUp},
+            {"down",  DpadDir::Down,  ComponentId::DpadDown},
+            {"left",  DpadDir::Left,  ComponentId::DpadLeft},
+            {"right", DpadDir::Right, ComponentId::DpadRight},
+        };
+        for (const auto& d : kDirs) {
+            PhysicalDpadDir comp{d.dir, VirtualPassthrough{}};
+            if (auto slot = slotForSource(std::string("dpad_") + d.name))
+                comp.target = VirtualStickSlot{*slot};
+            if (auto it = cfg.dpadRemap.find(d.name); it != cfg.dpadRemap.end()) {
+                if (auto bid = virtualNameToButtonId(it->second))
+                    comp.target = VirtualButton{*bid};
+            }
+            if (auto it = cfg.dpadActions.find(d.name); it != cfg.dpadActions.end()) {
+                if (auto vt = buttonActionToVT(it->second))
+                    comp.target = *vt;
+            }
+            setBase(d.cid, comp);
+        }
+    }
+
+    // ── Triggers ─────────────────────────────────────────────────────────────
+    auto rebuildTrig = [&](TriggerSide side, ComponentId cid, const char* src,
+                           const char* axisTarget, const ButtonAction& act, bool hasAct,
+                           const std::vector<TriggerRange>& ranges) {
+        if (auto slot = slotForSource(src)) {
+            RangedHalfAxis rha;
+            rha.ranges.push_back({0.0f, 1.0f, VirtualStickSlot{*slot}});
+            setBase(cid, PhysicalTrigger{side, std::move(rha)});
+            return;
+        }
+        if (hasAct || !ranges.empty()) {
+            setBase(cid, PhysicalTrigger{side, buildRangedHalfAxisFromTrigger(act, hasAct, ranges)});
+            return;
+        }
+        // No action: passthrough if the controller has a physical trigger axis.
+        if (hasAxisTarget(axisTarget)) setBase(cid, PhysicalTrigger{side, {}});
+        else                           setBase(cid, std::nullopt);
+    };
+    rebuildTrig(TriggerSide::L, ComponentId::TriggerL, "l2", "trigger_l",
+                cfg.triggerLAction, cfg.triggerLHasAction, cfg.triggerLRanges);
+    rebuildTrig(TriggerSide::R, ComponentId::TriggerR, "r2", "trigger_r",
+                cfg.triggerRAction, cfg.triggerRHasAction, cfg.triggerRRanges);
+
+    // ── Analog dirs (axis_actions / whole-axis passthrough) ──────────────────
+    static const struct {
+        const char* key; const char* axis; ComponentId cid; StickSlotId slot;
+    } kHalves[] = {
+        {"left_x_pos",  "left_x",  ComponentId::LeftXPos,  StickSlotId::LeftXPos},
+        {"left_x_neg",  "left_x",  ComponentId::LeftXNeg,  StickSlotId::LeftXNeg},
+        {"left_y_pos",  "left_y",  ComponentId::LeftYPos,  StickSlotId::LeftYPos},
+        {"left_y_neg",  "left_y",  ComponentId::LeftYNeg,  StickSlotId::LeftYNeg},
+        {"right_x_pos", "right_x", ComponentId::RightXPos, StickSlotId::RightXPos},
+        {"right_x_neg", "right_x", ComponentId::RightXNeg, StickSlotId::RightXNeg},
+        {"right_y_pos", "right_y", ComponentId::RightYPos, StickSlotId::RightYPos},
+        {"right_y_neg", "right_y", ComponentId::RightYNeg, StickSlotId::RightYNeg},
+    };
+    for (const auto& h : kHalves) {
+        auto it = cfg.axis_actions.find(h.key);
+        if (it != cfg.axis_actions.end())
+            setBase(h.cid, PhysicalAnalogDir{h.slot, buildRangedHalfAxisFromHalf(it->second)});
+        else if (hasAxisTarget(h.axis))
+            setBase(h.cid, PhysicalAnalogDir{h.slot, {}});   // empty = passthrough
+        else
+            setBase(h.cid, std::nullopt);
     }
 }
 

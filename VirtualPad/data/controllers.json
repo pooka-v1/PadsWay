@@ -315,11 +315,6 @@
         }
       },
       "dpad": "hid_hat",
-      "dpad_remap": {
-        "down": "dpad_down",
-        "left": "dpad_left",
-        "right": "dpad_right"
-      },
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
       "pid": "6006",

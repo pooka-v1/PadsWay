@@ -1,28 +1,5 @@
 {
-  "axes": {
-    "right_x": {
-      "invert": false,
-      "speed": 15,
-      "target": "mouse_x"
-    },
-    "right_y": {
-      "invert": false,
-      "speed": 15,
-      "target": "mouse_y"
-    }
-  },
   "buttons": {
-    "home": {
-      "keys": [
-        "alt",
-        "tab"
-      ],
-      "type": "keyboard"
-    },
-    "l3": {
-      "button": "left",
-      "type": "mouse_click"
-    },
     "lp": {
       "name": "BanishingBlade",
       "type": "macro"
@@ -30,10 +7,17 @@
     "r3": {
       "name": "LuluOverdrive",
       "type": "macro"
+    },
+    "rp": {
+      "name": "LightningBot",
+      "type": "bot"
     }
   },
-  "context_bots": [
-    "LightningBot"
-  ],
+  "dpad_remap": {
+    "down": "dpad_down",
+    "left": "dpad_left",
+    "right": "dpad_right",
+    "up": "dpad_up"
+  },
   "profile_name": "Final Fantasy X"
 }

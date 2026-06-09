@@ -2,9 +2,221 @@
 #include "../nlohmann/json.hpp"
 using json = nlohmann::json;
 
+#include <algorithm>
 #include <fstream>
 #include <cstdio>
 #include <windows.h>
+
+// ---------------------------------------------------------------------------
+// JSON serializers shared by save() (controllers.json) and saveProfile().
+// saveProfile() builds each section from the model edits AND from the base
+// config with the same builders, so equality means "same as base" → omit.
+// ---------------------------------------------------------------------------
+
+static json actionToJson(const ButtonAction& act) {
+    json j = json::object();
+    if (act.type == ButtonActionType::TriggerPassthrough) {
+        j["type"]   = "trigger_passthrough";
+        j["target"] = act.target;
+    } else if (act.type == ButtonActionType::VirtualButton) {
+        j["virtual"] = act.name;
+    } else if (act.type == ButtonActionType::Keyboard) {
+        j["type"] = "keyboard";
+        json arr = json::array();
+        for (const auto& k : act.keys) arr.push_back(k);
+        j["keys"] = arr;
+    } else if (act.type == ButtonActionType::MouseClick) {
+        j["type"]   = "mouse_click";
+        j["button"] = act.mouseButton;
+    } else if (act.type == ButtonActionType::Macro) {
+        j["type"] = "macro";
+        j["name"] = act.name;
+        if (!act.execution.empty()) j["execution"] = act.execution;
+    } else if (act.type == ButtonActionType::Bot) {
+        j["type"] = "bot";
+        j["name"] = act.name;
+    } else if (act.type == ButtonActionType::Trigger) {
+        j["type"]   = "trigger";
+        j["target"] = act.target;
+    }
+    return j;
+}
+
+static json halfAxisToJson(const HalfAxisAction& ha) {
+    json j;
+    switch (ha.type) {
+    case HalfAxisActionType::VirtualButton:
+    case HalfAxisActionType::Trigger:
+    case HalfAxisActionType::StickSlot:
+        j["virtual"] = ha.target;
+        break;
+    case HalfAxisActionType::Dpad:
+        j["virtual"] = "dpad_" + ha.target;
+        break;
+    case HalfAxisActionType::Keyboard: {
+        j["type"] = "keyboard";
+        json arr = json::array();
+        for (const auto& k : ha.keys) arr.push_back(k);
+        j["keys"] = arr;
+        break;
+    }
+    case HalfAxisActionType::Macro:
+        j["type"] = "macro";
+        j["name"] = ha.target;
+        if (!ha.execution.empty()) j["execution"] = ha.execution;
+        break;
+    case HalfAxisActionType::Bot:
+        j["type"] = "bot";
+        j["name"] = ha.target;
+        break;
+    case HalfAxisActionType::MouseClick:
+        j["type"]   = "mouse_click";
+        j["button"] = ha.mouseButton;
+        break;
+    case HalfAxisActionType::MouseMove:
+        j["target"] = ha.target;
+        j["speed"]  = ha.speed;
+        break;
+    case HalfAxisActionType::Analog:
+        j["type"]    = "analog";
+        j["target"]  = ha.target;
+        j["out_dir"] = ha.outDir;
+        j["scale"]   = ha.scale;
+        break;
+    case HalfAxisActionType::Ranges: {
+        json arr = json::array();
+        for (const auto& r : ha.ranges) {
+            json rj;
+            rj["from"] = r.from;
+            rj["to"]   = r.to;
+            if (r.hasAction)
+                rj["action"] = actionToJson(r.action);
+            arr.push_back(rj);
+        }
+        j["ranges"] = arr;
+        break;
+    }
+    }
+    return j;
+}
+
+static json axisActionsToJson(const std::unordered_map<std::string, HalfAxisAction>& m) {
+    json j = json::object();
+    for (const auto& [key, ha] : m)
+        j[key] = halfAxisToJson(ha);
+    return j;
+}
+
+// Trigger side from ranges: a single range collapses to its plain action,
+// multiple ranges serialize as { "ranges": [...] }. Returns null when empty.
+// Works on both RangeEdit and TriggerRange (same field shape).
+template <typename R>
+static json trigSideFromRanges(const std::vector<R>& ranges) {
+    json result;  // default: null
+    if (ranges.empty()) return result;
+    if (ranges.size() == 1) {
+        if (ranges[0].hasAction)
+            result = actionToJson(ranges[0].action);
+        return result;
+    }
+    json side = json::object();
+    json arr  = json::array();
+    for (const auto& re : ranges) {
+        json r;
+        r["from"] = re.from;
+        r["to"]   = re.to;
+        if (re.hasAction)
+            r["action"] = actionToJson(re.action);
+        arr.push_back(r);
+    }
+    side["ranges"] = arr;
+    return side;
+}
+
+static json trigSideJsonFromEdits(
+        const std::unordered_map<std::string, ButtonAction>& trigActionEdits,
+        const std::string& key, const std::vector<RangeEdit>& ranges) {
+    auto it = trigActionEdits.find(key);
+    if (it != trigActionEdits.end())
+        return actionToJson(it->second);
+    return trigSideFromRanges(ranges);
+}
+
+// Same serialization built from a parsed config — mirrors what the model
+// would hold right after reloadFromConfig() on that config.
+static json trigSideJsonFromConfig(const ControllerConfig& cfg, const char* src) {
+    for (const auto& [slot, srcs] : cfg.stickSlots)
+        if (std::find(srcs.begin(), srcs.end(), src) != srcs.end()) {
+            ButtonAction a;
+            a.type = ButtonActionType::VirtualButton;
+            a.name = slot;
+            return actionToJson(a);
+        }
+    const bool isL = (std::string(src) == "l2");
+    if (isL ? cfg.triggerLHasAction : cfg.triggerRHasAction)
+        return actionToJson(isL ? cfg.triggerLAction : cfg.triggerRAction);
+    return trigSideFromRanges(isL ? cfg.triggerLRanges : cfg.triggerRRanges);
+}
+
+static json dpadJsonFromEdits(
+        const std::unordered_map<std::string, ButtonAction>& actionEdits,
+        const std::unordered_map<std::string, std::string>&  buttonEdits) {
+    json j = json::object();
+    for (const char* dir : { "up", "down", "left", "right" }) {
+        std::string key = std::string("dpad_") + dir;
+        auto ait = actionEdits.find(key);
+        if (ait != actionEdits.end()) {
+            json actJson = actionToJson(ait->second);
+            actJson["physical"] = key;
+            j[dir] = std::move(actJson);
+        } else {
+            auto bit = buttonEdits.find(key);
+            // Identity remap (dpad_up → dpad_up) is the same as no remap — skip it.
+            if (bit != buttonEdits.end() && !bit->second.empty() && bit->second != key)
+                j[dir] = bit->second;
+        }
+    }
+    return j;
+}
+
+static json dpadJsonFromConfig(const ControllerConfig& cfg) {
+    json j = json::object();
+    for (const char* dir : { "up", "down", "left", "right" }) {
+        std::string key = std::string("dpad_") + dir;
+        auto ait = cfg.dpadActions.find(dir);
+        if (ait != cfg.dpadActions.end()) {
+            json actJson = actionToJson(ait->second);
+            actJson["physical"] = key;
+            j[dir] = std::move(actJson);
+            continue;
+        }
+        auto rit = cfg.dpadRemap.find(dir);
+        if (rit != cfg.dpadRemap.end()) {
+            if (rit->second != key)   // skip identity remaps
+                j[dir] = rit->second;
+            continue;
+        }
+        for (const auto& [slot, srcs] : cfg.stickSlots)
+            if (std::find(srcs.begin(), srcs.end(), key) != srcs.end()) {
+                j[dir] = slot;
+                break;
+            }
+    }
+    return j;
+}
+
+// Whole-axis mapping as stored in a profile's "axes" section, keyed by stickId.
+static json axisMappingToJson(const AxisMapping& m, const std::string& sid) {
+    json j = json::object();
+    j["target"]    = m.target;
+    j["stick_id"]  = sid;
+    j["invert"]    = m.invert;
+    j["speed"]     = m.speed;
+    j["threshold"] = m.threshold;
+    if (!m.btnNeg.empty()) j["btn_neg"] = m.btnNeg;
+    if (!m.btnPos.empty()) j["btn_pos"] = m.btnPos;
+    return j;
+}
 
 // ---------------------------------------------------------------------------
 void MappingModel::clear() {
@@ -118,27 +330,12 @@ void MappingModel::saveProfile(const std::string& path, const std::string& profi
         auto vit = physToVirtual.find(physShort);
         const std::string& vName = (vit != physToVirtual.end()) ? vit->second : physShort;
 
+        json j = actionToJson(act);
+
         auto bit = baseByPhys.find(physShort);
-        if (bit != baseByPhys.end() &&
-            bit->second->type == act.type && bit->second->name == act.name)
+        if (bit != baseByPhys.end() && actionToJson(*bit->second) == j)
             continue;  // same as base
 
-        json j = json::object();
-        if (act.type == ButtonActionType::Macro) {
-            j["type"] = "macro"; j["name"] = act.name;
-            if (!act.execution.empty()) j["execution"] = act.execution;
-        } else if (act.type == ButtonActionType::Bot) {
-            j["type"] = "bot"; j["name"] = act.name;
-        } else if (act.type == ButtonActionType::Keyboard) {
-            j["type"] = "keyboard";
-            json arr = json::array();
-            for (const auto& k : act.keys) arr.push_back(k);
-            j["keys"] = arr;
-        } else if (act.type == ButtonActionType::MouseClick) {
-            j["type"] = "mouse_click"; j["button"] = act.mouseButton;
-        } else if (act.type == ButtonActionType::Trigger) {
-            j["type"] = "trigger"; j["target"] = act.target;
-        }
         if (!j.empty()) buttonsJson[vName] = j;
     }
 
@@ -167,6 +364,54 @@ void MappingModel::saveProfile(const std::string& path, const std::string& profi
     else                     root["buttons"] = buttonsJson;
     if (contextBotsEdits.empty()) root.erase("context_bots");
     else                          root["context_bots"] = contextBotsEdits;
+
+    // --- dpad_remap — whole-section diff against base ---
+    {
+        json modelDpad = dpadJsonFromEdits(actionEdits, buttonEdits);
+        json baseDpad  = dpadJsonFromConfig(base);
+        if (modelDpad == baseDpad) root.erase("dpad_remap");
+        else                       root["dpad_remap"] = std::move(modelDpad);
+    }
+
+    // --- trigger_actions — per-side diff; a null side resets that trigger ---
+    {
+        json taJson = json::object();
+        json lModel = trigSideJsonFromEdits(trigActionEdits, "l2", trigLRangeEdits);
+        json rModel = trigSideJsonFromEdits(trigActionEdits, "r2", trigRRangeEdits);
+        if (lModel != trigSideJsonFromConfig(base, "l2")) taJson["l2"] = std::move(lModel);
+        if (rModel != trigSideJsonFromConfig(base, "r2")) taJson["r2"] = std::move(rModel);
+        if (taJson.empty()) root.erase("trigger_actions");
+        else                root["trigger_actions"] = std::move(taJson);
+    }
+
+    // --- axis_actions — whole-section diff against base ---
+    {
+        json modelAA = axisActionsToJson(axisActionEdits);
+        json baseAA  = axisActionsToJson(base.axis_actions);
+        if (modelAA == baseAA) root.erase("axis_actions");
+        else                   root["axis_actions"] = std::move(modelAA);
+    }
+
+    // --- axes (whole-axis remap) — per-key diff against base, keyed by stickId ---
+    if (!axisEdits.empty()) {
+        std::unordered_map<std::string, const AxisMapping*> baseByStick;
+        for (const auto& [src, m] : base.axes) {
+            std::string sid = m.stickId.empty() ? m.target : m.stickId;
+            if (!sid.empty()) baseByStick[sid] = &m;
+        }
+        json axesJson = (root.contains("axes") && root["axes"].is_object())
+                            ? root["axes"] : json::object();
+        for (const auto& [sid, em] : axisEdits) {
+            json mj = axisMappingToJson(em, sid);
+            auto bit = baseByStick.find(sid);
+            if (bit != baseByStick.end() && axisMappingToJson(*bit->second, sid) == mj)
+                axesJson.erase(sid);
+            else
+                axesJson[sid] = std::move(mj);
+        }
+        if (axesJson.empty()) root.erase("axes");
+        else                  root["axes"] = std::move(axesJson);
+    }
 
     // Remove legacy overrides array if present.
     root.erase("overrides");
@@ -264,40 +509,7 @@ void MappingModel::save(const std::string& path) {
 
         // --- Dpad remap ---
         {
-            json dpadRemapJson = json::object();
-            for (const char* dir : {"up", "down", "left", "right"}) {
-                std::string key = std::string("dpad_") + dir;
-                auto h5it = actionEdits.find(key);
-                if (h5it != actionEdits.end()) {
-                    const ButtonAction& act = h5it->second;
-                    json actJson = json::object();
-                    actJson["physical"] = key;
-                    if (act.type == ButtonActionType::Keyboard) {
-                        actJson["type"] = "keyboard";
-                        json keysArr = json::array();
-                        for (const auto& k : act.keys) keysArr.push_back(k);
-                        actJson["keys"] = keysArr;
-                    } else if (act.type == ButtonActionType::MouseClick) {
-                        actJson["type"]   = "mouse_click";
-                        actJson["button"] = act.mouseButton;
-                    } else if (act.type == ButtonActionType::Macro) {
-                        actJson["type"] = "macro";
-                        actJson["name"] = act.name;
-                        if (!act.execution.empty()) actJson["execution"] = act.execution;
-                    } else if (act.type == ButtonActionType::Bot) {
-                        actJson["type"] = "bot";
-                        actJson["name"] = act.name;
-                    } else if (act.type == ButtonActionType::Trigger) {
-                        actJson["type"]   = "trigger";
-                        actJson["target"] = act.target;
-                    }
-                    dpadRemapJson[dir] = std::move(actJson);
-                } else {
-                    auto it = buttonEdits.find(key);
-                    if (it != buttonEdits.end() && !it->second.empty())
-                        dpadRemapJson[dir] = it->second;
-                }
-            }
+            json dpadRemapJson = dpadJsonFromEdits(actionEdits, buttonEdits);
             if (dpadRemapJson.empty())
                 ctrl.erase("dpad_remap");
             else
@@ -306,66 +518,9 @@ void MappingModel::save(const std::string& path) {
 
         // --- Trigger actions ---
         {
-            auto actToJson = [](const ButtonAction& act) {
-                json j = json::object();
-                if (act.type == ButtonActionType::TriggerPassthrough) {
-                    j["type"]   = "trigger_passthrough";
-                    j["target"] = act.target;
-                } else if (act.type == ButtonActionType::VirtualButton) {
-                    j["virtual"] = act.name;
-                } else if (act.type == ButtonActionType::Keyboard) {
-                    j["type"] = "keyboard";
-                    json arr = json::array();
-                    for (const auto& k : act.keys) arr.push_back(k);
-                    j["keys"] = arr;
-                } else if (act.type == ButtonActionType::MouseClick) {
-                    j["type"]   = "mouse_click";
-                    j["button"] = act.mouseButton;
-                } else if (act.type == ButtonActionType::Macro) {
-                    j["type"] = "macro";
-                    j["name"] = act.name;
-                    if (!act.execution.empty()) j["execution"] = act.execution;
-                } else if (act.type == ButtonActionType::Bot) {
-                    j["type"] = "bot";
-                    j["name"] = act.name;
-                } else if (act.type == ButtonActionType::Trigger) {
-                    j["type"]   = "trigger";
-                    j["target"] = act.target;
-                }
-                return j;
-            };
-
-            auto buildTrigSideJson = [&](const std::string& key,
-                                          const std::vector<RangeEdit>& ranges) {
-                json result;  // default: null
-                auto it = trigActionEdits.find(key);
-                if (it != trigActionEdits.end()) {
-                    result = actToJson(it->second);
-                } else if (!ranges.empty()) {
-                    if (ranges.size() == 1) {
-                        if (ranges[0].hasAction)
-                            result = actToJson(ranges[0].action);
-                    } else {
-                        json side = json::object();
-                        json arr  = json::array();
-                        for (const auto& re : ranges) {
-                            json r;
-                            r["from"] = re.from;
-                            r["to"]   = re.to;
-                            if (re.hasAction)
-                                r["action"] = actToJson(re.action);
-                            arr.push_back(r);
-                        }
-                        side["ranges"] = arr;
-                        result = side;
-                    }
-                }
-                return result;
-            };
-
             json taJson = json::object();
-            json lSide  = buildTrigSideJson("l2", trigLRangeEdits);
-            json rSide  = buildTrigSideJson("r2", trigRRangeEdits);
+            json lSide  = trigSideJsonFromEdits(trigActionEdits, "l2", trigLRangeEdits);
+            json rSide  = trigSideJsonFromEdits(trigActionEdits, "r2", trigRRangeEdits);
             if (!lSide.is_null()) taJson["l2"] = lSide;
             if (!rSide.is_null()) taJson["r2"] = rSide;
 
@@ -407,92 +562,10 @@ void MappingModel::save(const std::string& path) {
 
         // --- axis_actions (H6 T4) ---
         {
-            auto halfAxisToJson = [](const HalfAxisAction& ha) -> json {
-                json j;
-                switch (ha.type) {
-                case HalfAxisActionType::VirtualButton:
-                case HalfAxisActionType::Trigger:
-                case HalfAxisActionType::StickSlot:
-                    j["virtual"] = ha.target;
-                    break;
-                case HalfAxisActionType::Dpad:
-                    j["virtual"] = "dpad_" + ha.target;
-                    break;
-                case HalfAxisActionType::Keyboard: {
-                    j["type"] = "keyboard";
-                    json arr = json::array();
-                    for (const auto& k : ha.keys) arr.push_back(k);
-                    j["keys"] = arr;
-                    break;
-                }
-                case HalfAxisActionType::Macro:
-                    j["type"] = "macro";
-                    j["name"] = ha.target;
-                    if (!ha.execution.empty()) j["execution"] = ha.execution;
-                    break;
-                case HalfAxisActionType::Bot:
-                    j["type"] = "bot";
-                    j["name"] = ha.target;
-                    break;
-                case HalfAxisActionType::MouseClick:
-                    j["type"]   = "mouse_click";
-                    j["button"] = ha.mouseButton;
-                    break;
-                case HalfAxisActionType::MouseMove:
-                    j["target"] = ha.target;
-                    j["speed"]  = ha.speed;
-                    break;
-                case HalfAxisActionType::Analog:
-                    j["type"]    = "analog";
-                    j["target"]  = ha.target;
-                    j["out_dir"] = ha.outDir;
-                    j["scale"]   = ha.scale;
-                    break;
-                case HalfAxisActionType::Ranges: {
-                    json arr = json::array();
-                    for (const auto& r : ha.ranges) {
-                        json rj;
-                        rj["from"] = r.from;
-                        rj["to"]   = r.to;
-                        if (r.hasAction) {
-                            json actj;
-                            const ButtonAction& act = r.action;
-                            if (act.type == ButtonActionType::VirtualButton)
-                                actj["virtual"] = act.name;
-                            else if (act.type == ButtonActionType::Keyboard) {
-                                actj["type"] = "keyboard";
-                                json ka = json::array();
-                                for (const auto& k : act.keys) ka.push_back(k);
-                                actj["keys"] = ka;
-                            } else if (act.type == ButtonActionType::MouseClick) {
-                                actj["type"]   = "mouse_click";
-                                actj["button"] = act.mouseButton;
-                            } else if (act.type == ButtonActionType::Macro) {
-                                actj["type"] = "macro";
-                                actj["name"] = act.name;
-                            } else if (act.type == ButtonActionType::Bot) {
-                                actj["type"] = "bot";
-                                actj["name"] = act.name;
-                            }
-                            rj["action"] = actj;
-                        }
-                        arr.push_back(rj);
-                    }
-                    j["ranges"] = arr;
-                    break;
-                }
-                }
-                return j;
-            };
-
-            if (!axisActionEdits.empty()) {
-                json aaJson = json::object();
-                for (const auto& [key, ha] : axisActionEdits)
-                    aaJson[key] = halfAxisToJson(ha);
-                ctrl["axis_actions"] = aaJson;
-            } else {
+            if (!axisActionEdits.empty())
+                ctrl["axis_actions"] = axisActionsToJson(axisActionEdits);
+            else
                 ctrl.erase("axis_actions");
-            }
         }
 
         break;

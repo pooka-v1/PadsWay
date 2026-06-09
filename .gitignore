@@ -15,6 +15,7 @@ memory/
 # Working documents — tracked in git since 2026/05/03 to prevent accidental loss
 REFERENCE.md
 SESSION_CONTEXT.md
+Claude.md
 BITACORA.md
 IDEAS.md
 ARCHITECTURE.md

@@ -1,6 +1,8 @@
 #include <catch2/catch_amalgamated.hpp>
 #include "ui/MappingModel.h"
 #include "input/ControllerConfig.h"
+#include "config/ConfigLoader.h"
+#include <cstdio>
 
 TEST_CASE("MappingModel::clear resets all maps", "[MappingModel]") {
     MappingModel model;
@@ -423,4 +425,193 @@ TEST_CASE("MappingModel::reload dpad stickSlot source goes to buttonEdits", "[Ma
     REQUIRE(model.buttonEdits.size() == 1);
     REQUIRE(model.buttonEdits.at("dpad_up") == "right_x_pos");
     REQUIRE(model.trigActionEdits.empty());
+}
+
+// ---------------------------------------------------------------------------
+// saveProfile — full parity round-trips (saveProfile → loadGameProfile →
+// applyProfile must reproduce the model state)
+// ---------------------------------------------------------------------------
+
+static ControllerConfig makeProfileBase() {
+    ControllerConfig base;
+    base.vid = 0x1234;
+    base.pid = 0x5678;
+    base.buttons[1]  = ButtonAction{ButtonActionType::VirtualButton, "a", "a"};
+    ButtonAction kb;
+    kb.type = ButtonActionType::Keyboard;
+    kb.physical = "home";
+    kb.keys = {"alt", "tab"};
+    base.buttons[13] = kb;
+    AxisMapping ax;
+    ax.target = "right_x"; ax.stickId = "right_x";
+    base.axes["hid_z"] = ax;
+    HalfAxisAction pos; pos.type = HalfAxisActionType::StickSlot; pos.target = "right_x_pos";
+    HalfAxisAction neg; neg.type = HalfAxisActionType::StickSlot; neg.target = "right_x_neg";
+    base.axis_actions["right_x_pos"] = pos;
+    base.axis_actions["right_x_neg"] = neg;
+    base.dpadRemap["up"] = "a";
+    base.triggerLHasAction = true;
+    base.triggerLAction.type = ButtonActionType::Keyboard;
+    base.triggerLAction.physical = "l2";
+    base.triggerLAction.keys = {"space"};
+    return base;
+}
+
+TEST_CASE("saveProfile with unmodified model writes no override sections", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    const std::string path = "test_tmp_profile_save_clean.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.profile_name == "G");
+    REQUIRE(p.buttons.empty());
+    REQUIRE(p.axes.empty());
+    REQUIRE_FALSE(p.hasAxisActions);
+    REQUIRE_FALSE(p.hasDpadRemap);
+    REQUIRE_FALSE(p.hasTriggerL);
+    REQUIRE_FALSE(p.hasTriggerR);
+}
+
+TEST_CASE("saveProfile round-trips mouse on right stick (axis_actions)", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    HalfAxisAction mm;
+    mm.type = HalfAxisActionType::MouseMove; mm.target = "mouse_x"; mm.speed = 20.0f;
+    model.axisActionEdits["right_x_pos"] = mm;
+    model.axisActionEdits["right_x_neg"] = mm;
+
+    const std::string path = "test_tmp_profile_save_aa.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.hasAxisActions);
+    REQUIRE(p.axis_actions.at("right_x_pos").type   == HalfAxisActionType::MouseMove);
+    REQUIRE(p.axis_actions.at("right_x_pos").target == "mouse_x");
+    REQUIRE(p.axis_actions.at("right_x_pos").speed  == 20.0f);
+
+    auto eff = applyProfile(base, p);
+    REQUIRE(eff.axis_actions.at("right_x_pos").type == HalfAxisActionType::MouseMove);
+    REQUIRE(eff.axis_actions.at("right_x_neg").type == HalfAxisActionType::MouseMove);
+}
+
+TEST_CASE("saveProfile removes axis_actions section when reverted to base", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+
+    // Existing profile on disk with mouse on the right stick.
+    GameProfile prev;
+    prev.hasAxisActions = true;
+    HalfAxisAction mm;
+    mm.type = HalfAxisActionType::MouseMove; mm.target = "mouse_x"; mm.speed = 15.0f;
+    prev.axis_actions["right_x_pos"] = mm;
+    prev.axis_actions["right_x_neg"] = mm;
+
+    const std::string path = "test_tmp_profile_save_revert.json";
+    {
+        MappingModel tmp;
+        tmp.loadProfile(base, prev);
+        tmp.saveProfile(path, "G", base);  // seed the file with the mouse override
+    }
+
+    MappingModel model;
+    model.loadProfile(base, loadGameProfile(path));
+    REQUIRE(model.axisActionEdits.at("right_x_pos").type == HalfAxisActionType::MouseMove);
+
+    // User clears the mouse: restore the identity slots (same as base).
+    model.axisActionEdits = base.axis_actions;
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE_FALSE(p.hasAxisActions);
+    auto eff = applyProfile(base, p);
+    REQUIRE(eff.axis_actions.at("right_x_pos").type == HalfAxisActionType::StickSlot);
+}
+
+TEST_CASE("saveProfile writes trigger tombstone when base action is cleared", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+    REQUIRE(model.trigActionEdits.count("l2") == 1);
+
+    model.trigActionEdits.erase("l2");  // user clears the base keyboard action
+
+    const std::string path = "test_tmp_profile_save_trig.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.hasTriggerL);
+    REQUIRE_FALSE(p.triggerLHasAction);
+    REQUIRE_FALSE(p.hasTriggerR);
+
+    auto eff = applyProfile(base, p);
+    REQUIRE_FALSE(eff.triggerLHasAction);
+}
+
+TEST_CASE("saveProfile writes dpad_remap when a direction changes", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    model.buttonEdits["dpad_up"] = "b";  // base maps it to "a"
+
+    const std::string path = "test_tmp_profile_save_dpad.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.hasDpadRemap);
+    REQUIRE(p.dpadRemap.at("up") == "b");
+
+    auto eff = applyProfile(base, p);
+    REQUIRE(eff.dpadRemap.at("up") == "b");
+}
+
+TEST_CASE("saveProfile axes per-key diff against base", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    AxisMapping em;
+    em.target = "dpad_x"; em.stickId = "right_x";
+    model.axisEdits["right_x"] = em;
+
+    const std::string path = "test_tmp_profile_save_axes.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+
+    REQUIRE(p.axes.at("right_x").target == "dpad_x");
+    auto eff = applyProfile(base, p);
+    REQUIRE(eff.axes.at("hid_z").target == "dpad_x");
+
+    // Revert to identity → key disappears from the profile.
+    model.axisEdits["right_x"].target = "right_x";
+    model.saveProfile(path, "G", base);
+    auto p2 = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE(p2.axes.empty());
+}
+
+TEST_CASE("saveProfile saves keyboard override differing only in keys", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+    REQUIRE(model.actionEdits.at("home").keys == std::vector<std::string>{"alt", "tab"});
+
+    model.actionEdits.at("home").keys = {"ctrl", "c"};
+
+    const std::string path = "test_tmp_profile_save_kb.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.buttons.at("home").type == ButtonActionType::Keyboard);
+    REQUIRE(p.buttons.at("home").keys == std::vector<std::string>{"ctrl", "c"});
 }

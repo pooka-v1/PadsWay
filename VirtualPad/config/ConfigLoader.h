@@ -52,10 +52,32 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path);
 // start, select, home, dpad_up/down/left/right). The profile applies to any
 // controller: overrides for virtual buttons the controller does not produce
 // are silently ignored.
+//
+// Merge semantics per section:
+//   buttons / axes            — per-key override on top of the base config.
+//   axis_actions / dpad_remap — whole-section replace: if present in the JSON
+//                               (has* flag true) the base section is discarded,
+//                               absent keys mean default behaviour.
+//   trigger_actions           — per-side replace ("l2"/"r2"); a JSON null side
+//                               resets that trigger to default behaviour.
 struct GameProfile {
     std::string profile_name;
     std::unordered_map<std::string, ButtonAction> buttons;  // virtual Xbox name -> action
     std::unordered_map<std::string, AxisMapping>  axes;     // virtual axis name (right_x, left_y…) -> new mapping
+
+    bool hasAxisActions = false;
+    std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "left_x_pos"… -> action
+
+    bool hasDpadRemap = false;
+    std::unordered_map<std::string, std::string>  dpadRemap;   // dir -> virtual short name
+    std::unordered_map<std::string, ButtonAction> dpadActions; // dir -> keyboard/mouse/macro action
+    std::unordered_map<std::string, std::string>  dpadSlots;   // dir -> stick slot ("right_x_pos"…)
+
+    bool hasTriggerL = false, hasTriggerR = false;
+    ButtonAction triggerLAction, triggerRAction;
+    bool triggerLHasAction = false, triggerRHasAction = false;
+    std::vector<TriggerRange> triggerLRanges, triggerRRanges;
+
     std::vector<std::string> context_bots;                  // bots to start when this profile is active
 };
 
@@ -68,10 +90,10 @@ GameProfile loadGameProfile(const std::string& path);
 // Overrides for virtual buttons not produced by this controller are silently ignored.
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
 
-// Updates the button layer of pc to match cfg's button type assignments.
-// Axes, triggers, and analog components are not modified.
+// Rebuilds pc's base layer (buttons, dpad, triggers, analog dirs) from cfg.
+// Touchpad and gyro components are left as parsed (not profile-overridable).
 // Call after applyProfile() to ensure the Component System reflects profile overrides.
-void rebuildPhysicalControllerButtons(PhysicalController& pc, const ControllerConfig& cfg);
+void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg);
 
 // ── Component System ─────────────────────────────────────────────────────────
 

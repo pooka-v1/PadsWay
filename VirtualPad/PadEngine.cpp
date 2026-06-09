@@ -543,7 +543,7 @@ void PadEngine::threadFunc() {
                 });
             if (it != physCtrls.end()) {
                 PhysicalController pc = *it;
-                rebuildPhysicalControllerButtons(pc, effectiveCfg);
+                rebuildPhysicalControllerFromConfig(pc, effectiveCfg);
                 input->setPhysicalController(pc);
                 spdlog::info("PhysicalController injected for {:04X}:{:04X}", selected.vid, selected.pid);
             }
@@ -883,7 +883,7 @@ void PadEngine::threadFunc() {
                     });
                 if (it != physCtrls.end()) {
                     PhysicalController pc = *it;
-                    rebuildPhysicalControllerButtons(pc, effectiveCfg);
+                    rebuildPhysicalControllerFromConfig(pc, effectiveCfg);
                     input->setPhysicalController(pc);
                 }
             }
@@ -939,8 +939,11 @@ void PadEngine::threadFunc() {
                         [&](const PhysicalController& pc) {
                             return pc.vid == selected.vid && pc.pid == selected.pid;
                         });
-                    if (it != physCtrls.end())
-                        input->setPhysicalController(*it);
+                    if (it != physCtrls.end()) {
+                        PhysicalController pc = *it;
+                        rebuildPhysicalControllerFromConfig(pc, effectiveCfg);
+                        input->setPhysicalController(pc);
+                    }
                 } catch (const std::exception& ex) {
                     spdlog::warn("PhysicalController hot-reload failed: {}", ex.what());
                 }
@@ -1400,11 +1403,12 @@ void PadEngine::threadFunc() {
 
             if (cfg->triggerLHasAction && cfg->triggerLRanges.empty()) {
                 const auto& lAct = cfg->triggerLAction;
-                // Marker targets (Macro/KB/Mouse) are not written by the Component System,
+                // Marker targets (Macro/KB/Mouse/Bot) are not written by the Component System,
                 // so read the physical value directly — same pattern as dpadActive().
                 bool lNeedsPhys = lAct.type == ButtonActionType::Macro    ||
                                   lAct.type == ButtonActionType::Keyboard  ||
-                                  lAct.type == ButtonActionType::MouseClick;
+                                  lAct.type == ButtonActionType::MouseClick ||
+                                  lAct.type == ButtonActionType::Bot;
                 float physL = lNeedsPhys ? input->getPhysicalState().triggerL : state.triggerL;
                 applyTrigAct(physL, lAct,
                              trigLKbPrev, trigLMousPrev, trigLMacro, trigLMacroOk,
@@ -1417,7 +1421,8 @@ void PadEngine::threadFunc() {
                 const auto& rAct = cfg->triggerRAction;
                 bool rNeedsPhys = rAct.type == ButtonActionType::Macro    ||
                                   rAct.type == ButtonActionType::Keyboard  ||
-                                  rAct.type == ButtonActionType::MouseClick;
+                                  rAct.type == ButtonActionType::MouseClick ||
+                                  rAct.type == ButtonActionType::Bot;
                 float physR = rNeedsPhys ? input->getPhysicalState().triggerR : state.triggerR;
                 applyTrigAct(physR, rAct,
                              trigRKbPrev, trigRMousPrev, trigRMacro, trigRMacroOk,
