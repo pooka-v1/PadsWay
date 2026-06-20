@@ -11,7 +11,7 @@
 // by other tools or by the HidHide UI.
 //
 // If HidHide is not installed, isAvailable() returns false and all
-// operations are no-ops so the rest of VirtualPad keeps working normally.
+// operations are no-ops so the rest of PadsWay keeps working normally.
 class HidHideClient {
 public:
     HidHideClient();
@@ -19,7 +19,7 @@ public:
 
     bool isAvailable() const { return m_handle != INVALID_HANDLE_VALUE; }
 
-    // Add VirtualPad.exe to the whitelist so it can still read hidden devices.
+    // Add PadsWay.exe to the whitelist so it can still read hidden devices.
     // Idempotent — safe to call if already listed.
     void addSelfToWhitelist();
 

@@ -1,6 +1,6 @@
-# VirtualPad — Guía de instalación (Quick Start)
+# PadsWay — Guía de instalación (Quick Start)
 
-Guía rápida para dejar VirtualPad funcionando desde cero: instalar los drivers, descomprimir
+Guía rápida para dejar PadsWay funcionando desde cero: instalar los drivers, descomprimir
 la app y emparejar tu mando. Para el detalle técnico (formato de `controllers.json`, edición
 manual, mapa de botones por mando, etc.) consulta el [README completo](README.es.md).
 
@@ -11,8 +11,8 @@ manual, mapa de botones por mando, etc.) consulta el [README completo](README.es
 ## Resumen en 4 pasos
 
 1. Instala **ViGEmBus** (obligatorio) y **HidHide** (recomendado).
-2. Descomprime el `.zip` de VirtualPad en una carpeta con permiso de escritura.
-3. Ejecuta `VirtualPad.exe` y empareja tu mando con el asistente.
+2. Descomprime el `.zip` de PadsWay en una carpeta con permiso de escritura.
+3. Ejecuta `PadsWay.exe` y empareja tu mando con el asistente.
 4. Abre tu juego: aparecerá un mando Xbox 360 virtual.
 
 ---
@@ -28,7 +28,7 @@ manual, mapa de botones por mando, etc.) consulta el [README completo](README.es
 | HidHide | **Recomendado** — oculta el mando físico a los juegos para evitar doble entrada |
 
 > ViGEmBus y HidHide son del mismo autor (Nefarius) y se instalan como cualquier driver de
-> Windows. VirtualPad los controla automáticamente: no tienes que abrir sus interfaces a mano.
+> Windows. PadsWay los controla automáticamente: no tienes que abrir sus interfaces a mano.
 
 ---
 
@@ -44,26 +44,26 @@ Solo se hace una vez.
    https://github.com/nefarius/HidHide/releases
    Ejecútalo igual. Reinicia el equipo si el instalador lo pide.
 
-> **Versiones validadas con VirtualPad:** `ViGEmBus_1.22.0_x64_x86_arm64` y
+> **Versiones validadas con PadsWay:** `ViGEmBus_1.22.0_x64_x86_arm64` y
 > `HidHide_1.5.230_x64`. Instala exactamente estas versiones; no actualices los drivers por tu
 > cuenta a menos que sepas lo que haces.
 
 ---
 
-## 3. Descargar y descomprimir VirtualPad
+## 3. Descargar y descomprimir PadsWay
 
-1. Descarga el paquete `VirtualPad-vX.Y-win64.zip`.
+1. Descarga el paquete `PadsWay-vX.Y-win64.zip`.
 2. Descomprímelo en una carpeta **con permiso de escritura** — por ejemplo en `Documentos`,
-   en el `Escritorio`, o en una carpeta propia tipo `C:\VirtualPad`.
+   en el `Escritorio`, o en una carpeta propia tipo `C:\PadsWay`.
    - **No** lo dejes dentro de `C:\Archivos de programa`: ahí Windows (UAC) bloquea el guardado
      de la configuración.
-3. VirtualPad es **portable**: no instala nada, no toca el registro. Para desinstalarlo basta
+3. PadsWay es **portable**: no instala nada, no toca el registro. Para desinstalarlo basta
    con borrar la carpeta.
 
 La carpeta descomprimida contiene:
 
 ```
-VirtualPad.exe
+PadsWay.exe
 data/      (textos, layouts, mapa de estados)
 images/    (iconos del mando y de las macros)
 ```
@@ -72,7 +72,7 @@ images/    (iconos del mando y de las macros)
 
 ## 4. Primer arranque
 
-1. Ejecuta `VirtualPad.exe`.
+1. Ejecuta `PadsWay.exe`.
 2. La interfaz arranca **en inglés** por defecto. Para cambiarla a español, edita (o crea) el
    fichero `data/virtualpad.json` y deja dentro:
 
@@ -111,7 +111,7 @@ El asistente mapea tu mando físico y genera su entrada en `data/controllers.jso
 
 ## 6. Usarlo en un juego
 
-1. Con el mando ya emparejado, VirtualPad emite un **mando Xbox 360 virtual**.
+1. Con el mando ya emparejado, PadsWay emite un **mando Xbox 360 virtual**.
 2. Abre tu juego o Steam: debería detectar un "Xbox 360 Controller".
 3. HidHide oculta el mando físico para que el juego no reciba la entrada por duplicado.
 

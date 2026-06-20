@@ -667,11 +667,11 @@ bool AppWindow::initWindow() {
     wc.lpfnWndProc   = WndProc;
     wc.hInstance     = GetModuleHandle(nullptr);
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
-    wc.lpszClassName = L"VirtualPadWindow";
+    wc.lpszClassName = L"PadsWayWindow";
     RegisterClassExW(&wc);
 
     m_hwnd = CreateWindowExW(
-        0, L"VirtualPadWindow", L"VirtualPad",
+        0, L"PadsWayWindow", L"PadsWay",
         WS_OVERLAPPEDWINDOW,
         100, 100, 1150, 780,
         nullptr, nullptr, wc.hInstance, this);
@@ -969,7 +969,7 @@ void AppWindow::cleanup() {
     if (m_context)   { m_context->Release();   m_context   = nullptr; }
     if (m_device)    { m_device->Release();     m_device    = nullptr; }
     if (m_hwnd)      { DestroyWindow(m_hwnd);   m_hwnd      = nullptr; }
-    UnregisterClassW(L"VirtualPadWindow", GetModuleHandle(nullptr));
+    UnregisterClassW(L"PadsWayWindow", GetModuleHandle(nullptr));
 }
 
 // ---------------------------------------------------------------------------

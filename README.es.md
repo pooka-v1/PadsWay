@@ -1,4 +1,4 @@
-# VirtualPad
+# PadsWay
 
 Lee mandos físicos (HID) y los reenvía como un mando Xbox 360 virtual via ViGEm.
 Soporta macros, bots y configuración por JSON sin tocar el código.
@@ -18,7 +18,7 @@ Soporta macros, bots y configuración por JSON sin tocar el código.
 | [HidHide driver](https://github.com/nefarius/HidHide/releases) | Oculta el mando físico a los juegos para evitar doble input |
 
 > **ViGEmBus** y **HidHide** son del mismo autor (Nefarius) e instalan como cualquier driver de Windows.
-> VirtualPad los controlará automáticamente — no hace falta tocar sus interfaces manualmente.
+> PadsWay los controlará automáticamente — no hace falta tocar sus interfaces manualmente.
 
 ### Para compilar
 
@@ -75,7 +75,7 @@ Algunos mandos exponen los gatillos como controles de simulación (el mismo est�
 | `"hid_brake"` | 0xC4 | Gatillo L2 (Brake) |
 | `"hid_accel"` | 0xC5 | Gatillo R2 (Accelerator) |
 
-> VirtualPad detecta automáticamente la página HID real del descriptor del dispositivo —
+> PadsWay detecta automáticamente la página HID real del descriptor del dispositivo —
 > no hay que preocuparse por si el mando usa 0x01 o 0x02 internamente.
 
 ### Targets de eje disponibles
@@ -127,7 +127,7 @@ Los mandos HID suelen tener el D-pad como **hat switch**:
 ## Mapeo de botones
 
 Los índices son **1-based** y corresponden al bit N-1 de la máscara de botones del dispositivo.
-Usa el **Tab Scanner** de VirtualPad para identificar qué número sale al pulsar cada botón físico.
+Usa el **Tab Scanner** de PadsWay para identificar qué número sale al pulsar cada botón físico.
 
 ### Botones virtuales disponibles
 
@@ -239,18 +239,18 @@ Añade `"invert": true` en el mapping del eje para invertirlo:
 ```
 
 Muchos mandos reportan el eje Y del stick de forma que "arriba" da valor máximo,
-pero el convenio de VirtualPad es `+1.0 = arriba`. Ajusta según lo que veas en el scanner.
+pero el convenio de PadsWay es `+1.0 = arriba`. Ajusta según lo que veas en el scanner.
 
 ---
 
 ## Cómo descubrir el mapping de un mando nuevo
 
 1. Conecta el mando
-2. Abre el **Tab Scanner** en VirtualPad y pulsa cada botón — anota qué número se ilumina
+2. Abre el **Tab Scanner** en PadsWay y pulsa cada botón — anota qué número se ilumina
 3. El log de consola al arrancar muestra todos los `ValCap` (Usage ID y rango) — úsalos para identificar los ejes
 4. Mueve cada stick y observa qué eje cambia y en qué dirección
 5. Para los gatillos: busca en el log `Usage=0xC4` / `Usage=0xC5` (Simulation Controls) o `Usage=0x33`/`0x34` (Rx/Ry en Generic Desktop)
-6. Añade la entrada en `controllers.json` con `"mode": "hid"` y reinicia VirtualPad
+6. Añade la entrada en `controllers.json` con `"mode": "hid"` y reinicia PadsWay
 
 ---
 
@@ -310,7 +310,7 @@ Los perfiles son **independientes del mando** — las claves usan el nombre virt
 
 1. Crea `data/profiles/NombreJuego.json` con la estructura anterior.
 2. Declara solo los botones/ejes que necesitas cambiar; deja el resto en la base.
-3. Selecciona el perfil desde la UI de VirtualPad.
+3. Selecciona el perfil desde la UI de PadsWay.
 
 ---
 
@@ -629,7 +629,7 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 ### 8BitDo Zero 2 — Bluetooth D-mode (VID:2DC8 PID:3230)
 
 La cruceta se reporta como dos ejes analógicos binarios (X/Y), no como hat switch.
-VirtualPad los mapea a direcciones de cruceta virtual mediante `axis_actions`.
+PadsWay los mapea a direcciones de cruceta virtual mediante `axis_actions`.
 
 | Botón HID | Físico | Virtual Xbox |
 |---|---|---|
@@ -657,3 +657,14 @@ Mismo layout de botones que D-mode.
 D-mode y X-mode por USB comparten el mismo VID/PID (`9018`). El layout de botones difiere entre modos, por lo que **solo puede haber un perfil USB activo a la vez**.
 
 > **Recomendación:** configura el perfil USB con el mando conectado en **modo Android (D-mode)**. Mantén pulsada la combinación de D-mode antes de enchufar el cable USB, y ejecuta el Asistente de emparejamiento. La configuración resultante funcionará correctamente para D-mode USB. El X-mode USB usa el mismo VID/PID pero numeración de botones diferente — configurarlo sobreescribiría el perfil D-mode.
+
+---
+
+## Licencia
+
+PadsWay se distribuye bajo la [Licencia MIT](LICENSE) — © 2026 pooka-v1.
+
+Se apoya en el trabajo (también MIT) de [Nefarius](https://github.com/nefarius)
+([ViGEmBus](https://github.com/nefarius/ViGEmBus), [HidHide](https://github.com/nefarius/HidHide))
+e incluye las librerías MIT [Dear ImGui](https://github.com/ocornut/imgui),
+[nlohmann/json](https://github.com/nlohmann/json) y [spdlog](https://github.com/gabime/spdlog).

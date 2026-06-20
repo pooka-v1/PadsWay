@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by VirtualPadTests.rc
+// Used by PadsWayTests.rc
 
 // Valores predeterminados siguientes para nuevos objetos
 // 

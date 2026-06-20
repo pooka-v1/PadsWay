@@ -15,7 +15,7 @@ namespace Log {
 
         auto consoleSink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         auto fileSink    = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-            "logs/virtualpad.log", 1024 * 1024, 3);  // 1 MB, keep 3 files
+            "logs/padsway.log", 1024 * 1024, 3);  // 1 MB, keep 3 files
 
         auto logger = std::make_shared<spdlog::logger>(
             "vp", spdlog::sinks_init_list{ consoleSink, fileSink });
@@ -23,6 +23,6 @@ namespace Log {
         spdlog::set_default_logger(logger);
         spdlog::set_pattern("[%H:%M:%S.%e] [%^%-5l%$] %v");
         spdlog::set_level(spdlog::level::from_str(level));
-        spdlog::info("VirtualPad starting — log level: {}", level);
+        spdlog::info("PadsWay starting — log level: {}", level);
     }
 }

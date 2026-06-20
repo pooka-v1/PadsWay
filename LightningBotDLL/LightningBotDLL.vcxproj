@@ -81,7 +81,7 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)VirtualPad\bots;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)PadsWay\bots;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -89,8 +89,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>if not exist "$(SolutionDir)VirtualPad\data\bots\" mkdir "$(SolutionDir)VirtualPad\data\bots\"
-xcopy /y "$(TargetPath)" "$(SolutionDir)VirtualPad\data\bots\"</Command>
+      <Command>if not exist "$(SolutionDir)PadsWay\data\bots\" mkdir "$(SolutionDir)PadsWay\data\bots\"
+xcopy /y "$(TargetPath)" "$(SolutionDir)PadsWay\data\bots\"</Command>
       <Message>Deploying $(TargetName).dll to data/bots/</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -104,7 +104,7 @@ xcopy /y "$(TargetPath)" "$(SolutionDir)VirtualPad\data\bots\"</Command>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)VirtualPad\bots;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)PadsWay\bots;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -112,8 +112,8 @@ xcopy /y "$(TargetPath)" "$(SolutionDir)VirtualPad\data\bots\"</Command>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>if not exist "$(SolutionDir)VirtualPad\data\bots\" mkdir "$(SolutionDir)VirtualPad\data\bots\"
-xcopy /y "$(TargetPath)" "$(SolutionDir)VirtualPad\data\bots\"</Command>
+      <Command>if not exist "$(SolutionDir)PadsWay\data\bots\" mkdir "$(SolutionDir)PadsWay\data\bots\"
+xcopy /y "$(TargetPath)" "$(SolutionDir)PadsWay\data\bots\"</Command>
       <Message>Deploying $(TargetName).dll to data/bots/</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>

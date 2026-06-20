@@ -21,19 +21,28 @@
     <ClCompile Include="tests\test_MacroParser.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="..\VirtualPad\macros\Macro.cpp">
+    <ClCompile Include="..\PadsWay\macros\Macro.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="..\VirtualPad\macros\MacroParser.cpp">
+    <ClCompile Include="..\PadsWay\macros\MacroParser.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="..\VirtualPad\ui\MappingModel.cpp">
+    <ClCompile Include="..\PadsWay\ui\MappingModel.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="tests\test_MappingModel.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="tests\test_ConfigLoader.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\PadsWay\config\ConfigLoader.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\PadsWay\ui\MacroStep.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="tests\test_MacroStep.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
   </ItemGroup>
@@ -46,7 +55,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="VirtualPadTests.rc">
+    <ResourceCompile Include="PadsWayTests.rc">
       <Filter>Archivos de recursos</Filter>
     </ResourceCompile>
   </ItemGroup>

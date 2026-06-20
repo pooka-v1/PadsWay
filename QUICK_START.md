@@ -1,6 +1,6 @@
-# VirtualPad — Installation Guide (Quick Start)
+# PadsWay — Installation Guide (Quick Start)
 
-A short guide to get VirtualPad running from scratch: install the drivers, unzip the app, and
+A short guide to get PadsWay running from scratch: install the drivers, unzip the app, and
 pair your controller. For the technical details (`controllers.json` format, manual editing,
 per-controller button maps, etc.) see the [full README](README.md).
 
@@ -11,8 +11,8 @@ per-controller button maps, etc.) see the [full README](README.md).
 ## In 4 steps
 
 1. Install **ViGEmBus** (required) and **HidHide** (recommended).
-2. Unzip VirtualPad into a folder you can write to.
-3. Run `VirtualPad.exe` and pair your controller with the wizard.
+2. Unzip PadsWay into a folder you can write to.
+3. Run `PadsWay.exe` and pair your controller with the wizard.
 4. Open your game: a virtual Xbox 360 controller appears.
 
 ---
@@ -28,7 +28,7 @@ per-controller button maps, etc.) see the [full README](README.md).
 | HidHide | **Recommended** — hides the physical controller from games to avoid double input |
 
 > ViGEmBus and HidHide are by the same author (Nefarius) and install like any Windows driver.
-> VirtualPad controls them automatically — no need to open their interfaces by hand.
+> PadsWay controls them automatically — no need to open their interfaces by hand.
 
 ---
 
@@ -44,26 +44,26 @@ Only needed once.
    https://github.com/nefarius/HidHide/releases
    Run it the same way. Reboot if the installer asks you to.
 
-> **Versions validated with VirtualPad:** `ViGEmBus_1.22.0_x64_x86_arm64` and
+> **Versions validated with PadsWay:** `ViGEmBus_1.22.0_x64_x86_arm64` and
 > `HidHide_1.5.230_x64`. Install exactly these versions; don't update the drivers on your own
 > unless you know what you're doing.
 
 ---
 
-## 3. Download and unzip VirtualPad
+## 3. Download and unzip PadsWay
 
-1. Download the `VirtualPad-vX.Y-win64.zip` package.
+1. Download the `PadsWay-vX.Y-win64.zip` package.
 2. Unzip it into a folder **you can write to** — for example `Documents`, the `Desktop`, or
-   your own folder such as `C:\VirtualPad`.
+   your own folder such as `C:\PadsWay`.
    - **Do not** leave it inside `C:\Program Files`: Windows (UAC) blocks saving the
      configuration there.
-3. VirtualPad is **portable**: it installs nothing and touches no registry keys. To uninstall,
+3. PadsWay is **portable**: it installs nothing and touches no registry keys. To uninstall,
    just delete the folder.
 
 The unzipped folder contains:
 
 ```
-VirtualPad.exe
+PadsWay.exe
 data/      (strings, layouts, state map)
 images/    (controller and macro icons)
 ```
@@ -72,7 +72,7 @@ images/    (controller and macro icons)
 
 ## 4. First launch
 
-1. Run `VirtualPad.exe`.
+1. Run `PadsWay.exe`.
 2. The interface starts **in English** by default. To switch to Spanish, edit (or create) the
    file `data/virtualpad.json` with:
 
@@ -111,7 +111,7 @@ The wizard maps your physical controller and generates its entry in `data/contro
 
 ## 6. Use it in a game
 
-1. With the controller paired, VirtualPad emits a **virtual Xbox 360 controller**.
+1. With the controller paired, PadsWay emits a **virtual Xbox 360 controller**.
 2. Open your game or Steam: it should detect an "Xbox 360 Controller".
 3. HidHide hides the physical controller so the game doesn't receive double input.
 
