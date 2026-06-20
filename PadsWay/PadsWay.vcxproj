@@ -21,9 +21,10 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{f3f80621-4b85-47ca-a667-666ba6c419aa}</ProjectGuid>
-    <RootNamespace>VirtualPadTests</RootNamespace>
+    <ProjectGuid>{51506331-12a2-4ec3-a608-f929699433eb}</ProjectGuid>
+    <RootNamespace>PadsWay</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>PadsWay</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -74,9 +75,10 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;CATCH_CONFIG_NO_WINDOWS_SEH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -89,9 +91,10 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;CATCH_CONFIG_NO_WINDOWS_SEH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -102,14 +105,17 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;CATCH_CONFIG_NO_WINDOWS_SEH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>  G:\C++\VirtualPad\VirtualPad;G:\C++\VirtualPad\VirtualPad\macros;$(ProjectDir)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);G:\C++\Git\ViGEmClient\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>G:\C++\Git\ViGEmClient\lib\release\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>ViGEmClient.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -118,34 +124,84 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;CATCH_CONFIG_NO_WINDOWS_SEH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>  G:\C++\VirtualPad\VirtualPad;G:\C++\VirtualPad\VirtualPad\macros;$(ProjectDir)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);G:\C++\Git\ViGEmClient\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>G:\C++\Git\ViGEmClient\lib\release\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>ViGEmClient.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\VirtualPad\config\ConfigLoader.cpp" />
-    <ClCompile Include="..\VirtualPad\macros\Macro.cpp" />
-    <ClCompile Include="..\VirtualPad\macros\MacroParser.cpp" />
-    <ClCompile Include="..\VirtualPad\ui\MacroStep.cpp" />
-    <ClCompile Include="..\VirtualPad\ui\MappingModel.cpp" />
-    <ClCompile Include="catch2\catch_amalgamated.cpp" />
-    <ClCompile Include="tests\test_ConfigLoader.cpp" />
-    <ClCompile Include="tests\test_MacroParser.cpp" />
-    <ClCompile Include="tests\test_MacroStep.cpp" />
-    <ClCompile Include="tests\test_MappingModel.cpp" />
+    <ClCompile Include="config\ConfigLoader.cpp" />
+    <ClCompile Include="config\Strings.cpp" />
+    <ClCompile Include="input\ComponentTypes.cpp" />
+    <ClCompile Include="input\HIDScanner.cpp" />
+    <ClCompile Include="input\HIDDevice.cpp" />
+    <ClCompile Include="input\HIDInputSource.cpp" />
+    <ClCompile Include="bots\BotLoader.cpp" />
+    <ClCompile Include="input\RawHIDReader.cpp" />
+    <ClCompile Include="macros\Macro.cpp" />
+    <ClCompile Include="macros\MacroParser.cpp" />
+    <ClCompile Include="output\ViGEmOutputAdapter.cpp" />
+    <ClCompile Include="output\HidHideClient.cpp" />
+    <ClCompile Include="PadEngine.cpp" />
+    <ClCompile Include="AppWindow.cpp" />
+    <ClCompile Include="ui\ActionPanel.cpp" />
+    <ClCompile Include="ui\BindingWizard.cpp" />
+    <ClCompile Include="ui\MappingEditor.cpp" />
+    <ClCompile Include="ui\MacroManagerPanel.cpp" />
+    <ClCompile Include="ui\MacroCreatorModal.cpp" />
+    <ClCompile Include="ui\MacroStep.cpp" />
+    <ClCompile Include="ui\MacroStepGrid.cpp" />
+    <ClCompile Include="ui\MappingModel.cpp" />
+    <ClCompile Include="ui\TriggerRangeModal.cpp" />
+    <ClCompile Include="PadsWay.cpp" />
+    <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui_tables.cpp" />
+    <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui\imgui_impl_dx11.cpp" />
+    <ClCompile Include="ui\PadView.cpp" />
+    <ClCompile Include="ui\LayoutEditor.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="catch2\catch_amalgamated.hpp" />
-    <ClInclude Include="resource.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="VirtualPadTests.rc" />
+    <ClInclude Include="config\ConfigLoader.h" />
+    <ClInclude Include="config\Strings.h" />
+    <ClInclude Include="input\ControllerConfig.h" />
+    <ClInclude Include="GamepadState.h" />
+    <ClInclude Include="input\IInputSource.h" />
+    <ClInclude Include="input\HIDScanner.h" />
+    <ClInclude Include="input\HIDDevice.h" />
+    <ClInclude Include="input\HIDInputSource.h" />
+    <ClInclude Include="bots\bot_api.h" />
+    <ClInclude Include="bots\BotLoader.h" />
+    <ClInclude Include="input\RawHIDReader.h" />
+    <ClInclude Include="macros\Macro.h" />
+    <ClInclude Include="macros\MacroParser.h" />
+    <ClInclude Include="output\ViGEmOutputAdapter.h" />
+    <ClInclude Include="Log.h" />
+    <ClInclude Include="output\HidHideClient.h" />
+    <ClInclude Include="PadEngine.h" />
+    <ClInclude Include="AppWindow.h" />
+    <ClInclude Include="imgui\imgui.h" />
+    <ClInclude Include="imgui\imgui_internal.h" />
+    <ClInclude Include="imgui\imgui_impl_win32.h" />
+    <ClInclude Include="imgui\imgui_impl_dx11.h" />
+    <ClInclude Include="ui\BindingWizard.h" />
+    <ClInclude Include="ui\PadView.h" />
+    <ClInclude Include="ui\LayoutEditor.h" />
+    <ClInclude Include="ui\MacroManagerPanel.h" />
+    <ClInclude Include="ui\MacroCreatorModal.h" />
+    <ClInclude Include="ui\MacroStep.h" />
+    <ClInclude Include="ui\MacroStepGrid.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

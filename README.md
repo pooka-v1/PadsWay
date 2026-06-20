@@ -1,4 +1,4 @@
-# VirtualPad
+# PadsWay
 
 Reads physical gamepads (HID) and forwards them as a virtual Xbox 360 controller via ViGEm.
 Supports macros, bots, and JSON-based configuration — no code changes needed.
@@ -18,7 +18,7 @@ Supports macros, bots, and JSON-based configuration — no code changes needed.
 | [HidHide driver](https://github.com/nefarius/HidHide/releases) | Hides the physical gamepad from games to prevent double input |
 
 > **ViGEmBus** and **HidHide** are by the same author (Nefarius) and install like any Windows driver.
-> VirtualPad controls them automatically — no need to touch their interfaces manually.
+> PadsWay controls them automatically — no need to touch their interfaces manually.
 
 ### To build
 
@@ -75,7 +75,7 @@ Some controllers expose triggers as simulation controls (same standard as racing
 | `"hid_brake"` | 0xC4 | L2 trigger (Brake) |
 | `"hid_accel"` | 0xC5 | R2 trigger (Accelerator) |
 
-> VirtualPad automatically detects the real HID page from the device descriptor —
+> PadsWay automatically detects the real HID page from the device descriptor —
 > no need to worry about whether the controller uses 0x01 or 0x02 internally.
 
 ### Available axis targets
@@ -127,7 +127,7 @@ HID controllers usually have the D-pad as a **hat switch**:
 ## Button mapping
 
 Indices are **1-based** and correspond to bit N-1 of the device's button mask.
-Use the **Scanner tab** in VirtualPad to identify which number lights up when pressing each physical button.
+Use the **Scanner tab** in PadsWay to identify which number lights up when pressing each physical button.
 
 ### Available virtual buttons
 
@@ -239,18 +239,18 @@ Add `"invert": true` to the axis mapping to invert it:
 ```
 
 Many controllers report the stick Y axis so that "up" gives the maximum value,
-but VirtualPad's convention is `+1.0 = up`. Adjust based on what you see in the scanner.
+but PadsWay's convention is `+1.0 = up`. Adjust based on what you see in the scanner.
 
 ---
 
 ## How to discover the mapping for a new controller
 
 1. Connect the controller
-2. Open the **Scanner tab** in VirtualPad and press each button — note which number lights up
+2. Open the **Scanner tab** in PadsWay and press each button — note which number lights up
 3. The console log at startup shows all `ValCaps` (Usage ID and range) — use these to identify axes
 4. Move each stick and observe which axis changes and in which direction
 5. For triggers: look for `Usage=0xC4` / `Usage=0xC5` (Simulation Controls) or `Usage=0x33`/`0x34` (Rx/Ry in Generic Desktop) in the log
-6. Add the entry to `controllers.json` with `"mode": "hid"` and restart VirtualPad
+6. Add the entry to `controllers.json` with `"mode": "hid"` and restart PadsWay
 
 ---
 
@@ -310,7 +310,7 @@ Profiles are **controller-agnostic** — keys use the virtual button name (`phys
 
 1. Create `data/profiles/GameName.json` with the structure above.
 2. Declare only the buttons/axes you need to change; leave the rest in the base.
-3. Select the profile from VirtualPad's UI.
+3. Select the profile from PadsWay's UI.
 
 ---
 
@@ -629,7 +629,7 @@ Works the same over USB and Bluetooth (same VID/PID).
 ### 8BitDo Zero 2 — Bluetooth D-mode (VID:2DC8 PID:3230)
 
 The D-pad is reported as two binary analog axes (X/Y), not a hat switch.
-VirtualPad maps them to virtual d-pad directions via `axis_actions`.
+PadsWay maps them to virtual d-pad directions via `axis_actions`.
 
 | HID button | Physical | Virtual Xbox |
 |---|---|---|
@@ -657,3 +657,14 @@ Same button layout as D-mode above.
 Both D-mode and X-mode USB share the same VID/PID (`9018`). The button layout differs between modes, so **only one USB profile can be active at a time**.
 
 > **Recommendation:** configure the USB profile while the controller is connected in **Android mode (D-mode)**. Hold the button combination for D-mode before plugging in the USB cable, then run the Controller Binding Wizard. The resulting config will work correctly for D-mode USB. X-mode USB uses the same VID/PID but different button numbering — configuring it would overwrite the D-mode profile.
+
+---
+
+## License
+
+PadsWay is released under the [MIT License](LICENSE) — © 2026 pooka-v1.
+
+It builds on the MIT-licensed work of [Nefarius](https://github.com/nefarius)
+([ViGEmBus](https://github.com/nefarius/ViGEmBus), [HidHide](https://github.com/nefarius/HidHide))
+and bundles the MIT-licensed libraries [Dear ImGui](https://github.com/ocornut/imgui),
+[nlohmann/json](https://github.com/nlohmann/json) and [spdlog](https://github.com/gabime/spdlog).

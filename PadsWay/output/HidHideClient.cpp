@@ -13,6 +13,27 @@ static std::string toUtf8(const std::wstring& ws) {
     return s;
 }
 
+// HidHide matches whitelist entries by NT device path (\Device\HarddiskVolumeN\...),
+// NOT the Win32 drive-letter path (C:\...) that GetModuleFileNameW returns. We must
+// translate the drive letter to its NT device name via QueryDosDevice, otherwise the
+// running exe is never recognised as whitelisted and HidHide keeps hiding the physical
+// pads from it — the engine still reads a handle opened before the device was hidden,
+// but a fresh enumeration (Scanner / Wizard) sees nothing.
+static std::wstring toNtDevicePath(const std::wstring& win32Path) {
+    if (win32Path.size() < 2 || win32Path[1] != L':')
+        return win32Path;                          // not a drive-letter path; leave as-is
+
+    std::wstring drive = win32Path.substr(0, 2);   // e.g. "C:"  (no trailing backslash)
+    WCHAR ntDevice[MAX_PATH] = {};
+    if (QueryDosDeviceW(drive.c_str(), ntDevice, MAX_PATH) == 0) {
+        spdlog::warn("[HidHide] QueryDosDevice failed for '{}' (error {})",
+                     toUtf8(drive), GetLastError());
+        return win32Path;                          // fallback: better than nothing
+    }
+    // "\Device\HarddiskVolumeN" + "\rest\of\path.exe"
+    return std::wstring(ntDevice) + win32Path.substr(2);
+}
+
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 
@@ -114,7 +135,7 @@ void HidHideClient::addSelfToWhitelist() {
 
     wchar_t exePath[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    std::wstring path(exePath);
+    std::wstring path = toNtDevicePath(exePath);   // HidHide compares NT device paths
 
     auto list = getList(kIoctlGetWhitelist);
     for (const auto& s : list)

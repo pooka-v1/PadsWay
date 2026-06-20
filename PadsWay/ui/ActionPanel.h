@@ -16,7 +16,7 @@
 namespace ActionPanel {
 
 // Key translation: ImGuiKey → {json_name, display_name}.
-// Returns {"",""} for keys that are not mappable to a VirtualPad action.
+// Returns {"",""} for keys that are not mappable to a PadsWay action.
 std::pair<const char*, const char*> imguiKeyToKeyName(ImGuiKey k);
 
 // Accumulates key presses into `keys` and renders:

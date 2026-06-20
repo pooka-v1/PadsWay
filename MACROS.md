@@ -1,4 +1,4 @@
-# VirtualPad — Macro System
+# PadsWay — Macro System
 
 Macros can be defined in two ways:
 

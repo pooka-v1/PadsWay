@@ -351,13 +351,13 @@ void PadEngine::monitorFunc() {
 }
 
 // ---------------------------------------------------------------------------
-// Background thread: mirrors the original VirtualPad.cpp main() logic.
+// Background thread: mirrors the original PadsWay.cpp main() logic.
 // ---------------------------------------------------------------------------
 
 void PadEngine::threadFunc() {
     m_phase.store(EnginePhase::Scanning);
     setStatus("Scanning for devices...");
-    spdlog::info("=== VirtualPad — device init ===");
+    spdlog::info("=== PadsWay — device init ===");
 
     m_hidHide.addSelfToWhitelist();
 

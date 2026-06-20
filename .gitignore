@@ -1,11 +1,11 @@
 x64/
 .vs/
 *.user
-VirtualPad/logs/
-VirtualPad/consoleOutput/
+PadsWay/logs/
+PadsWay/consoleOutput/
 
 # Krita originals and design scraps
-VirtualPad/images/founts/
+PadsWay/images/founts/
 *.png~
 
 # Claude Code memory (lives outside repo, but just in case)
@@ -20,8 +20,8 @@ BITACORA.md
 IDEAS.md
 ARCHITECTURE.md
 
-VirtualPad/data/pad_layouts - Backup.json
-VirtualPad/data/pad_layouts.json.bak
+PadsWay/data/pad_layouts - Backup.json
+PadsWay/data/pad_layouts.json.bak
 
 # Local backups of working documents (pre-edit snapshots)
 backup/

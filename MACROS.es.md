@@ -1,4 +1,4 @@
-# VirtualPad — Sistema de Macros
+# PadsWay — Sistema de Macros
 
 Las macros se pueden definir de dos formas:
 
