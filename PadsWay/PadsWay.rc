@@ -1,0 +1,7 @@
+// PadsWay application icon resource.
+//
+// Windows uses the lowest-numbered ICON resource in the executable as the icon
+// shown in Explorer, the taskbar and Alt-Tab. With a single ICON here, this is it.
+// The path is relative to this .rc file (PadsWay\PadsWay.rc).
+
+1 ICON "images\\icon\\padsWayIcon.ico"

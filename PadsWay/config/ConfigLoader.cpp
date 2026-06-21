@@ -200,7 +200,7 @@ static std::unordered_map<int, ButtonAction> parseButtonsJson(const json& button
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open())
-        throw std::runtime_error("Cannot open config file: " + path);
+        return {};   // optional file: a missing controllers.json just means "no controllers yet"
 
     json root = json::parse(f);
     std::vector<ControllerConfig> result;
@@ -394,6 +394,8 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
         cfg.locale = root["locale"].get<std::string>();
     if (root.contains("font_size") && root["font_size"].is_number())
         cfg.fontSize = root["font_size"].get<float>();
+    if (root.contains("console") && root["console"].is_boolean())
+        cfg.console = root["console"].get<bool>();
     if (root.contains("pad_configurations") && root["pad_configurations"].is_object()) {
         const auto& pc = root["pad_configurations"];
         if (pc.contains("accepted_xbox_buttons") && pc["accepted_xbox_buttons"].is_array()) {
@@ -1049,7 +1051,7 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
 std::vector<PhysicalController> loadPhysicalControllers(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open())
-        throw std::runtime_error("Cannot open config file: " + path);
+        return {};   // optional file: a missing controllers.json just means "no controllers yet"
 
     json root = json::parse(f);
     std::vector<PhysicalController> result;

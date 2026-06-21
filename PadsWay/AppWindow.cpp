@@ -84,7 +84,7 @@ int AppWindow::run() {
 
     try {
         m_controllerConfigs = loadControllerConfigs("data/controllers.json");
-    } catch (...) {}   // optional â€" scanner falls back to WinMM names if missing
+    } catch (...) {}   // tolerate a corrupt/unreadable controllers.json; start with none
 
     std::string locale = "en";
     try {

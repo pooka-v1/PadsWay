@@ -86,23 +86,32 @@ images/    (controller and macro icons)
 
 ---
 
-## 5. Pair your controller (Binding Wizard)
+## 5. Set up and test your controller
 
-The wizard maps your physical controller and generates its entry in `data/controllers.json`.
+Four quick steps take you from "plugged in" to "working in games":
 
-1. Connect your physical controller (USB or Bluetooth).
-2. Open the **Layout Editor** and open the layout matching your controller type.
-3. Click **Pair controller**. The wizard guides you through 5 stages:
-   1. **Select controller** — pick your device from the list (the ViGEm virtual controller is
-      filtered out automatically).
+**1. Check detection — Scanner tab.** Connect your controller, open the **Scanner** tab and
+select your device. Press a few buttons: the scanner should react. This confirms PadsWay reads
+your controller over HID.
+
+**2. Get a layout — Layout tab.** Open the **Layout** tab. If a layout for your controller
+already exists, use it. If not, create one with **[New]** (it asks for an ID). It does not have
+to be an exact replica — you can reuse another controller's images (e.g. the DualShock artwork)
+to build, say, an Xbox-style pad.
+
+**3. Pair the controller.** With your layout selected, click **Pair controller** and complete
+the wizard's 5 stages:
+   1. **Select controller** — pick your device (the ViGEm virtual controller is filtered out).
    2. **Name** — give it a friendly name.
-   3. **Buttons** — the wizard shows each button and asks you to press the matching one on the
-      physical controller.
-   4. **Axes and triggers** — for each stick and trigger, move/press it fully in the direction
-      shown by the arrows (left stick X → fully **right**; Y → fully **down**; triggers →
-      press fully).
-   5. **Review** — check the result and save.
-4. Saving creates/updates `data/controllers.json`.
+   3. **Buttons** — press each button as the wizard asks.
+   4. **Axes and triggers** — move each stick / press each trigger fully in the arrow's
+      direction (left stick X → **right**; Y → **down**; triggers → full press).
+   5. **Review** — check and save. This creates/updates `data/controllers.json`.
+
+   > **DualShock 4:** pair it over **USB** for now (Bluetooth has a known calibration issue).
+
+**4. Test it — Pads tab.** Open the **Pads** tab and check the controller responds. If it does,
+it's ready to use in your games.
 
 > If the **Pads** tab doesn't show the controller after saving, **restart the app** (known
 > issue, under investigation).
@@ -121,8 +130,8 @@ The wizard maps your physical controller and generates its entry in `data/contro
 
 - You can create **macros** and **per-game profiles** from the UI itself.
 - The full macro syntax is in [MACROS.md](MACROS.md).
-- A reference repository with ready-made `controllers.json` and per-game profiles/macros is
-  coming _(link to be published)_.
+- Ready-made per-game profiles and macros are available in the
+  [PadsWay-Presets](https://github.com/pooka-v1/PadsWay-Presets) repository.
 
 ---
 

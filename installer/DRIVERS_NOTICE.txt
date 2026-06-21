@@ -1,0 +1,28 @@
+PadsWay needs two drivers by Nefarius to work. Install them BEFORE using PadsWay:
+
+  - ViGEmBus (REQUIRED) - creates the virtual Xbox 360 controller
+        https://github.com/nefarius/ViGEmBus/releases
+        Validated version: ViGEmBus_1.22.0_x64_x86_arm64
+
+  - HidHide (RECOMMENDED) - hides the physical controller from games
+        https://github.com/nefarius/HidHide/releases
+        Validated version: HidHide_1.5.230_x64
+
+PadsWay controls them automatically once installed - you don't need to open
+their interfaces by hand. This setup does NOT install the drivers for you.
+
+------------------------------------------------------------------------------
+
+PadsWay necesita dos drivers de Nefarius para funcionar. Instalalos ANTES de
+usar PadsWay:
+
+  - ViGEmBus (OBLIGATORIO) - crea el mando virtual Xbox 360
+        https://github.com/nefarius/ViGEmBus/releases
+        Version validada: ViGEmBus_1.22.0_x64_x86_arm64
+
+  - HidHide (RECOMENDADO) - oculta el mando fisico de los juegos
+        https://github.com/nefarius/HidHide/releases
+        Version validada: HidHide_1.5.230_x64
+
+PadsWay los controla automaticamente una vez instalados; no necesitas abrir sus
+interfaces a mano. Este instalador NO instala los drivers por ti.

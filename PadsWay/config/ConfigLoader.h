@@ -39,6 +39,7 @@ struct VirtualPadConfig {
     std::vector<std::string> acceptedXboxButtons    = {"a","b","x","y","l1","r1","select","start","home","l3","r3"};
     float                    stickSelectThreshold   = 0.85f;    // normalized [0,1]
     int                      stickHoldMs            = 2000;     // ms held at tope to select direction
+    bool                     console                = false;    // open a console window for live logs (set "console": true)
 };
 
 // Loads virtual pad identity config from a JSON file.

@@ -86,23 +86,33 @@ images/    (iconos del mando y de las macros)
 
 ---
 
-## 5. Emparejar tu mando (Binding Wizard)
+## 5. Configura y prueba tu mando
 
-El asistente mapea tu mando físico y genera su entrada en `data/controllers.json`.
+Cuatro pasos rápidos te llevan de "recién enchufado" a "funcionando en los juegos":
 
-1. Conecta tu mando físico (por USB o Bluetooth).
-2. Abre el **Editor de layouts** y abre el layout que corresponda a tu tipo de mando.
-3. Pulsa **Pair controller** (Emparejar mando). El asistente te guía en 5 pasos:
-   1. **Seleccionar mando** — elige tu dispositivo de la lista (el mando virtual de ViGEm se
-      oculta solo).
+**1. Comprueba la detección — pestaña Scanner.** Conecta tu mando, abre la pestaña **Scanner**
+y selecciona tu dispositivo. Pulsa algunos botones: el scanner debería reaccionar. Esto
+confirma que PadsWay lee tu mando por HID.
+
+**2. Consigue un layout — pestaña Layout.** Abre la pestaña **Layout**. Si ya existe un layout
+para tu mando, úsalo. Si no, crea uno con **[Nuevo]** (te pedirá un ID). No tiene por qué ser
+una réplica exacta — puedes reutilizar las imágenes de otro mando (p. ej. el arte del
+DualShock) para montar, digamos, un mando estilo Xbox.
+
+**3. Empareja el mando.** Con tu layout seleccionado, pulsa **Emparejar mando** y completa los
+5 pasos del asistente:
+   1. **Seleccionar mando** — elige tu dispositivo (el mando virtual de ViGEm se oculta solo).
    2. **Nombre** — ponle un nombre descriptivo.
-   3. **Botones** — el asistente muestra cada botón y te pide pulsar el correspondiente en el
-      mando físico.
-   4. **Ejes y gatillos** — para cada stick y gatillo, muévelo/aprieta a fondo en la dirección
-      que indican las flechas (stick izquierdo X → a la **derecha**; Y → hacia **abajo**;
-      gatillos → a fondo).
-   5. **Revisar** — comprueba el resultado y guarda.
-4. Al guardar se crea/actualiza `data/controllers.json`.
+   3. **Botones** — pulsa cada botón cuando el asistente lo pida.
+   4. **Ejes y gatillos** — mueve cada stick / aprieta cada gatillo a fondo en la dirección de
+      las flechas (stick izquierdo X → **derecha**; Y → **abajo**; gatillos → a fondo).
+   5. **Revisar** — comprueba y guarda. Esto crea/actualiza `data/controllers.json`.
+
+   > **DualShock 4:** emparéjalo por **USB** por ahora (el Bluetooth tiene un problema de
+   > calibración conocido).
+
+**4. Pruébalo — pestaña Pads.** Abre la pestaña **Pads** y comprueba que el mando responde. Si
+responde, ya está listo para usarlo en tus juegos.
 
 > Si la pestaña **Pads** no muestra el mando tras guardar, **reinicia la app** (problema
 > conocido, en investigación).
@@ -121,8 +131,8 @@ El asistente mapea tu mando físico y genera su entrada en `data/controllers.jso
 
 - Desde la propia UI puedes crear **macros** y **perfiles por juego**.
 - La sintaxis completa de macros está en [MACROS.es.md](MACROS.es.md).
-- Habrá un repositorio de referencia con `controllers.json` y perfiles/macros listos por juego
-  _(enlace pendiente de publicar)_.
+- Hay perfiles y macros por juego listos para usar en el repositorio
+  [PadsWay-Presets](https://github.com/pooka-v1/PadsWay-Presets).
 
 ---
 

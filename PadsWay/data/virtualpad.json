@@ -1,6 +1,7 @@
 {
     "virtual_vid": "5650",
     "virtual_pid": "0001",
+	"console": false,
     "log_level": "info",
     "locale": "es",
     "font_size": 17.0,

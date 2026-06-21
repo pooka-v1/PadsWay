@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <filesystem>
+#include <cstdio>
 #include "Log.h"
 #include "config/ConfigLoader.h"
 #include "PadEngine.h"
@@ -26,13 +27,24 @@ static void anchorWorkingDirectoryToExe() {
 }
 
 int main() {
-    SetConsoleOutputCP(CP_UTF8);
     anchorWorkingDirectoryToExe();
 
     VirtualPadConfig vpCfg;
     try { vpCfg = loadVirtualPadConfig("data/virtualpad.json"); } catch (...) {}
 
-    Log::init(vpCfg.logLevel);
+    // The app is built as a Windows (GUI) subsystem app, so no console appears by
+    // default. When "console": true is set in virtualpad.json we allocate one and
+    // route stdio to it, giving live logs for development/debugging.
+    if (vpCfg.console) {
+        AllocConsole();
+        FILE* fp = nullptr;
+        freopen_s(&fp, "CONOUT$", "w", stdout);
+        freopen_s(&fp, "CONOUT$", "w", stderr);
+        freopen_s(&fp, "CONIN$",  "r", stdin);
+        SetConsoleOutputCP(CP_UTF8);
+    }
+
+    Log::init(vpCfg.logLevel, vpCfg.console);
 
     PadEngine engine;
     AppWindow window(engine);
