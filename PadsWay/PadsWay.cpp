@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <cstdio>
 #include "Log.h"
+#include "Paths.h"
 #include "config/ConfigLoader.h"
 #include "PadEngine.h"
 #include "AppWindow.h"
@@ -29,8 +30,13 @@ static void anchorWorkingDirectoryToExe() {
 int main() {
     anchorWorkingDirectoryToExe();
 
+    // First run on a normal install starts with an empty %LOCALAPPDATA%\PadsWay,
+    // so copy the factory files shipped next to the exe across before we read
+    // any of them (no-op in portable mode and once the files already exist).
+    Paths::seedUserDataFromFactory();
+
     VirtualPadConfig vpCfg;
-    try { vpCfg = loadVirtualPadConfig("data/virtualpad.json"); } catch (...) {}
+    try { vpCfg = loadVirtualPadConfig(Paths::userData("data/virtualpad.json")); } catch (...) {}
 
     // The app is built as a Windows (GUI) subsystem app, so no console appears by
     // default. When "console": true is set in virtualpad.json we allocate one and

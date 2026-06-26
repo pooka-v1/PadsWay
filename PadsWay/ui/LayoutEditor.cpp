@@ -8,6 +8,7 @@
 
 #include "../imgui/imgui.h"
 #include "../config/ConfigLoader.h"
+#include "../Paths.h"
 
 // ---------------------------------------------------------------------------
 // State-name table
@@ -52,7 +53,9 @@ void LayoutEditor::init(ID3D11Device* device,
     m_layouts     = layouts;
     m_layoutsPath = layoutsPath;
     m_canvasView.load(device);
-    m_wizard.init(device, "data/controllers.json", "data/state_map.json");
+    // controllers.json is user-writable (the wizard saves to it) → per-user folder;
+    // state_map.json is a read-only shipped asset → stays next to the exe.
+    m_wizard.init(device, Paths::userData("data/controllers.json"), "data/state_map.json");
 }
 
 void LayoutEditor::unload() {

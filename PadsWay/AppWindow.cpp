@@ -1,5 +1,6 @@
 #include "AppWindow.h"
 #include "Log.h"
+#include "Paths.h"
 
 #include <algorithm>
 #include <fstream>
@@ -47,7 +48,7 @@ int AppWindow::run() {
 
     // Load virtualpad.json early to get font_size before ImGui font init.
     VirtualPadConfig vpCfgEarly;
-    try { vpCfgEarly = loadVirtualPadConfig("data/virtualpad.json"); } catch (...) {}
+    try { vpCfgEarly = loadVirtualPadConfig(Paths::userData("data/virtualpad.json")); } catch (...) {}
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -83,12 +84,12 @@ int AppWindow::run() {
     ImGui_ImplDX11_Init(m_device, m_context);
 
     try {
-        m_controllerConfigs = loadControllerConfigs("data/controllers.json");
+        m_controllerConfigs = loadControllerConfigs(Paths::userData("data/controllers.json"));
     } catch (...) {}   // tolerate a corrupt/unreadable controllers.json; start with none
 
     std::string locale = "en";
     try {
-        VirtualPadConfig vpCfg = loadVirtualPadConfig("data/virtualpad.json");
+        VirtualPadConfig vpCfg = loadVirtualPadConfig(Paths::userData("data/virtualpad.json"));
         m_acceptedXboxButtons  = vpCfg.acceptedXboxButtons;
         m_stickSelectThreshold = vpCfg.stickSelectThreshold;
         m_stickHoldMs          = vpCfg.stickHoldMs;
@@ -96,9 +97,9 @@ int AppWindow::run() {
     } catch (...) {}  // struct defaults apply if file is missing or malformed
     Strings::load(locale);
 
-    try { m_padLayouts = loadPadLayouts("data/pad_layouts.json"); } catch (...) {}
+    try { m_padLayouts = loadPadLayouts(Paths::userData("data/pad_layouts.json")); } catch (...) {}
     if (m_padLayouts.empty()) {
-        try { m_padLayouts = loadPadLayouts("data/pad_layouts.json.bak"); } catch (...) {}
+        try { m_padLayouts = loadPadLayouts(Paths::userData("data/pad_layouts.json.bak")); } catch (...) {}
         m_layoutsFromBackup = !m_padLayouts.empty();
     }
 
@@ -107,7 +108,7 @@ int AppWindow::run() {
 
     m_padView.load(m_device);
     m_virtualPadView.load(m_device);
-    m_layoutEditor.init(m_device, &m_padLayouts);
+    m_layoutEditor.init(m_device, &m_padLayouts, Paths::userData("data/pad_layouts.json"));
     m_mappingEditor.init(m_device, &m_engine, m_padLayouts,
                          m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs);
     m_mappingEditor.setConfigs(m_controllerConfigs);
@@ -661,11 +662,24 @@ void AppWindow::renderScannerTab() {
 // ---------------------------------------------------------------------------
 
 bool AppWindow::initWindow() {
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+
+    // Load the app icon embedded via PadsWay.rc (ICON resource id 1) at both the
+    // large (Alt-Tab) and small (title-bar) sizes. The exe's embedded icon already
+    // drives the taskbar/Explorer, but the window's own title-bar icon is read from
+    // the window class — without this it falls back to the generic default.
+    HICON hIconBig = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON,
+        GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
+    HICON hIconSmall = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(1), IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+
     WNDCLASSEXW wc = {};
     wc.cbSize        = sizeof(wc);
     wc.style         = CS_CLASSDC;
     wc.lpfnWndProc   = WndProc;
-    wc.hInstance     = GetModuleHandle(nullptr);
+    wc.hInstance     = hInst;
+    wc.hIcon         = hIconBig;
+    wc.hIconSm       = hIconSmall;
     wc.hCursor       = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = L"PadsWayWindow";
     RegisterClassExW(&wc);
@@ -729,10 +743,10 @@ void AppWindow::refreshProfileList() {
     m_profilePaths.clear();
     m_profileNames.clear();
     WIN32_FIND_DATAA fd = {};
-    HANDLE h = FindFirstFileA("data\\profiles\\*.json", &fd);
+    HANDLE h = FindFirstFileA(Paths::userData("data/profiles/*.json").c_str(), &fd);
     if (h != INVALID_HANDLE_VALUE) {
         do {
-            std::string path = "data/profiles/" + std::string(fd.cFileName);
+            std::string path = Paths::userData("data/profiles/") + std::string(fd.cFileName);
             try {
                 GameProfile p = loadGameProfile(path);
                 if (!p.profile_name.empty()) {
@@ -886,7 +900,7 @@ void AppWindow::renderPadsTab() {
         if (!m_mappingEditor.isActive())
             m_engine.setEditorOpen(false);
         if (m_mappingEditor.pollConfigsSaved()) {
-            m_controllerConfigs = loadControllerConfigs("data/controllers.json");
+            m_controllerConfigs = loadControllerConfigs(Paths::userData("data/controllers.json"));
             m_mappingEditor.setConfigs(m_controllerConfigs);
         }
         if (m_mappingEditor.pollProfileListChanged()) {
@@ -919,7 +933,7 @@ void AppWindow::renderLayoutTab() {
     m_layoutEditor.render();
 
     if (m_layoutEditor.pollControllersSaved()) {
-        m_controllerConfigs = loadControllerConfigs("data/controllers.json");
+        m_controllerConfigs = loadControllerConfigs(Paths::userData("data/controllers.json"));
         m_engine.reloadConfigs();
         m_forceLayoutReload = true;
     }
