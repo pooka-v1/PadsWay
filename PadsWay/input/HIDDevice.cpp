@@ -87,6 +87,16 @@ HIDDevice::HIDDevice(const std::string& path, const std::string& name)
             m_buttonReportId = btnCaps[0].ReportID;
     }
 
+    // Shrink the OS input report queue from its default (~32) to the minimum.
+    // read() returns the OLDEST queued report, so a deep queue means we always
+    // forward stale input when the device emits faster than the read loop
+    // consumes (USB at 250-1000 Hz, BT ~100 Hz vs our ~125 Hz). With a queue of
+    // 2, the report we read is at most ~1-2 reports old → input stays current
+    // regardless of the device's report rate.
+    if (!HidD_SetNumInputBuffers(m_device, 2))
+        spdlog::warn("[HIDDevice] SetNumInputBuffers(2) failed (error {}) — using OS default queue",
+                     GetLastError());
+
     spdlog::info("[HIDDevice] Opened: {}  ReportLen={}  ValueCaps={}  BtnCaps={}",
         name.empty() ? path : name, m_inputReportLen, numCaps, numBtnCaps);
 

@@ -4,6 +4,7 @@
 #include "../imgui/imgui.h"
 #include "../nlohmann/json.hpp"
 using json = nlohmann::json;
+#include "../Paths.h"
 
 #include <fstream>
 #include <algorithm>
@@ -253,7 +254,7 @@ bool TriggerRangeModal::render() {
             if (!m_macroNamesLoaded) {
                 m_macroNames.clear();
                 try {
-                    std::ifstream f("data/macros.json");
+                    std::ifstream f(Paths::userData("data/macros.json"));
                     if (f.is_open()) { json j = json::parse(f); for (auto& [k,v] : j.items()) m_macroNames.push_back(k); }
                 } catch (...) {}
                 m_macroNamesLoaded = true;

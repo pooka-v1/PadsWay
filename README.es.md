@@ -22,8 +22,43 @@ Soporta macros, bots y configuración por JSON sin tocar el código.
 
 ### Para compilar
 
-- Visual Studio 2022 (con soporte C++17 y Windows SDK)
-- El resto de dependencias están incluidas en el repositorio (`imgui/`, `nlohmann/`)
+- **Visual Studio 2022** (con soporte C++17 y Windows SDK).
+- El resto de dependencias están incluidas en el repositorio (`imgui/`, `nlohmann/`, `spdlog/`).
+- **Compila la configuración `Release | x64`.** `ViGEmClient.lib` es solo Release, así que una
+  build Debug no enlaza. Para depurar, ejecuta Release con F5 (genera el PDB).
+
+La salida es `x64\Release\PadsWay.exe`.
+
+### Ejecutar desde el código fuente (desarrollo)
+
+Por defecto PadsWay guarda su configuración y logs en `%LOCALAPPDATA%\PadsWay` (ver *Archivos de
+datos → Dónde se guardan estos archivos*). En desarrollo eso separa tus ajustes de la carpeta
+`data/` del propio proyecto. Para que todo se quede junto al directorio de trabajo, coloca ahí un
+**`portable.txt`** vacío — en un arranque con F5 desde Visual Studio ese directorio es la carpeta
+del proyecto (`PadsWay\`). Está en `.gitignore`, así que es un marcador local de desarrollo y
+nunca viaja en el paquete.
+
+### Generar una release (instalador + zip portable)
+
+Los distribuibles se generan con **`installer\package.ps1`**, que centraliza en un único sitio las
+reglas de "release limpia" (incluye los assets de fábrica y defaults seguros, y **nunca** tu
+`controllers.json` personal, perfiles ni macros):
+
+1. Compila la configuración `Release | x64` en Visual Studio.
+2. Desde la raíz del repo, ejecuta:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File installer\package.ps1
+   ```
+
+Esto deja en `dist\`:
+
+- `PadsWay-v<ver>-win64\` — la carpeta de staging portable,
+- `PadsWay-v<ver>-win64.zip` — la build portable,
+- `PadsWay-v<ver>-setup.exe` — el instalador de Inno Setup.
+
+El paso del instalador necesita [**Inno Setup 6**](https://jrsoftware.org/isdl.php); si `ISCC.exe`
+no está en la ruta por defecto, pasa `-Iscc <ruta>`. Otras opciones: `-Version 0.19` fija la
+versión de la release (sincronizada con el instalador), `-SkipZip` / `-SkipInstaller` generan solo una parte.
 
 ---
 
@@ -461,6 +496,28 @@ El asistente usa `state_map.json` para saber el nombre físico del botón (`phys
 | `data/strings/strings_en.json` | Textos de la interfaz — inglés |
 | `data/strings/strings_es.json` | Textos de la interfaz — español |
 | `images/input_tokens/` | Iconos PNG para el creador de macros (24×24) |
+
+### Dónde se guardan estos archivos
+
+Los archivos que creas o editas — `controllers.json`, `profiles/`, `macros.json`,
+`pad_layouts.json`, `virtualpad.json` y la carpeta `logs/` — se guardan en una
+carpeta por usuario, para que la app funcione incluso instalada en una ubicación
+protegida como `Archivos de programa`:
+
+```
+%LOCALAPPDATA%\PadsWay\
+```
+
+(normalmente `C:\Users\<tú>\AppData\Local\PadsWay\`). En el primer arranque se
+copian ahí automáticamente las copias de fábrica que vienen junto al ejecutable,
+así empiezas con los layouts de mando incluidos. Los recursos de solo lectura que
+acompañan a la app (`data/strings/`, `data/state_map.json`, `images/`,
+`data/bots/`) permanecen junto al ejecutable y nunca se modifican.
+
+**Modo portable.** Coloca un archivo vacío llamado `portable.txt` junto a
+`PadsWay.exe` y la app guardará todo junto al ejecutable (el comportamiento
+anterior) — útil para ejecutarla desde un USB sin dejar rastro en el equipo. Sin
+él, se usa la ubicación por usuario de arriba.
 
 Ver [MACROS.md](MACROS.md) para la sintaxis completa de macros.
 

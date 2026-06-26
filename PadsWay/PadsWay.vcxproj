@@ -167,6 +167,7 @@
     <ClCompile Include="ui\MappingModel.cpp" />
     <ClCompile Include="ui\TriggerRangeModal.cpp" />
     <ClCompile Include="PadsWay.cpp" />
+    <ClCompile Include="Paths.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
@@ -192,6 +193,7 @@
     <ClInclude Include="macros\MacroParser.h" />
     <ClInclude Include="output\ViGEmOutputAdapter.h" />
     <ClInclude Include="Log.h" />
+    <ClInclude Include="Paths.h" />
     <ClInclude Include="output\HidHideClient.h" />
     <ClInclude Include="PadEngine.h" />
     <ClInclude Include="AppWindow.h" />

@@ -1,11 +1,13 @@
 #include "PadEngine.h"
 #include "Log.h"
+#include "Paths.h"
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
 #include <optional>
 #include <windows.h>
+#include <timeapi.h>
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
@@ -23,6 +25,7 @@
 #pragma comment(lib, "Setupapi.lib")
 #pragma comment(lib, "cfgmgr32.lib")
 #pragma comment(lib, "hid.lib")
+#pragma comment(lib, "winmm.lib")   // timeBeginPeriod/timeEndPeriod (timer resolution, not input)
 
 
 // ---------------------------------------------------------------------------
@@ -284,7 +287,7 @@ float PadEngine::getMouseSpeed() const {
 
 void PadEngine::reloadConfigs() {
     try {
-        auto configs = loadControllerConfigs("data/controllers.json");
+        auto configs = loadControllerConfigs(Paths::userData("data/controllers.json"));
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_configs = std::move(configs);
@@ -355,6 +358,18 @@ void PadEngine::monitorFunc() {
 // ---------------------------------------------------------------------------
 
 void PadEngine::threadFunc() {
+    // Raise the Windows timer resolution to 1 ms for the lifetime of this thread.
+    // Without it, Sleep(8) in the forwarding loop rounds up to the OS default
+    // granularity (~15.6 ms) → the loop runs at ~64 Hz instead of ~125 Hz, the
+    // OS HID input buffer fills with stale reports and input lags by tenths of a
+    // second. (Previously this was set only as a side effect of LightningBot's
+    // thread, so removing the bot exposed the latent lag.) RAII guard so the
+    // matching timeEndPeriod runs on every exit path — early return or exception.
+    struct TimerResolutionGuard {
+        TimerResolutionGuard()  { timeBeginPeriod(1); }
+        ~TimerResolutionGuard() { timeEndPeriod(1);   }
+    } timerResolutionGuard;
+
     m_phase.store(EnginePhase::Scanning);
     setStatus("Scanning for devices...");
     spdlog::info("=== PadsWay — device init ===");
@@ -365,8 +380,8 @@ void PadEngine::threadFunc() {
     std::vector<ControllerConfig>    configs;
     std::vector<PhysicalController>  physCtrls;
     try {
-        configs   = loadControllerConfigs("data/controllers.json");
-        physCtrls = loadPhysicalControllers("data/controllers.json");
+        configs   = loadControllerConfigs(Paths::userData("data/controllers.json"));
+        physCtrls = loadPhysicalControllers(Paths::userData("data/controllers.json"));
         { std::lock_guard<std::mutex> lock(m_mutex); m_configs = configs; }
     } catch (const std::exception& ex) {
         spdlog::error("Error loading config: {}", ex.what());
@@ -378,7 +393,7 @@ void PadEngine::threadFunc() {
     // --- One-time init: macro library ---
     std::unordered_map<std::string, std::string> macroLibrary;
     try {
-        macroLibrary = loadMacroLibrary("data/macros.json");
+        macroLibrary = loadMacroLibrary(Paths::userData("data/macros.json"));
         if (!macroLibrary.empty())
             printf("Macro library loaded: %zu macros.\n", macroLibrary.size());
     } catch (const std::exception& ex) {
@@ -388,7 +403,7 @@ void PadEngine::threadFunc() {
     // --- One-time init: ViGEm (persists through device switches) ---
     VirtualPadConfig vpCfg;
     try {
-        vpCfg = loadVirtualPadConfig("data/virtualpad.json");
+        vpCfg = loadVirtualPadConfig(Paths::userData("data/virtualpad.json"));
     } catch (const std::exception& ex) {
         spdlog::warn("Could not load virtualpad.json: {} — using defaults.", ex.what());
     }
@@ -908,7 +923,7 @@ void PadEngine::threadFunc() {
         // Macro library hot-reload: pick up macros.json changes saved by the macro manager.
         if (m_macroLibDirty.exchange(false)) {
             try {
-                macroLibrary = loadMacroLibrary("data/macros.json");
+                macroLibrary = loadMacroLibrary(Paths::userData("data/macros.json"));
                 spdlog::info("Macro library reloaded: {} macros.", macroLibrary.size());
             } catch (const std::exception& ex) {
                 spdlog::warn("Macro library reload failed: {}", ex.what());
@@ -934,7 +949,7 @@ void PadEngine::threadFunc() {
 
                 // Re-inject PhysicalController so the component system picks up mapping changes.
                 try {
-                    physCtrls = loadPhysicalControllers("data/controllers.json");
+                    physCtrls = loadPhysicalControllers(Paths::userData("data/controllers.json"));
                     auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
                         [&](const PhysicalController& pc) {
                             return pc.vid == selected.vid && pc.pid == selected.pid;

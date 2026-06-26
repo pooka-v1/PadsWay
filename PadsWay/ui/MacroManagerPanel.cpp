@@ -1,5 +1,6 @@
 #include "MacroManagerPanel.h"
 #include "../config/ConfigLoader.h"
+#include "../Paths.h"
 #include "../config/Strings.h"
 #include "../macros/Macro.h"
 #include "../macros/MacroParser.h"
@@ -25,7 +26,7 @@ void MacroManagerPanel::activate() {
 }
 
 void MacroManagerPanel::load() {
-    auto raw = loadMacroLibrary("data/macros.json");
+    auto raw = loadMacroLibrary(Paths::userData("data/macros.json"));
     m_macros.clear();
     m_macros.reserve(raw.size());
     for (auto& [name, dsl] : raw)
@@ -35,7 +36,7 @@ void MacroManagerPanel::load() {
 }
 
 void MacroManagerPanel::save() {
-    saveMacroLibrary("data/macros.json", m_macros);
+    saveMacroLibrary(Paths::userData("data/macros.json"), m_macros);
 }
 
 // ============================================================

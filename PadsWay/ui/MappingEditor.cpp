@@ -6,6 +6,7 @@
 #include "../nlohmann/json.hpp"
 using json = nlohmann::json;
 #include "../config/ConfigLoader.h"
+#include "../Paths.h"
 
 #include <fstream>
 #include <algorithm>
@@ -104,8 +105,8 @@ void MappingEditor::save() {
         }
         return;
     }
-    try { m_model.save("data/controllers.json"); } catch (...) {}
-    m_configs = loadControllerConfigs("data/controllers.json");
+    try { m_model.save(Paths::userData("data/controllers.json")); } catch (...) {}
+    m_configs = loadControllerConfigs(Paths::userData("data/controllers.json"));
     m_engine->reloadConfigs();
     m_configsSaved = true;
 }
@@ -203,7 +204,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 // Build a path from the name
                 std::string safeName(m_profNameBuf);
                 for (auto& c : safeName) if (c == ' ' || c == '/' || c == '\\') c = '_';
-                std::string newPath = "data/profiles/" + safeName + ".json";
+                std::string newPath = Paths::userData("data/profiles/") + safeName + ".json";
                 m_profilePaths.push_back(newPath);
                 m_profileNames.push_back(m_profNameBuf);
                 m_profIdx = (int)m_profilePaths.size() - 1;
@@ -1147,7 +1148,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             if (!m_macroNamesLoaded) {
                 m_macroNames.clear(); m_macroLibrary.clear();
                 try {
-                    std::ifstream f("data/macros.json");
+                    std::ifstream f(Paths::userData("data/macros.json"));
                     if (f.is_open()) {
                         json j = json::parse(f);
                         for (auto& [k,v] : j.items()) {
@@ -1312,7 +1313,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     if (!m_macroNamesLoaded) {
                         m_macroNames.clear(); m_macroLibrary.clear();
                         try {
-                            std::ifstream f("data/macros.json");
+                            std::ifstream f(Paths::userData("data/macros.json"));
                             if (f.is_open()) {
                                 json j = json::parse(f);
                                 for (auto& [k,v] : j.items()) {
@@ -1492,7 +1493,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             if (!m_macroNamesLoaded) {
                 m_macroNames.clear(); m_macroLibrary.clear();
                 try {
-                    std::ifstream f("data/macros.json");
+                    std::ifstream f(Paths::userData("data/macros.json"));
                     if (f.is_open()) {
                         json j = json::parse(f);
                         for (auto& [k,v] : j.items()) {

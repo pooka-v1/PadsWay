@@ -34,6 +34,21 @@ static std::wstring toNtDevicePath(const std::wstring& win32Path) {
     return std::wstring(ntDevice) + win32Path.substr(2);
 }
 
+// Leaf (file name) of a path, splitting on either separator. NT device paths use
+// backslashes (\Device\HarddiskVolumeN\...\PadsWay.exe); we only need the last
+// component to recognise our own (possibly stale) whitelist entries.
+static std::wstring pathLeaf(const std::wstring& path) {
+    size_t pos = path.find_last_of(L"\\/");
+    return pos == std::wstring::npos ? path : path.substr(pos + 1);
+}
+
+// True if a whitelist entry belongs to this app, regardless of which volume/folder
+// it points at. Used to purge stale entries left by previous installs / dev builds
+// before re-adding the current exe.
+static bool isOwnExe(const std::wstring& path) {
+    return _wcsicmp(pathLeaf(path).c_str(), L"PadsWay.exe") == 0;
+}
+
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 
@@ -137,15 +152,36 @@ void HidHideClient::addSelfToWhitelist() {
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
     std::wstring path = toNtDevicePath(exePath);   // HidHide compares NT device paths
 
+    // Drop every entry that belongs to this app and re-add the current path.
+    // The NT device path is not stable (HarddiskVolumeN can change between boots)
+    // and dev/installed builds live in different folders, so a plain "is my exact
+    // path already here?" check let stale entries pile up — eventually none of them
+    // matched the running exe, HidHide stopped recognising us as whitelisted, and
+    // the physical pads were hidden from the engine (the ~0.5s input lag). Purging
+    // our own stale entries on every start keeps exactly one, the live one.
     auto list = getList(kIoctlGetWhitelist);
-    for (const auto& s : list)
-        if (_wcsicmp(s.c_str(), path.c_str()) == 0) {
-            spdlog::debug("[HidHide] Already in whitelist.");
-            return;
+    std::vector<std::wstring> kept;
+    bool alreadyCurrent = false;
+    int  purged = 0;
+    for (const auto& s : list) {
+        if (isOwnExe(s)) {
+            if (_wcsicmp(s.c_str(), path.c_str()) == 0) alreadyCurrent = true;
+            else ++purged;
+            continue;   // drop every own entry; the current one is re-added below
         }
+        kept.push_back(s);   // foreign apps' entries are left untouched
+    }
 
-    list.push_back(path);
-    setList(kIoctlSetWhitelist, list);
+    if (alreadyCurrent && purged == 0) {
+        spdlog::debug("[HidHide] Already in whitelist.");
+        return;
+    }
+
+    kept.push_back(path);
+    setList(kIoctlSetWhitelist, kept);
+    if (purged > 0)
+        spdlog::info("[HidHide] Purged {} stale whitelist entr{} for this app.",
+                     purged, purged == 1 ? "y" : "ies");
     spdlog::info("[HidHide] Added to whitelist: {}", toUtf8(path));
 }
 
