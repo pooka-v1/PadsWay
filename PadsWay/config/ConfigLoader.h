@@ -30,9 +30,24 @@ std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string&
 void saveMacroLibrary(const std::string& path,
                       const std::vector<std::pair<std::string, std::string>>& macros);
 
+// Which kind of virtual controller the engine plugs into ViGEm.
+//   Xbox      -> XInput device: universally supported, but games reading XInput
+//                cap at 4 pads.
+//   DualShock -> DS4 device read through DirectInput: works with old games and
+//                emulators, and is not subject to the XInput 4-pad cap.
+// The engine's internal GamepadState stays Xbox-shaped either way; the DS4 adapter
+// only remaps at the very last step (A->Cross, B->Circle, ...).
+enum class VirtualOutputType { Xbox, DualShock };
+
 struct VirtualPadConfig {
-    uint16_t                 vid                    = 0x5650;   // defaults if file is missing
-    uint16_t                 pid                    = 0x0001;
+    // Per-type virtual identity. Xbox uses a custom VID/PID. DS4 must use a REAL DS4 id
+    // (a fake PID on Sony's VID won't enumerate → ViGEm 0xE0000007): 054C:05C4 is DS4 v1,
+    // which ViGEm emulates natively and does NOT clash with a physical DS4 v2 (054C:09CC).
+    uint16_t                 xboxVid                = 0x5650;   // defaults if file is missing
+    uint16_t                 xboxPid                = 0x0001;
+    uint16_t                 directVid              = 0x054C;   // Sony VID
+    uint16_t                 directPid              = 0x05C4;   // DualShock 4 v1 (ViGEm native DS4 id)
+    VirtualOutputType        outputType             = VirtualOutputType::Xbox;  // ViGEm target type
     std::string              logLevel               = "info";   // trace/debug/info/warn/error
     std::string              locale                 = "en";
     float                    fontSize               = 17.0f;    // ImGui font size in pixels
@@ -45,6 +60,10 @@ struct VirtualPadConfig {
 // Loads virtual pad identity config from a JSON file.
 // Returns defaults if the file does not exist.
 VirtualPadConfig loadVirtualPadConfig(const std::string& path);
+
+// Persists only the virtual output type into virtualpad.json, preserving every
+// other field already present in the file (vid/pid, locale, console, font_size...).
+void saveVirtualPadOutputType(const std::string& path, VirtualOutputType outputType);
 
 // ── Game profiles ──────────────────────────────────────────────────────────
 

@@ -86,6 +86,10 @@ private:
     std::vector<std::string> m_profileNames;   // profile_name from each JSON
     int                      m_profileSelected = 0;  // 0 = none, 1+ = index into lists
 
+    // --- Virtual output type selector (combo + inline confirmation) ---
+    int                      m_pendingOutputSel  = 0;     // selection awaiting confirmation (0=Xbox, 1=DS4)
+    bool                     m_outputConfirmOpen = false;  // inline confirm row is visible
+
     // --- HID live monitor (scanner right panel) ---
     // m_scanDevice holds its own handle — independent of the Engine.
     // For event-driven devices (BT X-mode) a background thread does blocking reads
@@ -113,8 +117,8 @@ private:
 
     // --- Pad views ---
     PadView m_padView;                          // physical controller
-    PadView m_virtualPadView;                   // virtual Xbox One output
-    bool    m_virtualPadInitialized = false;    // xbox_one layout loaded once
+    PadView m_virtualPadView;                   // virtual output (Xbox / DS4)
+    std::string m_currentVirtualLayoutId;       // last layout applied to m_virtualPadView; reloaded on output hot-swap
     bool    m_forceLayoutReload     = false;    // set after editor saves; triggers forceSetLayout
 
     // --- Layout editor ---

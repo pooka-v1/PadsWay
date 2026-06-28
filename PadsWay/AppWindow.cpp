@@ -182,6 +182,29 @@ void AppWindow::renderFrame() {
         ImGui::EndTabBar();
     }
 
+    // Output-type confirmation modal — drawn here at canvas level (NOT inside a tab)
+    // so BeginPopupModal is submitted every frame; a modal nested in a BeginTabItem can
+    // ghost-freeze the whole app if the tab stops emitting for a frame.
+    if (m_outputConfirmOpen && !ImGui::IsPopupOpen("output_switch_confirm"))
+        ImGui::OpenPopup("output_switch_confirm");
+    if (ImGui::BeginPopupModal("output_switch_confirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextWrapped("%s", tr("engine.output_warn"));
+        ImGui::Spacing();
+        if (ImGui::Button(tr("engine.output_confirm"), { 120.0f, 0.0f })) {
+            VirtualOutputType t = (m_pendingOutputSel == 1)
+                ? VirtualOutputType::DualShock : VirtualOutputType::Xbox;
+            m_engine.requestOutputType(t);   // the engine persists output_type only if the switch succeeds
+            m_outputConfirmOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(tr("engine.output_cancel"), { 120.0f, 0.0f })) {
+            m_outputConfirmOpen = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     ImGui::End();
 }
 
@@ -285,7 +308,7 @@ void AppWindow::renderEngineTab() {
     for (const auto& n : m_profileNames)
         profileItems.push_back(n.c_str());
 
-    ImGui::SetNextItemWidth(260.0f);
+    ImGui::SetNextItemWidth(220.0f);
     if (ImGui::Combo("##profile", &m_profileSelected, profileItems.data(), (int)profileItems.size())) {
         if (m_profileSelected == 0)
             m_engine.setProfilePath("");
@@ -293,12 +316,38 @@ void AppWindow::renderEngineTab() {
             m_engine.setProfilePath(m_profilePaths[m_profileSelected - 1]);
     }
 
+    // Output type selector continues on the SAME row as the profile selector.
+    ImGui::SameLine();
+
+    // ── Virtual output type selector (Xbox / DualShock), hot-swapped ─────────
+    // Picking a different type just raises m_outputConfirmOpen; the confirmation modal
+    // is drawn in renderFrame at canvas level (never inside this tab) so it is always
+    // submitted every frame and can't ghost-freeze the app.
+    ImGui::Text("%s", tr("engine.output_type"));
+    ImGui::SameLine();
+    const char* outputItems[] = { tr("engine.output_xbox"), tr("engine.output_ds4") };
+    int liveType = (m_engine.getOutputType() == VirtualOutputType::DualShock) ? 1 : 0;
+    // While confirming, show the user's pick; otherwise mirror the engine's live type.
+    int outputShown = m_outputConfirmOpen ? m_pendingOutputSel : liveType;
+    ImGui::SetNextItemWidth(220.0f);
+    if (ImGui::Combo("##outputtype", &outputShown, outputItems, 2)) {
+        m_pendingOutputSel  = outputShown;
+        m_outputConfirmOpen = (outputShown != liveType);  // nothing to confirm if back to current
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tr("engine.output_tooltip"));
+
+    // Spinner while the engine tears down and rebuilds the virtual target.
+    if (m_engine.isOutputSwitchPending()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", tr("engine.output_switching"));
+    }
+
+    // Status line under the selectors row: active profile / reconnect hint.
     std::string activeName = m_engine.getActiveProfileName();
     if (!activeName.empty()) {
-        ImGui::SameLine();
         ImGui::TextColored({ 0.4f, 0.9f, 0.4f, 1.0f }, tr("engine.profile_active"), activeName.c_str());
     } else if (connected && m_profileSelected != 0) {
-        ImGui::SameLine();
         ImGui::TextDisabled("%s", tr("engine.reconnect"));
     }
 
@@ -771,12 +820,17 @@ void AppWindow::renderPadsTab() {
             m_padView.forceSetLayout(*layout);
     }
 
-    // Virtual pad: always xbox_one, loaded once
-    if (!m_virtualPadInitialized) {
-        const PadLayout* vLayout = findLayout(m_padLayouts, "xbox_one");
+    // Virtual pad: layout follows the active output type (Xbox / DS4), reloaded on hot-swap.
+    // The internal model is always Xbox; the DS4 layout just renders the same state with PS
+    // glyphs (its components carry the Xbox "state" binding) and omits touch/gyro (not emitted).
+    const char* wantVirtualLayout =
+        (m_engine.getOutputType() == VirtualOutputType::DualShock)
+            ? "dualshock4_virtual" : "xbox_one";
+    if (m_currentVirtualLayoutId != wantVirtualLayout) {
+        const PadLayout* vLayout = findLayout(m_padLayouts, wantVirtualLayout);
         if (vLayout) {
             m_virtualPadView.setLayout(*vLayout);
-            m_virtualPadInitialized = true;
+            m_currentVirtualLayoutId = wantVirtualLayout;
         }
     }
 
@@ -939,8 +993,8 @@ void AppWindow::renderLayoutTab() {
     }
 
     if (m_layoutEditor.pollLayoutSaved()) {
-        m_forceLayoutReload     = true;
-        m_virtualPadInitialized = false;
+        m_forceLayoutReload = true;
+        m_currentVirtualLayoutId.clear();   // force virtual layout reload next frame
     }
 }
 

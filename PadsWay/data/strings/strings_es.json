@@ -37,7 +37,15 @@
         "reconnect":      "(reconectar para aplicar)",
         "console_hint":   "La consola muestra el log completo.",
         "close_hint":     "Cierra esta ventana para salir.",
-        "no_profile":     "(ninguno)"
+        "no_profile":     "(ninguno)",
+        "output_type":      "Salida virtual:",
+        "output_xbox":      "Xbox (XInput)",
+        "output_ds4":       "DualShock (DirectInput)",
+        "output_tooltip":   "Xbox: maxima compatibilidad con juegos modernos.\nDualShock: DirectInput, para juegos antiguos, emuladores y mas de 4 mandos.",
+        "output_switching": "(cambiando...)",
+        "output_warn":      "Cambiar el tipo de mando virtual lo desconecta y vuelve a conectar. Cierra cualquier juego antes de continuar.",
+        "output_confirm":   "Cambiar",
+        "output_cancel":    "Cancelar"
     },
     "scanner": {
         "no_devices":   "No se encontraron dispositivos HID.",

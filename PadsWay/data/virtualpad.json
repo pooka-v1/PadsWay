@@ -1,12 +1,31 @@
 {
-    "virtual_vid": "5650",
-    "virtual_pid": "0001",
-	"console": false,
+    "virtual_x_vid": "5650",
+    "virtual_x_pid": "0001",
+    "virtual_direct_vid": "054C",
+    "virtual_direct_pid": "05C4",
+    "output_type": "dualshock",
+    "console": true,
     "log_level": "info",
     "locale": "es",
     "font_size": 17.0,
     "pad_configurations": {
-        "accepted_xbox_buttons": ["a","b","x","y","l1","r1","select","start","home","l3","r3","dpad_up","dpad_down","dpad_left","dpad_right"],
+        "accepted_xbox_buttons": [
+            "a",
+            "b",
+            "x",
+            "y",
+            "l1",
+            "r1",
+            "select",
+            "start",
+            "home",
+            "l3",
+            "r3",
+            "dpad_up",
+            "dpad_down",
+            "dpad_left",
+            "dpad_right"
+        ],
         "stick_select_threshold": 0.85,
         "stick_hold_ms": 2000
     }

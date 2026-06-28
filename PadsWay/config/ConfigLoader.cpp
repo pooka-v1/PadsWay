@@ -1,6 +1,7 @@
 #include "ConfigLoader.h"
 #include "../nlohmann/json.hpp"
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <stdexcept>
 
@@ -379,15 +380,41 @@ void saveMacroLibrary(const std::string& path,
     f << root.dump(4);
 }
 
+void saveVirtualPadOutputType(const std::string& path, VirtualOutputType outputType) {
+    // Parse the existing file as an ORDERED object so we don't reshuffle the user's
+    // hand-edited keys; if it's missing or corrupt, fall back to an empty object.
+    nlohmann::ordered_json root;
+    {
+        std::ifstream in(path);
+        if (in.is_open()) {
+            try { root = nlohmann::ordered_json::parse(in); }
+            catch (...) { root = nlohmann::ordered_json::object(); }
+        }
+    }
+    root["output_type"] = (outputType == VirtualOutputType::DualShock) ? "dualshock" : "xbox";
+    std::ofstream f(path);
+    if (!f.is_open())
+        throw std::runtime_error("Cannot write " + path);
+    f << root.dump(4);
+}
+
 VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
     VirtualPadConfig cfg;
     std::ifstream f(path);
     if (!f.is_open()) return cfg;  // optional file — return defaults
     json root = json::parse(f);
-    if (root.contains("virtual_vid"))
-        cfg.vid = static_cast<uint16_t>(std::stoul(root["virtual_vid"].get<std::string>(), nullptr, 16));
-    if (root.contains("virtual_pid"))
-        cfg.pid = static_cast<uint16_t>(std::stoul(root["virtual_pid"].get<std::string>(), nullptr, 16));
+    auto parseHex16 = [](const json& j, const char* key, uint16_t& out) {
+        if (j.contains(key) && j[key].is_string())
+            out = static_cast<uint16_t>(std::stoul(j[key].get<std::string>(), nullptr, 16));
+    };
+    // Back-compat: a legacy single virtual_vid/virtual_pid maps to the Xbox identity.
+    parseHex16(root, "virtual_vid", cfg.xboxVid);
+    parseHex16(root, "virtual_pid", cfg.xboxPid);
+    // Per-type identities (current schema).
+    parseHex16(root, "virtual_x_vid",      cfg.xboxVid);
+    parseHex16(root, "virtual_x_pid",      cfg.xboxPid);
+    parseHex16(root, "virtual_direct_vid", cfg.directVid);
+    parseHex16(root, "virtual_direct_pid", cfg.directPid);
     if (root.contains("log_level"))
         cfg.logLevel = root["log_level"].get<std::string>();
     if (root.contains("locale"))
@@ -396,6 +423,17 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
         cfg.fontSize = root["font_size"].get<float>();
     if (root.contains("console") && root["console"].is_boolean())
         cfg.console = root["console"].get<bool>();
+    if (root.contains("output_type") && root["output_type"].is_string()) {
+        std::string t = root["output_type"].get<std::string>();
+        std::transform(t.begin(), t.end(), t.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // DualShock for the DS4/DirectInput aliases; anything else (incl. "xbox",
+        // "xinput", a typo, or a missing key) keeps the safe Xbox default.
+        if (t == "ds4" || t == "dualshock" || t == "dinput" || t == "directinput")
+            cfg.outputType = VirtualOutputType::DualShock;
+        else
+            cfg.outputType = VirtualOutputType::Xbox;
+    }
     if (root.contains("pad_configurations") && root["pad_configurations"].is_object()) {
         const auto& pc = root["pad_configurations"];
         if (pc.contains("accepted_xbox_buttons") && pc["accepted_xbox_buttons"].is_array()) {

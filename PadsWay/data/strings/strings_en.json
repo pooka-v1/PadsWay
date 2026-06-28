@@ -37,7 +37,15 @@
         "reconnect":      "(reconnect to apply)",
         "console_hint":   "Console window shows full log output.",
         "close_hint":     "Close this window to exit.",
-        "no_profile":     "(none)"
+        "no_profile":     "(none)",
+        "output_type":      "Virtual output:",
+        "output_xbox":      "Xbox (XInput)",
+        "output_ds4":       "DualShock (DirectInput)",
+        "output_tooltip":   "Xbox: best compatibility with modern games.\nDualShock: DirectInput, for old games, emulators and more than 4 pads.",
+        "output_switching": "(switching...)",
+        "output_warn":      "Switching the virtual pad type disconnects and reconnects it. Close any running game first.",
+        "output_confirm":   "Switch",
+        "output_cancel":    "Cancel"
     },
     "scanner": {
         "no_devices":   "No HID devices found.",

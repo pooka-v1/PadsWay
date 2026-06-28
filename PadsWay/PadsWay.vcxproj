@@ -153,7 +153,9 @@
     <ClCompile Include="input\RawHIDReader.cpp" />
     <ClCompile Include="macros\Macro.cpp" />
     <ClCompile Include="macros\MacroParser.cpp" />
-    <ClCompile Include="output\ViGEmOutputAdapter.cpp" />
+    <ClCompile Include="output\ViGEmOutputBase.cpp" />
+    <ClCompile Include="output\ViGEmX360OutputAdapter.cpp" />
+    <ClCompile Include="output\ViGEmDs4OutputAdapter.cpp" />
     <ClCompile Include="output\HidHideClient.cpp" />
     <ClCompile Include="PadEngine.cpp" />
     <ClCompile Include="AppWindow.cpp" />
@@ -192,7 +194,9 @@
     <ClInclude Include="macros\Macro.h" />
     <ClInclude Include="macros\MacroParser.h" />
     <ClInclude Include="output\IOutputSink.h" />
-    <ClInclude Include="output\ViGEmOutputAdapter.h" />
+    <ClInclude Include="output\ViGEmOutputBase.h" />
+    <ClInclude Include="output\ViGEmX360OutputAdapter.h" />
+    <ClInclude Include="output\ViGEmDs4OutputAdapter.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="Paths.h" />
     <ClInclude Include="output\HidHideClient.h" />

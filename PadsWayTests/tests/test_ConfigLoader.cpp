@@ -591,8 +591,45 @@ TEST_CASE("rebuildPhysicalControllerFromConfig resets cleared trigger to passthr
 
 TEST_CASE("loadVirtualPadConfig returns defaults for nonexistent file", "[ConfigLoader]") {
     auto result = loadVirtualPadConfig("__nonexistent_abc__.json");
-    REQUIRE(result.vid      == 0x5650);
-    REQUIRE(result.pid      == 0x0001);
-    REQUIRE(result.logLevel == "info");
-    REQUIRE(result.locale   == "en");
+    REQUIRE(result.xboxVid    == 0x5650);
+    REQUIRE(result.xboxPid    == 0x0001);
+    REQUIRE(result.directVid  == 0x054C);
+    REQUIRE(result.directPid  == 0x05C4);
+    REQUIRE(result.outputType == VirtualOutputType::Xbox);
+    REQUIRE(result.logLevel   == "info");
+    REQUIRE(result.locale     == "en");
+}
+
+TEST_CASE("loadVirtualPadConfig parses per-type virtual identities", "[ConfigLoader]") {
+    const std::string path = "test_tmp_virtualpad_ids.json";
+    { std::ofstream f(path);
+      f << R"({
+        "virtual_x_vid": "5650",
+        "virtual_x_pid": "0001",
+        "virtual_direct_vid": "054C",
+        "virtual_direct_pid": "0002",
+        "output_type": "dualshock"
+      })"; }
+    auto result = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    REQUIRE(result.xboxVid    == 0x5650);
+    REQUIRE(result.xboxPid    == 0x0001);
+    REQUIRE(result.directVid  == 0x054C);
+    REQUIRE(result.directPid  == 0x0002);   // distinct from the default, proves it parsed
+    REQUIRE(result.outputType == VirtualOutputType::DualShock);
+}
+
+TEST_CASE("loadVirtualPadConfig maps legacy virtual_vid to the Xbox identity", "[ConfigLoader]") {
+    const std::string path = "test_tmp_virtualpad_legacy.json";
+    { std::ofstream f(path);
+      f << R"({
+        "virtual_vid": "ABCD",
+        "virtual_pid": "0009"
+      })"; }
+    auto result = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    REQUIRE(result.xboxVid   == 0xABCD);
+    REQUIRE(result.xboxPid   == 0x0009);
+    REQUIRE(result.directVid == 0x054C);   // direct identity keeps its default
+    REQUIRE(result.directPid == 0x05C4);
 }

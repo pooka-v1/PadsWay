@@ -41,7 +41,13 @@
     <ClCompile Include="macros\MacroParser.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="output\ViGEmOutputAdapter.cpp">
+    <ClCompile Include="output\ViGEmOutputBase.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="output\ViGEmX360OutputAdapter.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="output\ViGEmDs4OutputAdapter.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="output\HidHideClient.cpp">
@@ -148,7 +154,16 @@
     <ClInclude Include="macros\MacroParser.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
-    <ClInclude Include="output\ViGEmOutputAdapter.h">
+    <ClInclude Include="output\IOutputSink.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="output\ViGEmOutputBase.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="output\ViGEmX360OutputAdapter.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="output\ViGEmDs4OutputAdapter.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="Log.h">

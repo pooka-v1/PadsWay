@@ -9,6 +9,7 @@
 #include "GamepadState.h"
 #include "input/ControllerConfig.h"
 #include "output/HidHideClient.h"
+#include "config/ConfigLoader.h"   // VirtualOutputType
 
 // ---------------------------------------------------------------------------
 // Engine events — domain facts emitted by the engine, interpreted by the UI.
@@ -63,6 +64,16 @@ public:
     EnginePhase getPhase()       const { return m_phase.load(); }
     uint16_t    getVirtualVid()  const { return m_virtualVid.load(); }
     uint16_t    getVirtualPid()  const { return m_virtualPid.load(); }
+
+    // Virtual output type — hot-swapped live from the UI thread. requestOutputType()
+    // signals the engine thread, which recreates the ViGEm target; the UI polls
+    // isOutputSwitchPending() to show a "switching..." spinner until it completes.
+    VirtualOutputType getOutputType()        const { return m_outputType.load(); }
+    bool              isOutputSwitchPending() const { return m_outputSwitchPending.load(); }
+    void              requestOutputType(VirtualOutputType t) {
+        m_pendingOutputType.store(t);
+        m_outputSwitchPending.store(true);
+    }
     std::vector<DeviceCandidate> getCandidates()       const;  // for WaitingSelection (startup)
     std::vector<DeviceCandidate> getAvailableDevices() const;  // live list from monitor thread
     void        selectDevice(int index);    // call from UI during WaitingSelection
@@ -122,6 +133,12 @@ private:
     std::atomic<int>         m_selectedIndex { -1 };      // index into m_candidates (WaitingSelection)
     std::atomic<uint16_t>    m_virtualVid    { 0 };
     std::atomic<uint16_t>    m_virtualPid    { 0 };
+
+    // Virtual output type hot-swap: m_outputType is the live type; requestOutputType()
+    // stores m_pendingOutputType and raises m_outputSwitchPending, consumed in threadFunc.
+    std::atomic<VirtualOutputType> m_outputType          { VirtualOutputType::Xbox };
+    std::atomic<VirtualOutputType> m_pendingOutputType   { VirtualOutputType::Xbox };
+    std::atomic<bool>              m_outputSwitchPending  { false };
     std::vector<DeviceCandidate>  m_candidates;       // startup multi-device selection; protected by m_mutex
     std::vector<DeviceCandidate>  m_availableDevices; // live list from monitor; protected by m_mutex
     std::vector<ControllerConfig> m_configs;          // shared with monitor thread; protected by m_mutex
