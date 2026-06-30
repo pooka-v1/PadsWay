@@ -187,6 +187,27 @@ Format: `LAX`, `LAY`, `RAX`, `RAY` followed by a float value between `-1.0` and 
 
 To use a duration other than the default: `A=150` (hold+slot = 150ms).
 
+### Hold vs slot — the duty cycle (avoiding flicker on repeats)
+
+Every step has two timings: the **hold** (how long the button is actually pressed) and the
+**slot** (how long until the next step starts). By default they differ — `hold = 80ms` inside a
+`slot = 200ms` — so the button is *released* for the remaining ~120ms of the slot. That gap is
+harmless in a one-shot sequence, but inside a repeat (`*UP`, `*N`, loops) it surfaces as a
+**flicker**: the virtual button blinks off between cycles instead of staying held.
+
+Use `=` to make the hold equal the slot (`A=200`). The button is then pressed for the whole
+cycle — a continuous hold with no gap. This is the fix for "keep a direction/button held while a
+repeat runs" cases, e.g. a run-while-held macro:
+
+```
+(LAX1+LAY0+A=200)*UP        // right stick + A held continuously while the button is held
+```
+
+> Rule of thumb: a **gap** between presses (default `hold < slot`) is what you want for *mashing*;
+> **no gap** (`hold = slot` via `=`) is what you want for a *sustained* hold. Note that in the
+> Component System a half-axis range already owns its target (first match wins), so "direction +
+> button" held together is expressed precisely with a macro like the one above.
+
 ### D-pad steps suppress physical input
 
 When a macro step includes any d-pad token (`CU`, `CD`, `CL`, `CR`, `CDR`, …), the macro **takes full ownership of the d-pad** for that step. Physical d-pad input from the player is suppressed.

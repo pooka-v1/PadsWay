@@ -1,6 +1,7 @@
 # PadsWay
 
-Reads physical gamepads (HID) and forwards them as a virtual Xbox 360 controller via ViGEm.
+Reads physical gamepads (HID) and forwards them as a virtual controller via ViGEm — either an
+**Xbox 360** pad (XInput) or a **DualShock 4** (DirectInput), selectable at runtime.
 Supports macros, bots, and JSON-based configuration — no code changes needed.
 
 [Leer en español](README.es.md)
@@ -58,6 +59,56 @@ This writes to `dist\`:
 The installer step needs [**Inno Setup 6**](https://jrsoftware.org/isdl.php); if `ISCC.exe`
 is not at the default path, pass `-Iscc <path>`. Other options: `-Version 0.19` sets the
 release version (kept in sync with the installer), `-SkipZip` / `-SkipInstaller` build only part.
+
+---
+
+## Virtual output type — Xbox 360 or DualShock 4
+
+The virtual controller can present itself to the system as one of two types:
+
+| Type | Protocol | Best for |
+|---|---|---|
+| **Xbox (XInput)** | XInput | Best compatibility with modern games. The default. |
+| **DualShock (DirectInput)** | DirectInput | Old games, emulators, and getting **more than 4 pads** (XInput is capped at 4). |
+
+Pick it from the combo box next to the profile selector in the UI. Switching shows a confirmation
+dialog and is applied **live**: the virtual pad is unplugged and re-plugged on the fly, so **close
+any running game before switching** or it will lose the controller.
+
+### What the DualShock 4 output does *not* carry
+
+The virtual DS4 reproduces buttons, sticks, d-pad, analog triggers and the PS button. The features
+that are exclusive to a real DualShock 4 are **disabled**:
+
+- the **touchpad** — both the surface (finger XY tracking) **and** the touchpad click,
+- the **gyroscope** and accelerometer (IMU).
+
+The internal model is always Xbox, so there is no source for that data. Accordingly, the
+virtual-pad view for the DS4 shows the touchpad and gyroscope as non-assignable decoration only.
+(The DS4 output adapter does wire the touchpad-click bit, but nothing feeds it and it has no use
+today — see *Ideas*; it would only matter for an eventual PS4 emulator.)
+
+### Configuration — `data/virtualpad.json`
+
+The chosen type is persisted in `"output_type"`:
+
+```json
+{ "output_type": "xbox" }       // or "dualshock"
+```
+
+Accepted values (case-insensitive): `"xbox"` / `"xinput"` select the Xbox 360 output (also the safe
+default for any unknown value or a missing key); `"dualshock"` / `"ds4"` / `"dinput"` / `"directinput"`
+select the DualShock 4 output.
+
+Each type has its own VID/PID so games can tell them apart:
+
+| Key | Default | Identity |
+|---|---|---|
+| `virtual_x_vid` / `virtual_x_pid` | `5650` / `0001` | Xbox 360 (ViGEm) |
+| `virtual_direct_vid` / `virtual_direct_pid` | `054C` / `05C4` | DualShock 4 v1 (Sony) |
+
+> A real Sony VID requires a real Sony PID: `054C:05C4` (DualShock 4 v1) is emulated natively by
+> ViGEm and does not clash with a physical DS4 v2 (`054C:09CC`).
 
 ---
 
@@ -175,7 +226,7 @@ Use the **Scanner tab** in PadsWay to identify which number lights up when press
 | `"r1"` | RB (right bumper) |
 | `"select"` | Back / Select |
 | `"start"` | Start |
-| `"home"` | Guide (not injectable on virtual Xbox 360) |
+| `"home"` | Guide on Xbox (not injectable on virtual Xbox 360) / PS button on DualShock |
 | `"l3"` | Left stick click |
 | `"r3"` | Right stick click |
 
@@ -491,7 +542,7 @@ The wizard uses `state_map.json` to know which physical button name (`physical`)
 | `data/controllers.json` | Base configuration for physical controllers |
 | `data/profiles/` | Game profiles — one JSON per game |
 | `data/macros.json` | Reusable macro library |
-| `data/virtualpad.json` | VID/PID of the virtual controller, locale, log level, and stick thresholds |
+| `data/virtualpad.json` | Virtual output type and per-type VID/PID, locale, log level, and stick thresholds (see *Virtual output type*) |
 | `data/strings/strings_en.json` | UI strings — English |
 | `data/strings/strings_es.json` | UI strings — Spanish |
 | `images/input_tokens/` | PNG icons for the macro creator (24×24) |

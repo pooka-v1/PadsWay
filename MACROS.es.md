@@ -185,6 +185,27 @@ Formato: `LAX`, `LAY`, `RAX`, `RAY` seguido de un valor float entre `-1.0` y `1.
 
 Para usar una duración diferente a la por defecto: `A=150` (hold+slot = 150ms).
 
+### Hold vs slot — el ciclo de trabajo (evitar parpadeo en repeticiones)
+
+Cada step tiene dos tiempos: el **hold** (cuánto se mantiene pulsado el botón de verdad) y el
+**slot** (cuánto tarda en empezar el siguiente step). Por defecto difieren — `hold = 80ms` dentro
+de un `slot = 200ms` — así que el botón queda *suelto* los ~120ms restantes del slot. Ese hueco es
+inocuo en una secuencia de un solo disparo, pero dentro de una repetición (`*UP`, `*N`, bucles)
+aflora como **parpadeo**: el botón virtual se apaga entre ciclos en vez de quedarse mantenido.
+
+Usa `=` para igualar el hold al slot (`A=200`). Entonces el botón se mantiene pulsado todo el
+ciclo — un hold continuo sin hueco. Es el arreglo para los casos de "mantener una dirección/botón
+mientras corre una repetición", p. ej. un macro de correr mientras se mantiene pulsado:
+
+```
+(LAX1+LAY0+A=200)*UP        // stick derecha + A mantenidos de forma continua mientras se pulsa el botón
+```
+
+> Regla práctica: un **hueco** entre pulsaciones (`hold < slot` por defecto) es lo que quieres para
+> *machacar*; **sin hueco** (`hold = slot` vía `=`) es lo que quieres para un hold *sostenido*. Ojo:
+> en el Component System un rango de medio-eje ya es dueño de su target (gana el primer match), así
+> que "dirección + botón" mantenidos juntos se expresa con precisión mediante un macro como el de arriba.
+
 ### Los steps de cruceta suprimen el input físico
 
 Cuando un step de macro incluye cualquier token de cruceta (`CU`, `CD`, `CL`, `CR`, `CDR`, …), el macro **toma el control total de la cruceta** durante ese step. El input físico del jugador en la cruceta queda suprimido.
