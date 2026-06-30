@@ -5,10 +5,11 @@
 #include <cstdio>
 #include <catch2/catch_amalgamated.hpp>
 
-TEST_CASE("loadControllerConfigs throws for nonexistent file", "[ConfigLoader]") {
-    bool threw = false;
-    try { loadControllerConfigs("__nonexistent_abc__.json"); } catch (const std::runtime_error&) { threw = true; } catch (...) {}
-    CHECK(threw);
+TEST_CASE("loadControllerConfigs returns empty for nonexistent file", "[ConfigLoader]") {
+    // A missing controllers.json is not an error: it means "no controllers yet".
+    // Changed in v0.18 (used to throw) so a clean install starts without a "Config error".
+    auto result = loadControllerConfigs("__nonexistent_abc__.json");
+    REQUIRE(result.empty());
 }
 
 TEST_CASE("loadControllerConfigs parses empty controllers array", "[ConfigLoader]") {
@@ -169,10 +170,10 @@ TEST_CASE("applyProfile applies override via physShort fallback (extra buttons)"
     REQUIRE(result.buttons.at(5).physical == "lp");
 }
 
-TEST_CASE("loadPhysicalControllers throws for nonexistent file", "[ConfigLoader]") {
-    bool threw = false;
-    try { loadPhysicalControllers("__nonexistent_abc__.json"); } catch (const std::runtime_error&) { threw = true; } catch (...) {}
-    CHECK(threw);
+TEST_CASE("loadPhysicalControllers returns empty for nonexistent file", "[ConfigLoader]") {
+    // Same optional-file contract as loadControllerConfigs (v0.18): no throw on a missing file.
+    auto result = loadPhysicalControllers("__nonexistent_abc__.json");
+    REQUIRE(result.empty());
 }
 
 TEST_CASE("loadPhysicalControllers parses empty controllers array", "[ConfigLoader]") {
@@ -632,4 +633,96 @@ TEST_CASE("loadVirtualPadConfig maps legacy virtual_vid to the Xbox identity", "
     REQUIRE(result.xboxPid   == 0x0009);
     REQUIRE(result.directVid == 0x054C);   // direct identity keeps its default
     REQUIRE(result.directPid == 0x05C4);
+}
+
+// ── output_type parsing: aliases, case, fallback ───────────────────────────────
+
+TEST_CASE("loadVirtualPadConfig parses explicit xbox output_type", "[ConfigLoader]") {
+    const std::string path = "test_tmp_outtype_xbox.json";
+    { std::ofstream f(path); f << R"({"output_type": "xbox"})"; }
+    auto result = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    REQUIRE(result.outputType == VirtualOutputType::Xbox);
+}
+
+TEST_CASE("loadVirtualPadConfig accepts all DualShock aliases", "[ConfigLoader]") {
+    // The loader treats ds4 / dualshock / dinput / directinput as the same DS4 target.
+    const std::string alias = GENERATE("ds4", "dualshock", "dinput", "directinput");
+    const std::string path = "test_tmp_outtype_alias.json";
+    { std::ofstream f(path); f << "{\"output_type\": \"" << alias << "\"}"; }
+    auto result = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    INFO("alias = " << alias);
+    REQUIRE(result.outputType == VirtualOutputType::DualShock);
+}
+
+TEST_CASE("loadVirtualPadConfig output_type is case-insensitive", "[ConfigLoader]") {
+    const std::string value = GENERATE("DualShock", "DS4", "DirectInput");
+    const std::string path = "test_tmp_outtype_case.json";
+    { std::ofstream f(path); f << "{\"output_type\": \"" << value << "\"}"; }
+    auto result = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    INFO("value = " << value);
+    REQUIRE(result.outputType == VirtualOutputType::DualShock);
+}
+
+TEST_CASE("loadVirtualPadConfig falls back to Xbox for unknown output_type", "[ConfigLoader]") {
+    // A typo, an unsupported target, or junk must never throw — it keeps the safe default.
+    const std::string value = GENERATE("playstation", "switch", "", "xinput");
+    const std::string path = "test_tmp_outtype_unknown.json";
+    { std::ofstream f(path); f << "{\"output_type\": \"" << value << "\"}"; }
+    auto result = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    INFO("value = " << value);
+    REQUIRE(result.outputType == VirtualOutputType::Xbox);
+}
+
+// ── saveVirtualPadOutputType: persistence + field preservation ─────────────────
+
+TEST_CASE("saveVirtualPadOutputType creates the file when it does not exist", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savetype_new.json";
+    std::remove(path.c_str());   // make sure we start from nothing
+    saveVirtualPadOutputType(path, VirtualOutputType::DualShock);
+    auto reloaded = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    REQUIRE(reloaded.outputType == VirtualOutputType::DualShock);
+}
+
+TEST_CASE("saveVirtualPadOutputType writes both target types", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savetype_both.json";
+    saveVirtualPadOutputType(path, VirtualOutputType::DualShock);
+    REQUIRE(loadVirtualPadConfig(path).outputType == VirtualOutputType::DualShock);
+    saveVirtualPadOutputType(path, VirtualOutputType::Xbox);
+    REQUIRE(loadVirtualPadConfig(path).outputType == VirtualOutputType::Xbox);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("saveVirtualPadOutputType preserves the other hand-edited fields", "[ConfigLoader]") {
+    // Persisting the output type must not wipe the rest of virtualpad.json.
+    const std::string path = "test_tmp_savetype_preserve.json";
+    { std::ofstream f(path);
+      f << R"({
+        "virtual_direct_pid": "0002",
+        "locale": "es",
+        "console": true,
+        "output_type": "xbox"
+      })"; }
+    saveVirtualPadOutputType(path, VirtualOutputType::DualShock);
+    auto reloaded = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    REQUIRE(reloaded.outputType == VirtualOutputType::DualShock);   // changed
+    REQUIRE(reloaded.directPid  == 0x0002);                         // preserved
+    REQUIRE(reloaded.locale     == "es");                           // preserved
+    REQUIRE(reloaded.console    == true);                           // preserved
+}
+
+TEST_CASE("saveVirtualPadOutputType on a corrupt file still writes the type", "[ConfigLoader]") {
+    // A truncated/garbage file is tolerated: the save falls back to an empty object
+    // rather than throwing, so the user can always switch targets from the UI.
+    const std::string path = "test_tmp_savetype_corrupt.json";
+    { std::ofstream f(path); f << "{ this is not valid json"; }
+    saveVirtualPadOutputType(path, VirtualOutputType::DualShock);
+    auto reloaded = loadVirtualPadConfig(path);
+    std::remove(path.c_str());
+    REQUIRE(reloaded.outputType == VirtualOutputType::DualShock);
 }
