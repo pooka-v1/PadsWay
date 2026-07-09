@@ -296,10 +296,18 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         }
 
         if (c.contains("imu")) {
-            const auto& im     = c["imu"];
-            cfg.imu.enabled    = im.value("enabled",     false);
-            cfg.imu.gyroOffset = im.value("gyro_offset", 13);
-            cfg.imu.gyroScale  = im.value("gyro_scale",  1.0f / 32768.0f);
+            const auto& im  = c["imu"];
+            cfg.imu.enabled = im.value("enabled", false);
+
+            cfg.imu.gyroXOffset = im.value("gyro_x_offset", 13);
+            cfg.imu.gyroYOffset = im.value("gyro_y_offset", 15);
+            cfg.imu.gyroZOffset = im.value("gyro_z_offset", 17);
+            cfg.imu.gyroScale   = im.value("gyro_scale", 1.0f / 32768.0f);
+
+            cfg.imu.accelXOffset = im.value("accel_x_offset", -1);
+            cfg.imu.accelYOffset = im.value("accel_y_offset", -1);
+            cfg.imu.accelZOffset = im.value("accel_z_offset", -1);
+            cfg.imu.accelScale   = im.value("accel_scale", 1.0f / 32768.0f);
         }
 
         result.push_back(std::move(cfg));

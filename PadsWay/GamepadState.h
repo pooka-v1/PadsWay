@@ -74,4 +74,11 @@ struct GamepadState {
     float gyroX      = 0.0f;  // pitch  (tilt forward/back)
     float gyroY      = 0.0f;  // yaw    (rotate left/right)
     float gyroZ      = 0.0f;  // roll   (tilt left/right)
+
+    // --- IMU (accelerometer) [-1.0 .. 1.0], gravity/orientation in the controller's own
+    // frame — unrelated to the "hid_accel"/axisAccel simulation-page accelerator pedal axis. ---
+    bool  accelActive = false;
+    float accelX      = 0.0f;
+    float accelY      = 0.0f;
+    float accelZ      = 0.0f;
 };

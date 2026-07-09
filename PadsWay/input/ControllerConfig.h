@@ -85,9 +85,20 @@ struct TouchpadConfig {
 };
 
 struct ImuConfig {
-    bool  enabled     = false;
-    int   gyroOffset  = 13;    // byte index of gyro X in raw HID report (DS4 USB: 13)
-    float gyroScale   = 1.0f / 32768.0f;  // int16 raw → normalized [-1..1]
+    bool  enabled      = false;
+
+    // Gyroscope (angular velocity). Independent per-axis byte offsets — some
+    // controllers (8BitDo Pro 3) do not use the DS4's contiguous X,Y,Z order.
+    int   gyroXOffset  = 13;   // pitch
+    int   gyroYOffset  = 15;   // yaw
+    int   gyroZOffset  = 17;   // roll
+    float gyroScale    = 1.0f / 32768.0f;  // int16 raw → normalized [-1..1]
+
+    // Accelerometer (gravity/orientation). -1 = axis not present on this device.
+    int   accelXOffset = -1;
+    int   accelYOffset = -1;
+    int   accelZOffset = -1;
+    float accelScale   = 1.0f / 32768.0f;
 };
 
 struct ControllerConfig {

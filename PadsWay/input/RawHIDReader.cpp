@@ -111,6 +111,14 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
         out.hat = hat;
     }
 
+    // ── Full raw report bytes (for the IMU calibration wizard) ──────────────
+    {
+        const auto& rb = m_hid.reportBuf();
+        ULONG n = m_hid.lastBytesRead();
+        if (n > rb.size()) n = static_cast<ULONG>(rb.size());
+        out.raw.assign(rb.begin(), rb.begin() + n);
+    }
+
     // ── Raw gyro (DS4 USB: 3×int16 LE at byte offset 13) ────────────────────
     static constexpr int  kGyroOffset = 13;
     static constexpr float kGyroScale = 1.0f / 32768.0f;

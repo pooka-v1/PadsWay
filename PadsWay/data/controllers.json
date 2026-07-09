@@ -112,6 +112,17 @@
         }
       },
       "dpad": "hid_hat",
+      "imu": {
+        "accel_scale": 0.0001,
+        "accel_x_offset": 15,
+        "accel_y_offset": 17,
+        "accel_z_offset": 19,
+        "enabled": true,
+        "gyro_scale": 0.0001,
+        "gyro_x_offset": 23,
+        "gyro_y_offset": 25,
+        "gyro_z_offset": 21
+      },
       "layout_id": "8BitDo-Pro3",
       "mode": "hid",
       "pid": "6009",
@@ -627,8 +638,10 @@
       "dpad": "hid_hat",
       "imu": {
         "enabled": true,
-        "gyro_offset": 13,
-        "gyro_scale": 0.0001
+        "gyro_scale": 0.0001,
+        "gyro_x_offset": 13,
+        "gyro_y_offset": 15,
+        "gyro_z_offset": 17
       },
       "layout_id": "dualshock4",
       "mode": "hid",

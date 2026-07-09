@@ -65,9 +65,9 @@ bool HIDInputSource::read(GamepadState& state) {
     ULONG bufLen   = m_hid.reportLen();
     ULONG bytesRead = m_hid.lastBytesRead();
 
-    // Diagnostic: log raw bytes every ~2 seconds (240 reads * 8ms = ~2s)
-    if (++m_readCount % 240 == 0) {
-        ULONG dumpLen = (bufLen < 20) ? bufLen : 20;
+    // Diagnostic: log raw bytes every ~250ms (30 reads * 8ms) — full report, no offset cap
+    if (++m_readCount % 30 == 0) {
+        ULONG dumpLen = bufLen;
         std::string raw;
         raw.reserve(dumpLen * 3);
         for (ULONG i = 0; i < dumpLen; ++i) {
@@ -389,18 +389,6 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
         else if (name == "l3")        state.btnL3    = true;
         else if (name == "r3")        state.btnR3    = true;
     };
-
-    if (m_readCount == 1) {
-        ULONG dumpLen = (bufLen < 24) ? bufLen : 24;
-        std::string raw;
-        raw.reserve(dumpLen * 3);
-        for (ULONG i = 0; i < dumpLen; ++i) {
-            char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
-            raw += tmp;
-        }
-        spdlog::debug("[HID][{}] First report ({} bytes): {}", m_name, bufLen, raw);
-    }
 
     for (const auto& [source, mapping] : m_config.axes) {
         AxisUsage au = usageFromAxisName(source);
@@ -877,32 +865,52 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
 }
 
 void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
-    state.gyroActive = false;
+    state.gyroActive  = false;
+    state.accelActive = false;
 
     if (!m_config.imu.enabled) return;
-
-    // Need 6 bytes starting at gyroOffset (3 × int16 for X, Y, Z)
-    int off = m_config.imu.gyroOffset;
-    if (off + 6 > static_cast<int>(bytesRead)) return;
 
     auto readI16 = [&](int o) -> int16_t {
         return static_cast<int16_t>(
             static_cast<uint8_t>(buf[o]) |
             (static_cast<uint16_t>(static_cast<uint8_t>(buf[o + 1])) << 8));
     };
+    // -1 offset means "axis not present on this device"; each axis has its own
+    // offset (no assumed contiguity/order — some controllers interleave gyro/accel
+    // differently than the DS4's contiguous X,Y,Z).
+    auto fits = [&](int o) { return o >= 0 && o + 2 <= static_cast<int>(bytesRead); };
 
-    int16_t rawX = readI16(off);
-    int16_t rawY = readI16(off + 2);
-    int16_t rawZ = readI16(off + 4);
+    const auto& imu = m_config.imu;
 
-    state.gyroX     = std::clamp(rawX * m_config.imu.gyroScale, -1.0f, 1.0f);
-    state.gyroY     = std::clamp(rawY * m_config.imu.gyroScale, -1.0f, 1.0f);
-    state.gyroZ     = std::clamp(rawZ * m_config.imu.gyroScale, -1.0f, 1.0f);
-    state.gyroActive = true;
-    m_physicalState.gyroX     = state.gyroX;
-    m_physicalState.gyroY     = state.gyroY;
-    m_physicalState.gyroZ     = state.gyroZ;
-    m_physicalState.gyroActive = true;
+    if (fits(imu.gyroXOffset) && fits(imu.gyroYOffset) && fits(imu.gyroZOffset)) {
+        state.gyroX = std::clamp(readI16(imu.gyroXOffset) * imu.gyroScale, -1.0f, 1.0f);
+        state.gyroY = std::clamp(readI16(imu.gyroYOffset) * imu.gyroScale, -1.0f, 1.0f);
+        state.gyroZ = std::clamp(readI16(imu.gyroZOffset) * imu.gyroScale, -1.0f, 1.0f);
+        state.gyroActive = true;
+        m_physicalState.gyroX      = state.gyroX;
+        m_physicalState.gyroY      = state.gyroY;
+        m_physicalState.gyroZ      = state.gyroZ;
+        m_physicalState.gyroActive = true;
+    }
+
+    if (fits(imu.accelXOffset) && fits(imu.accelYOffset) && fits(imu.accelZOffset)) {
+        state.accelX = std::clamp(readI16(imu.accelXOffset) * imu.accelScale, -1.0f, 1.0f);
+        state.accelY = std::clamp(readI16(imu.accelYOffset) * imu.accelScale, -1.0f, 1.0f);
+        state.accelZ = std::clamp(readI16(imu.accelZOffset) * imu.accelScale, -1.0f, 1.0f);
+        state.accelActive = true;
+        m_physicalState.accelX      = state.accelX;
+        m_physicalState.accelY      = state.accelY;
+        m_physicalState.accelZ      = state.accelZ;
+        m_physicalState.accelActive = true;
+    }
+
+    // Diagnostic trace for the parsed IMU values (gyro/accel already scaled+clamped),
+    // same 30-read throttle as [HID][raw] — useful again for future controller onboarding.
+    if ((state.gyroActive || state.accelActive) && m_readCount % 30 == 0) {
+        spdlog::trace("[IMU] gyro({:+.3f},{:+.3f},{:+.3f}) accel({:+.3f},{:+.3f},{:+.3f})",
+                      state.gyroX, state.gyroY, state.gyroZ,
+                      state.accelX, state.accelY, state.accelZ);
+    }
 }
 
 void HIDInputSource::parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right) {

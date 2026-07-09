@@ -1,6 +1,8 @@
 #pragma once
 #include "HIDDevice.h"
 #include <string>
+#include <vector>
+#include <cstdint>
 
 // Raw HID report snapshot — no ControllerConfig, no GamepadState.
 // buttonMask: bit N set = HID button usage N+1 is pressed (up to 32 buttons).
@@ -24,6 +26,11 @@ struct RawHIDState {
     float  gyroRawY = 0.0f;
     float  gyroRawZ = 0.0f;
     bool   gyroRawValid = false;  // true when buffer was long enough to parse
+
+    // Full raw input report bytes for this frame (size = bytes actually read).
+    // Used by the IMU calibration wizard to scan for undeclared sensor data beyond
+    // the HID-declared usages above — gyro/accel are not exposed as HID axes.
+    std::vector<uint8_t> raw;
 };
 
 // Lightweight HID reader for the binding wizard and Scanner.

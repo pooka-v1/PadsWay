@@ -3,7 +3,7 @@
     "virtual_x_pid": "0001",
     "virtual_direct_vid": "054C",
     "virtual_direct_pid": "05C4",
-    "output_type": "dualshock",
+    "output_type": "xbox",
     "console": true,
     "log_level": "info",
     "locale": "es",
