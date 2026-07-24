@@ -287,10 +287,13 @@ void BindingWizard::renderBinding() {
                 promptText = tr("wizard.press_dpad");
             } else if (t == "gyro") {
                 switch (m_gyroPhase) {
-                case GyroPhase::Baseline: promptText = tr("wizard.gyro_baseline"); break;
-                case GyroPhase::Roll:     promptText = tr("wizard.gyro_roll");     break;
-                case GyroPhase::Pitch:    promptText = tr("wizard.gyro_pitch");    break;
-                case GyroPhase::Yaw:      promptText = tr("wizard.gyro_yaw");      break;
+                case GyroPhase::Baseline:  promptText = tr("wizard.gyro_baseline");   break;
+                case GyroPhase::RollSlow:  promptText = tr("wizard.gyro_roll_slow");  break;
+                case GyroPhase::RollFast:  promptText = tr("wizard.gyro_roll_fast");  break;
+                case GyroPhase::PitchSlow: promptText = tr("wizard.gyro_pitch_slow"); break;
+                case GyroPhase::PitchFast: promptText = tr("wizard.gyro_pitch_fast"); break;
+                case GyroPhase::YawSlow:   promptText = tr("wizard.gyro_yaw_slow");   break;
+                case GyroPhase::YawFast:   promptText = tr("wizard.gyro_yaw_fast");   break;
                 }
             }
 
@@ -325,7 +328,19 @@ void BindingWizard::renderBinding() {
             if (!m_gyroPhaseStarted) {
                 ImGui::TextWrapped("%s", tr("wizard.gyro_start"));
                 int dummyIdx = 0;
-                if (captureButton(dummyIdx)) m_gyroPhaseStarted = true;
+                if (captureButton(dummyIdx)) {
+                    m_gyroPhaseStarted = true;
+                    // Re-snapshot the contamination reference right as the user commits to
+                    // starting, not back in beginStep() (which fires the instant the step
+                    // becomes active — often still mid-release from confirming the PREVIOUS
+                    // step, e.g. a trigger binding). A stale one-shot snapshot here means every
+                    // later frame compares against a wrong resting value forever: confirmed for
+                    // real on the DS4, 2026/07/11 — R2 (hid_ry) read a constant -2.0 delta
+                    // (a full bipolar swing) against every subsequent frame, so Baseline never
+                    // saw a single "clean" frame and sat at 0% the whole capture.
+                    if (m_hidReader && m_hidReader->isOpen())
+                        m_hidReader->read(m_gyroAxisBaseline);
+                }
             } else if (m_gyroPhase == GyroPhase::Baseline) {
                 // Baseline has no gesture to repeat — it just needs the controller quiet for a
                 // fixed time, so it keeps the original time-based gate.
@@ -337,17 +352,20 @@ void BindingWizard::renderBinding() {
                 ImGui::Spacing();
                 if (renderGyroAdvanceControl(canAdvance)) commitGyroPhase();
             } else {
-                // Roll/Pitch/Yaw: instead of a fixed capture time, keep going until one offset's
-                // amplitude clearly separates from the runner-up — see gyroConfidence().
+                // Slow/Fast sub-gesture: instead of a fixed capture time, keep going until one
+                // offset's amplitude clearly separates from the runner-up — see gyroConfidence().
+                // The frame-count floor differs: Slow needs a held tilt to build up, Fast is a
+                // quick flick that shouldn't need to be held.
                 sampleGyroFrame();
                 float confidence = gyroConfidence();
                 ImGui::Text(tr("wizard.gyro_confidence"), static_cast<int>(confidence * 100.0f));
                 ImGui::Spacing();
+                int minFrames = isFastGyroPhase(m_gyroPhase) ? kGyroFastMinPhaseFrames : kGyroSlowMinPhaseFrames;
                 if (confidence >= kGyroConfidenceThreshold) {
                     // Move on the instant we're confident — no reason to wait for a click once
                     // the leading candidate has clearly separated from the rest.
                     commitGyroPhase();
-                } else if (renderGyroAdvanceControl(m_gyroPhaseFrames >= kGyroMinPhaseFrames)) {
+                } else if (renderGyroAdvanceControl(m_gyroPhaseFrames >= minFrames)) {
                     // Manual escape hatch: once there's at least some data, let the user force
                     // past a phase whose confidence is stalling instead of climbing.
                     commitGyroPhase();
@@ -825,7 +843,7 @@ void BindingWizard::commitDpad(const std::string& dpadType) {
 }
 
 void BindingWizard::commitGyroPhase() {
-    if (m_gyroPhase == GyroPhase::Yaw) {
+    if (m_gyroPhase == GyroPhase::YawFast) {
         m_gyroResult = classifyGyro();
         const BindStep& step = m_steps[m_currentStep];
         if (step.compIndex >= 0)
@@ -1022,14 +1040,28 @@ bool BindingWizard::captureDpad(std::string& outDpadType) {
 void BindingWizard::sampleGyroFrame() {
     if (!m_hidReader || !m_hidReader->isOpen()) return;
     RawHIDState s{};
-    m_hidReader->read(s);
-    if (!s.valid || s.raw.size() < 2) return;
+    bool readOk = m_hidReader->read(s);
+    if (!s.valid || s.raw.size() < 2) {
+        ++m_gyroBaselineMisses;
+        if (m_gyroPhase == GyroPhase::Baseline && (m_gyroBaselineMisses % 60 == 1)) {
+            spdlog::trace("[GyroCal] baseline stall: misses={} readOk={} valid={} rawSize={}",
+                          m_gyroBaselineMisses, readOk, s.valid, s.raw.size());
+        }
+        return;
+    }
 
     // Reject frames where a declared HID axis (stick/trigger) drifted from its Baseline-start
     // value — likely an accidental touch during the gesture, not the gyro/accel itself.
     for (int i = 0; i < 8; ++i) {
-        if (std::abs(kHIDAxisValues(s, i) - kHIDAxisValues(m_gyroAxisBaseline, i)) > kGyroAxisContamination)
+        if (std::abs(kHIDAxisValues(s, i) - kHIDAxisValues(m_gyroAxisBaseline, i)) > kGyroAxisContamination) {
+            ++m_gyroBaselineContaminated;
+            if (m_gyroPhase == GyroPhase::Baseline && (m_gyroBaselineContaminated % 60 == 1)) {
+                spdlog::trace("[GyroCal] baseline stall: contaminated={} axis={} delta={:.3f}",
+                              m_gyroBaselineContaminated, i,
+                              kHIDAxisValues(s, i) - kHIDAxisValues(m_gyroAxisBaseline, i));
+            }
             return;
+        }
     }
 
     int n = static_cast<int>(s.raw.size()) - 1;
@@ -1061,6 +1093,8 @@ void BindingWizard::resetGyroPhaseSamples(GyroPhase phase) {
     int idx = static_cast<int>(phase);
     for (auto& offsetStats : m_gyroSamples) offsetStats[idx] = GyroOffsetStats{};
     m_gyroPhaseFrames = 0;
+    m_gyroBaselineMisses = 0;
+    m_gyroBaselineContaminated = 0;
 }
 
 // An offset is a real sensor channel only if it stayed quiet (low peak-to-peak) during
@@ -1096,8 +1130,15 @@ std::vector<bool> BindingWizard::computeAliveOffsets() const {
 // won't clear. Telling gyro from accel (and which axis is which) is classifyGyro()'s job, via
 // the cross-phase comparison at the end — this number only answers "is there a clean, sizeable
 // signal yet," not "whose."
+bool BindingWizard::isFastGyroPhase(GyroPhase phase) {
+    return phase == GyroPhase::RollFast || phase == GyroPhase::PitchFast || phase == GyroPhase::YawFast;
+}
+
 float BindingWizard::gyroConfidence() const {
-    if (m_gyroPhaseFrames < kGyroMinPhaseFrames) return 0.0f;
+    bool  fast       = isFastGyroPhase(m_gyroPhase);
+    int   minFrames  = fast ? kGyroFastMinPhaseFrames  : kGyroSlowMinPhaseFrames;
+    float targetAmp  = fast ? kGyroFastTargetSignalAmp : kGyroSlowTargetSignalAmp;
+    if (m_gyroPhaseFrames < minFrames) return 0.0f;
 
     int phaseIdx = static_cast<int>(m_gyroPhase);
     float bestAmp = 0.0f;
@@ -1108,7 +1149,7 @@ float BindingWizard::gyroConfidence() const {
         bestAmp = std::max(bestAmp, st.maxV - st.minV);
     }
 
-    float confidence = (bestAmp - kGyroMinSignalAmp) / (kGyroTargetSignalAmp - kGyroMinSignalAmp);
+    float confidence = (bestAmp - kGyroMinSignalAmp) / (targetAmp - kGyroMinSignalAmp);
     return std::clamp(confidence, 0.0f, 0.99f);
 }
 
@@ -1123,37 +1164,65 @@ BindingWizard::ImuCalibrationResult BindingWizard::classifyGyro() const {
     // Step 1: which offsets are real sensor channels (see computeAliveOffsets()).
     std::vector<bool> alive = computeAliveOffsets();
 
-    // Step 2: find the first run of offsets spaced 2 bytes apart, all alive. Real devices seen
-    // so far always expose a contiguous 6-offset block (gyro+accel); fall back to 3 (gyro only,
-    // no accelerometer — e.g. the DS4 in this project's current config).
-    auto findRun = [&](int runLen) -> int {
-        for (int s = 0; s + (runLen - 1) * 2 < n; ++s) {
-            bool all = true;
-            for (int k = 0; k < runLen; ++k)
-                if (!alive[s + k * 2]) { all = false; break; }
-            if (all) return s;
-        }
-        return -1;
-    };
-
-    bool hasAccel   = true;
-    int  blockStart = findRun(6);
-    if (blockStart < 0) { hasAccel = false; blockStart = findRun(3); }
-    if (blockStart < 0) {
-        spdlog::trace("[GyroCal] classify FAILED: no 6-run or 3-run of alive offsets found");
+    // Step 2: find the LONGEST run of offsets spaced 2 bytes apart, all alive. Real devices seen
+    // so far always expose a contiguous 6-offset block (gyro+accel), or 3 (gyro only, no
+    // accelerometer — e.g. the DS4 in this project's current config). Taking the FIRST run of
+    // the target length (instead of the longest one anywhere in the report) is wrong: baseline
+    // noise on an unrelated byte range can spuriously form an early, tiny run before the scan
+    // ever reaches the real sensor block. Confirmed for real on the DS4, 2026/07/11 — the real
+    // gyro sits at offsets 13/15/17 inside a 5-long run (broken from a 6-run only because
+    // accelY's baseline noise landed just over kGyroBaselineNoiseFloor that capture), but an
+    // unrelated 3,5,7 triplet earlier in the report got classified instead. Step 4 below already
+    // tolerates extra, non-reactive candidates in the pool (it picks the strongest reactor per
+    // phase), so handing it the longest run — even if it's 4 or 5 long, not exactly 3 or 6 —
+    // lets real reactivity sort out gyro from noise instead of a positional guess.
+    int bestStart = -1, bestLen = 0;
+    for (int s = 0; s < n; ++s) {
+        if (!alive[s]) continue;
+        if (s >= 2 && alive[s - 2]) continue; // not the start of a run, already counted
+        int len = 0;
+        while (s + len * 2 < n && alive[s + len * 2]) ++len;
+        if (len > bestLen) { bestLen = len; bestStart = s; }
+    }
+    if (bestLen < 3) {
+        spdlog::trace("[GyroCal] classify FAILED: no run of >=3 alive offsets found (longest={})", bestLen);
         return result; // nothing usable found
     }
 
+    // A run longer than 6 has a spurious extra offset stuck to one end — e.g. a slowly
+    // incrementing counter/timestamp byte that happened to read low baseline amplitude this
+    // particular capture (confirmed for real on the DS4, 2026/07/11: offset 11, not part of the
+    // sensor block, tacked onto the true 13..23 run — blindly keeping the first 6 dropped the
+    // real offset 23 and misclassified roll from there). Trim from whichever end reacts LESS
+    // overall across all 6 Slow/Fast sub-gestures: a real sensor axis always reacts noticeably to
+    // at least one of them, while a nuisance byte's amplitude is driven by elapsed time, not
+    // motion, so it stays comparably flat across all six.
+    while (bestLen > 6) {
+        int headOffset = bestStart;
+        int tailOffset = bestStart + (bestLen - 1) * 2;
+        auto totalReactivity = [&](int o) {
+            return amp(m_gyroSamples[o][static_cast<int>(GyroPhase::RollSlow)])
+                 + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::RollFast)])
+                 + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::PitchSlow)])
+                 + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::PitchFast)])
+                 + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::YawSlow)])
+                 + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::YawFast)]);
+        };
+        if (totalReactivity(headOffset) < totalReactivity(tailOffset))
+            bestStart += 2;
+        --bestLen;
+    }
+
+    bool hasAccel = bestLen >= 6;
+    int  runLen   = hasAccel ? 6 : bestLen;
     std::vector<int> blockOffsets;
-    int runLen = hasAccel ? 6 : 3;
-    for (int k = 0; k < runLen; ++k) blockOffsets.push_back(blockStart + k * 2);
+    for (int k = 0; k < runLen; ++k) blockOffsets.push_back(bestStart + k * 2);
 
     // Step 3: pull out the "normal" accel axis (by far the largest steady baseline magnitude —
-    // gravity). The other 5 candidates (or all 3, if !hasAccel) can't be split into accel/gyro
-    // by baseline magnitude alone: with the mando held flat for Baseline, 2 of the 3 OTHER
-    // accel axes read close to zero too, same as the 3 real gyro axes (confirmed on real
-    // hardware, BITACORA 2026-07-10) — that split has to come from Step 4's cross-phase
-    // reactivity instead, not a fixed threshold on a single static reading.
+    // gravity). The other candidates can't be split into accel/gyro by baseline magnitude alone:
+    // with the mando held flat for Baseline, 2 of the 3 OTHER accel axes read close to zero too,
+    // same as the 3 real gyro axes (confirmed on real hardware, BITACORA 2026-07-10) — that split
+    // comes from Step 4's per-slot reactivity instead, not a fixed threshold on a static reading.
     int normalOffset = -1;
     if (hasAccel) {
         for (int o : blockOffsets) {
@@ -1166,46 +1235,95 @@ BindingWizard::ImuCalibrationResult BindingWizard::classifyGyro() const {
     std::vector<int> remaining;
     for (int o : blockOffsets) if (o != normalOffset) remaining.push_back(o);
 
-    // Step 4: gyro axis — for each phase, whichever remaining candidate reacts most strongly
-    // to THAT phase is its axis. Gyro reacts far more to the rotation it directly measures
-    // than an accel offset's incidental reaction to the resulting orientation change, so this
-    // holds even though 2 accel candidates are still mixed into the pool. Assigned greedily
-    // (single strongest offset/phase pair first, across the whole pool) so a clash — one
-    // offset being the top reactor for two different phases — resolves in favor of its best
-    // match, leaving its second-best phase to the next-strongest candidate.
-    struct PhaseReaction { int offset; float roll, pitch, yaw; };
-    std::vector<PhaseReaction> reactions;
+    // Step 4 (2026/07/12 rev. 2 — a single unified greedy pass across gyro AND accel slots at
+    // once was tried first and broke on BOTH the DS4 and the Pro 3, always on yaw: see BITACORA
+    // 2026/07/11-12. Root cause — a fast yaw flick jostles the accelerometer too (no wrist motion
+    // is purely rotational), so a true accel offset's raw Fast-phase amplitude can outscore the
+    // true yaw-gyro offset's, and the accel candidate steals the yaw slot outright. Comparing raw
+    // amplitude across DIFFERENT sensors is the problem — their raw-count sensitivity isn't the
+    // same scale, so "more counts" doesn't mean "more relevant" once gyro and accel candidates
+    // are pitted against each other directly.
+    //
+    // Fix: type each candidate SELF-relative first — its own AVERAGE amplitude across the 3 Fast
+    // phases vs its average across the 2 Slow phases that matter for accel (Roll/Pitch; Yaw's
+    // slow phase doesn't move gravity, so it's not part of this comparison). That only ever
+    // compares a channel against itself, never against a different sensor's counts, so it
+    // isolates gyro-like from accel-like candidates without the cross-scale bias.
+    // MUST be an average, not a sum: 3 Fast terms vs 2 Slow terms would otherwise structurally
+    // favor "gyro-like" regardless of per-phase magnitude, just from having one more addend —
+    // confirmed for real on the DS4, 2026/07/12: every candidate came out gyro-like every time
+    // with a plain sum (see BITACORA), because a 3-term sum beats a 2-term sum almost by default.
+    auto fastAmp = [&](int o) {
+        return (amp(m_gyroSamples[o][static_cast<int>(GyroPhase::RollFast)])
+              + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::PitchFast)])
+              + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::YawFast)])) / 3.0f;
+    };
+    auto slowAmp = [&](int o) {
+        return (amp(m_gyroSamples[o][static_cast<int>(GyroPhase::RollSlow)])
+              + amp(m_gyroSamples[o][static_cast<int>(GyroPhase::PitchSlow)])) / 2.0f;
+    };
+    std::vector<int> gyroPool, accelPool;
     for (int o : remaining) {
-        reactions.push_back({
-            o,
-            amp(m_gyroSamples[o][static_cast<int>(GyroPhase::Roll)]),
-            amp(m_gyroSamples[o][static_cast<int>(GyroPhase::Pitch)]),
-            amp(m_gyroSamples[o][static_cast<int>(GyroPhase::Yaw)])
-        });
+        if (hasAccel && slowAmp(o) > fastAmp(o)) accelPool.push_back(o);
+        else                                     gyroPool.push_back(o);
     }
+    if (gyroPool.size() != 3 || (hasAccel && accelPool.size() != 2)) {
+        spdlog::trace("[GyroCal] classify FAILED: type split gave {} gyro-like / {} accel-like (expected 3 / {})",
+                      gyroPool.size(), accelPool.size(), hasAccel ? 2 : 0);
+        return result; // ambiguous, don't guess
+    }
+
+    // Step 5/6: WITHIN each already-typed pool, assign axes by greedy elimination — strongest
+    // (candidate, slot) pair first, claimed candidates removed from later passes, same "once
+    // claimed, discarded everywhere else" rule as before. Safe now: every comparison here is
+    // same-sensor-type (gyro vs gyro, accel vs accel), never gyro raw counts vs accel raw counts.
+    struct Slot { int* target; GyroPhase phase; };
+    auto assignSlots = [&](std::vector<Slot>& slots, const std::vector<int>& pool) {
+        std::vector<bool> claimed(pool.size(), false);
+        std::vector<bool> filled(slots.size(), false);
+        for (size_t pass = 0; pass < slots.size(); ++pass) {
+            int bestCandidate = -1, bestSlot = -1; float bestScore = -1.0f;
+            for (size_t sIdx = 0; sIdx < slots.size(); ++sIdx) {
+                if (filled[sIdx]) continue;
+                int phaseIdx = static_cast<int>(slots[sIdx].phase);
+                for (size_t cIdx = 0; cIdx < pool.size(); ++cIdx) {
+                    if (claimed[cIdx]) continue;
+                    float a = amp(m_gyroSamples[pool[cIdx]][phaseIdx]);
+                    if (a > bestScore) { bestScore = a; bestCandidate = (int)cIdx; bestSlot = (int)sIdx; }
+                }
+            }
+            if (bestCandidate < 0) break;
+            *slots[bestSlot].target = pool[bestCandidate];
+            claimed[bestCandidate] = true;
+            filled[bestSlot] = true;
+        }
+    };
+
     int rollOffset = -1, pitchOffset = -1, yawOffset = -1;
-    std::vector<bool> claimed(reactions.size(), false);
-    for (int pass = 0; pass < 3; ++pass) {
-        int bestIdx = -1; float bestAmp = -1.0f; GyroPhase bestPhase = GyroPhase::Roll;
-        for (int i = 0; i < (int)reactions.size(); ++i) {
-            if (claimed[i]) continue;
-            if (rollOffset  < 0 && reactions[i].roll  > bestAmp) { bestAmp = reactions[i].roll;  bestIdx = i; bestPhase = GyroPhase::Roll;  }
-            if (pitchOffset < 0 && reactions[i].pitch > bestAmp) { bestAmp = reactions[i].pitch; bestIdx = i; bestPhase = GyroPhase::Pitch; }
-            if (yawOffset   < 0 && reactions[i].yaw   > bestAmp) { bestAmp = reactions[i].yaw;   bestIdx = i; bestPhase = GyroPhase::Yaw;   }
-        }
-        if (bestIdx < 0) break;
-        claimed[bestIdx] = true;
-        switch (bestPhase) {
-        case GyroPhase::Roll:  rollOffset  = reactions[bestIdx].offset; break;
-        case GyroPhase::Pitch: pitchOffset = reactions[bestIdx].offset; break;
-        case GyroPhase::Yaw:   yawOffset   = reactions[bestIdx].offset; break;
-        default: break;
-        }
-    }
+    std::vector<Slot> gyroSlots = {
+        { &rollOffset,  GyroPhase::RollFast },
+        { &pitchOffset, GyroPhase::PitchFast },
+        { &yawOffset,   GyroPhase::YawFast },
+    };
+    assignSlots(gyroSlots, gyroPool);
     if (rollOffset < 0 || pitchOffset < 0 || yawOffset < 0) {
-        spdlog::trace("[GyroCal] classify FAILED: roll={} pitch={} yaw={} (ambiguous reactivity match)",
+        spdlog::trace("[GyroCal] classify FAILED: roll={} pitch={} yaw={} (ambiguous gyro slot match)",
                       rollOffset, pitchOffset, yawOffset);
         return result; // ambiguous, don't guess
+    }
+
+    int lateralOffset = -1, frontalOffset = -1;
+    if (hasAccel) {
+        std::vector<Slot> accelSlots = {
+            { &lateralOffset, GyroPhase::RollSlow },
+            { &frontalOffset, GyroPhase::PitchSlow },
+        };
+        assignSlots(accelSlots, accelPool);
+        if (lateralOffset < 0 || frontalOffset < 0) {
+            spdlog::trace("[GyroCal] classify FAILED: lateral={} frontal={} (ambiguous accel slot match)",
+                          lateralOffset, frontalOffset);
+            return result; // ambiguous, don't guess
+        }
     }
 
     // Axis naming convention already used by the DS4/Pro3 entries in controllers.json:
@@ -1215,23 +1333,6 @@ BindingWizard::ImuCalibrationResult BindingWizard::classifyGyro() const {
     result.gyroZOffset = rollOffset;
 
     if (hasAccel) {
-        // Step 5: whatever's left of the 5 candidates after Step 4 claimed the 3 gyro axes
-        // are the other 2 accel axes (lateral/frontal) — the one that reacts most to roll is
-        // lateral, the other (reacting more to pitch) is frontal.
-        std::vector<int> accelOffsets;
-        for (int i = 0; i < (int)reactions.size(); ++i)
-            if (!claimed[i]) accelOffsets.push_back(reactions[i].offset);
-        if (accelOffsets.size() != 2) {
-            spdlog::trace("[GyroCal] classify FAILED: expected 2 leftover accel offsets, got {}", accelOffsets.size());
-            return result; // ambiguous, don't guess
-        }
-
-        int lateralOffset = accelOffsets[0];
-        int frontalOffset = accelOffsets[1];
-        float rLateral = amp(m_gyroSamples[lateralOffset][static_cast<int>(GyroPhase::Roll)]);
-        float rFrontal = amp(m_gyroSamples[frontalOffset][static_cast<int>(GyroPhase::Roll)]);
-        if (rFrontal > rLateral) std::swap(lateralOffset, frontalOffset);
-
         result.accelZOffset = normalOffset;
         result.accelXOffset = lateralOffset;
         result.accelYOffset = frontalOffset;
@@ -1442,32 +1543,53 @@ void BindingWizard::saveResult() {
     if (!root.contains("controllers") || !root["controllers"].is_array())
         root["controllers"] = json::array();
 
-    // Replace existing entry matching VID+PID+connection+source_name, or append.
-    // Rules:
-    //  - connection: if both sides declare it and differ → skip (different transport)
-    //  - source_name: if both sides have it and differ → skip (different device identity)
-    //  - Old entries without connection/source_name: matched by VID+PID only (backwards compat)
-    std::string newConn = ctrl.connectionType;
-    std::string newName = m_nameBuf;
-    bool replaced = false;
+    // Replace existing entry matching VID+PID (+connection/product_name as tie-breakers), or
+    // append. Mirrors the same scoring approach as ConfigLoader::findConfig() (the runtime
+    // device→config picker), for the same reason: VID+PID alone isn't always a unique key.
+    // 8BitDo Pro 2 (X-mode) and 8BitDo Zero 2 (X-mode) share VID 045E/PID 02E0 — only
+    // product_name tells them apart (see controllers.json, both entries) — so product_name
+    // has to stay part of this match, same as findConfig() already relies on for runtime
+    // device recognition.
+    //
+    // source_name is deliberately NOT part of it: it's just a display label (device-reported
+    // or user-typed), not a device identity. Requiring it to match too caused real duplicate
+    // entries — the DS4's hardware-reported name ("Wireless Controller") doesn't match the
+    // hand-curated source_name ("Dualshock 4") from before the wizard existed, so every
+    // recalibration kept creating a new entry instead of overwriting it
+    // (BUG-WIZARD-DUPLICATE-ENTRY, confirmed for real 2026/07/10 and again 2026/07/11). The
+    // merge below still updates source_name to whatever the wizard captured, same as any other
+    // wizard-managed field.
+    //
+    // Rule per discriminator (connection, product_name): if BOTH sides declare it and it
+    // differs → this entry can't be a match, skip entirely. If only one side declares it (or
+    // neither) → not a blocker, but also doesn't count toward the score. Among all surviving
+    // candidates, the one with the highest score (most discriminators that actually matched)
+    // wins — this is what lets the Pro2/Zero2 collision resolve by elimination: the Zero2
+    // entry's product_name check fails outright against a real Pro2 device (so it's skipped),
+    // leaving the product_name-less Pro2 entry as the only surviving candidate.
+    std::string newConn        = ctrl.connectionType;
+    std::string newProductName = ctrl.productName;
+    json* bestMatch = nullptr;
+    int   bestScore = -1;
     for (auto& e : root["controllers"]) {
         if (e.value("vid","") != std::string(vidStr) || e.value("pid","") != std::string(pidStr))
             continue;
-        // Entries without "connection" are generic fallbacks → match any transport
-        std::string eConn = e.value("connection","");
-        bool connMatch = newConn.empty() || eConn.empty() || eConn == newConn;
-        std::string eName = e.value("source_name","");
-        bool nameMatch = eName.empty() || newName.empty() || eName == newName;
-        if (connMatch && nameMatch) {
-            // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype")
-            // by starting from the old entry and overwriting only wizard-managed keys.
-            for (auto& [k, v] : entry.items())
-                e[k] = v;
-            replaced = true;
-            break;
-        }
+        std::string eConn    = e.value("connection","");
+        std::string eProduct = e.value("product_name","");
+        if (!eConn.empty()    && !newConn.empty()        && eConn    != newConn)        continue;
+        if (!eProduct.empty() && !newProductName.empty() && eProduct != newProductName) continue;
+        int score = (!eConn.empty()    && eConn    == newConn        ? 2 : 0)
+                  + (!eProduct.empty() && eProduct == newProductName ? 2 : 0);
+        if (score > bestScore) { bestScore = score; bestMatch = &e; }
     }
-    if (!replaced) root["controllers"].push_back(entry);
+    if (bestMatch) {
+        // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype") by
+        // starting from the old entry and overwriting only wizard-managed keys.
+        for (auto& [k, v] : entry.items())
+            (*bestMatch)[k] = v;
+    } else {
+        root["controllers"].push_back(entry);
+    }
 
     // Write back
     std::ofstream f(m_controllersPath);

@@ -44,7 +44,12 @@ private:
     };
 
     // Sub-phases of the "gyro" component's calibration step (BindStep.mapping.type == "gyro").
-    enum class GyroPhase { Baseline, Roll, Pitch, Yaw };
+    // Roll/Pitch/Yaw each split into a Slow sub-gesture (isolates the accelerometer: angle
+    // reached via gravity doesn't depend on speed) and a Fast one (isolates the gyroscope:
+    // angular rate does) — see BITACORA 2026/07/11-12, Plan B. Treated as a plain sequential
+    // index elsewhere (±1 to advance/step back), so the declaration order here IS the wizard
+    // order: accel, gyro, accel, gyro, accel, gyro.
+    enum class GyroPhase { Baseline, RollSlow, RollFast, PitchSlow, PitchFast, YawSlow, YawFast };
 
     // ── Internal data types ──────────────────────────────────────────────────
     struct DetectedController {
@@ -123,8 +128,9 @@ private:
     void commitButton(int physIndex);
     void commitAxis(const std::string& source, bool invert);
     void commitDpad(const std::string& dpadType);
-    // Advances the gyro sub-machine by one phase (Baseline->Roll->Pitch->Yaw).
-    // After Yaw, commits the step and moves on to the next component like the other commit* methods.
+    // Advances the gyro sub-machine by one phase (Baseline->RollSlow->RollFast->PitchSlow->
+    // PitchFast->YawSlow->YawFast). After YawFast, commits the step and moves on to the next
+    // component like the other commit* methods.
     void commitGyroPhase();
     // Accumulates one frame of raw-byte samples into m_gyroSamples for the current gyro phase.
     // Rejects frames where a declared HID axis (stick/trigger) drifted past kGyroAxisContamination
@@ -133,12 +139,15 @@ private:
     // Clears the accumulated samples for one phase so it can be re-captured from scratch
     // (used when the user steps back into a phase to redo it).
     void resetGyroPhaseSamples(GyroPhase phase);
-    // Runs the accel/gyro offset classification over the 4 phases captured in m_gyroSamples.
-    // Called once, right after the Yaw phase's capture completes.
+    // Runs the accel/gyro offset classification over the 7 phases captured in m_gyroSamples.
+    // Called once, right after the YawFast phase's capture completes.
     ImuCalibrationResult classifyGyro() const;
     // Offsets that stayed quiet during Baseline (real sensor channels, not CRC/padding bytes).
     std::vector<bool> computeAliveOffsets() const;
-    // Statistical confidence (0..1) that Roll/Pitch/Yaw's leading candidate offset is a real,
+    // True for RollFast/PitchFast/YawFast — used to pick the Slow/Fast threshold pair and to
+    // score gyro vs accel candidates in classifyGyro().
+    static bool isFastGyroPhase(GyroPhase phase);
+    // Statistical confidence (0..1) that the current phase's leading candidate offset is a real,
     // repeatable signal rather than noise. See definition in BindingWizard.cpp for the method.
     float gyroConfidence() const;
     void skipStep();
@@ -199,9 +208,10 @@ private:
     bool      m_hasGyroStep = false; // true if the layout has a "gyro" component (set by buildSteps())
 
     // ── Gyro/IMU calibration capture ────────────────────────────────────────
+    static constexpr int kGyroPhaseCount = 7; // Baseline + 3 axes x (Slow, Fast)
     // Outer index = raw report byte offset (0..rawLen-2), inner index = GyroPhase.
     // Resized to the report's raw length the first time a gyro step starts.
-    std::vector<std::array<GyroOffsetStats, 4>> m_gyroSamples;
+    std::vector<std::array<GyroOffsetStats, kGyroPhaseCount>> m_gyroSamples;
     int                   m_gyroPhaseFrames = 0;  // frames captured in the current phase
     // True once the user has pressed any button on the controller to start the current phase —
     // sampleGyroFrame() is not called before this, so the user can get into position with both
@@ -209,10 +219,15 @@ private:
     // Reset to false whenever a phase (re)starts: beginStep(), commitGyroPhase(), phase back-step, goBack().
     bool                  m_gyroPhaseStarted = false;
     RawHIDState           m_gyroAxisBaseline{};    // declared-axis snapshot at Baseline start
+    // Diagnostic counters for a Baseline that never advances (2026/07/11 DS4 investigation) —
+    // tells apart "HID read never valid" from "every frame contaminated" without flooding the
+    // log every frame. Reset alongside m_gyroPhaseFrames in resetGyroPhaseSamples().
+    int                   m_gyroBaselineMisses = 0;
+    int                   m_gyroBaselineContaminated = 0;
     ImuCalibrationResult  m_gyroResult;            // set by classifyGyro(), consumed by saveResult()
 
-    // Roll/Pitch/Yaw live confidence (see gyroConfidence()). Baseline has no gesture to
-    // repeat, so it keeps the plain frame-count gate below.
+    // Live confidence for the 6 Slow/Fast sub-gesture phases (see gyroConfidence()). Baseline
+    // has no gesture to repeat, so it keeps the plain frame-count gate below.
     //
     // This went through several more complicated designs first — discrete repetition
     // detection (frame-to-frame rate, then deviation-from-baseline) feeding a Welch's t-test
@@ -229,15 +244,24 @@ private:
     // segmentation, no per-repetition anything — whichever offset has swung the most so far
     // simply IS the best candidate, and that comparison only gets more decisive over time
     // (both amplitudes are monotonically non-decreasing), never less.
-    std::vector<bool> m_gyroAliveOffsets; // set once when Baseline commits, reused by all 3 phases
+    std::vector<bool> m_gyroAliveOffsets; // set once when Baseline commits, reused by all 6 phases
 
     static constexpr int   kGyroMinCaptureFrames  = 270;   // ~4.5s @60fps — min frames before "continue" enables (Baseline only)
     static constexpr float kGyroAxisContamination = 0.15f; // declared-axis drift beyond this discards the frame
     static constexpr float kGyroBaselineNoiseFloor = 800.0f; // raw int16 peak-to-peak allowed while quiet (Baseline)
-    static constexpr float kGyroMinSignalAmp        = 1500.0f; // the leading candidate's amplitude must clear this before confidence is anything but 0 — otherwise "confident" just means "confident it's noise"
-    static constexpr float kGyroTargetSignalAmp     = 4000.0f; // leading-candidate amplitude that counts as "fully confident" — no runner-up comparison: two accel axes legitimately react similarly to the same tilt, so "beats every other offset by 2.5x" is an unrealistic bar; classifyGyro()'s cross-phase comparison (not this live number) is what actually tells gyro from accel
-    static constexpr int   kGyroMinPhaseFrames      = 60;     // ~0.5s @110Hz — floor so one lucky early frame can't claim high confidence instantly
-    static constexpr float kGyroConfidenceThreshold = 0.90f; // Roll/Pitch/Yaw auto-advance once gyroConfidence() reaches this
+    static constexpr float kGyroMinSignalAmp        = 1500.0f; // the leading candidate's amplitude must clear this before confidence is anything but 0 — otherwise "confident" just means "confident it's noise"; shared by Slow and Fast phases
+    // Slow (accelerometer) sub-gesture: hold a tilt so the angle reached (via gravity) has time
+    // to show up. Same values as the pre-Plan-B constants (2026/07/11 fix 3) — that tuning was
+    // already asking for a sustained gesture, which is exactly what the Slow phase now is.
+    static constexpr int   kGyroSlowMinPhaseFrames  = 180;    // ~1.5-3s depending on report rate
+    static constexpr float kGyroSlowTargetSignalAmp = 8000.0f; // leading-candidate amplitude that counts as "fully confident"
+    // Fast (gyroscope) sub-gesture: a quick flick — angular rate peaks fast and doesn't need to
+    // be held, unlike Slow. Starting point, not measured against the DS4 yet (see BITACORA
+    // 2026/07/11-12, Plan B) — expect this pair to need the same kind of empirical tuning pass
+    // kGyroSlow* already went through.
+    static constexpr int   kGyroFastMinPhaseFrames  = 60;     // ~0.5-1s depending on report rate
+    static constexpr float kGyroFastTargetSignalAmp = 8000.0f;
+    static constexpr float kGyroConfidenceThreshold = 0.90f; // each phase auto-advances once gyroConfidence() reaches this
 
     // Overlay: compIndex → display label (button number or axis name)
     std::unordered_map<int, std::string> m_overlayLabels;

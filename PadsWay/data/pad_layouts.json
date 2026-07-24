@@ -1279,6 +1279,23 @@
                     "type": "button",
                     "view": "top",
                     "w": 26.0
+                },
+                {
+                    "color": [
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        1.0
+                    ],
+                    "cx": 240.0,
+                    "cy": 444.0,
+                    "id": "gyro_new",
+                    "max_offset": 20.0,
+                    "size": 60.0,
+                    "state_x": "gyroZ",
+                    "state_y": "gyroX",
+                    "type": "gyro",
+                    "view": "top"
                 }
             ],
             "id": "8BitDo-Pro2"
