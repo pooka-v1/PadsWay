@@ -44,12 +44,15 @@ private:
     };
 
     // Sub-phases of the "gyro" component's calibration step (BindStep.mapping.type == "gyro").
-    // Roll/Pitch/Yaw each split into a Slow sub-gesture (isolates the accelerometer: angle
-    // reached via gravity doesn't depend on speed) and a Fast one (isolates the gyroscope:
-    // angular rate does) — see BITACORA 2026/07/11-12, Plan B. Treated as a plain sequential
-    // index elsewhere (±1 to advance/step back), so the declaration order here IS the wizard
-    // order: accel, gyro, accel, gyro, accel, gyro.
-    enum class GyroPhase { Baseline, RollSlow, RollFast, PitchSlow, PitchFast, YawSlow, YawFast };
+    // One phase per axis after Baseline — see REFERENCE.md, "Wizard de calibracion IMU - 4 diseno
+    // de classifyGyro(): parar-y-contar + voto". Treated as a plain sequential index elsewhere
+    // (+-1 to advance/step back), so the declaration order here IS the wizard order.
+    enum class GyroPhase { Baseline, Roll, Pitch, Yaw };
+
+    // Sub-state within a Roll/Pitch/Yaw phase: move to one extreme of the axis, hold still
+    // (auto-detected rest), move to the opposite extreme, hold still again. One round = one full
+    // MoveToA->HoldA->MoveToB->HoldB cycle; see updateGyroRound()/finishGyroRound().
+    enum class GyroRoundStage { MoveToA, HoldA, MoveToB, HoldB };
 
     // ── Internal data types ──────────────────────────────────────────────────
     struct DetectedController {
@@ -128,28 +131,57 @@ private:
     void commitButton(int physIndex);
     void commitAxis(const std::string& source, bool invert);
     void commitDpad(const std::string& dpadType);
-    // Advances the gyro sub-machine by one phase (Baseline->RollSlow->RollFast->PitchSlow->
-    // PitchFast->YawSlow->YawFast). After YawFast, commits the step and moves on to the next
-    // component like the other commit* methods.
+    // Advances the gyro sub-machine out of Baseline: runs computeGyroCandidatePool() (the old
+    // "which offsets are alive" block search + normal-axis pick, done once) and, if a usable
+    // candidate pool was found, moves to GyroPhase::Roll. Roll/Pitch/Yaw are NOT committed by
+    // this function — they advance automatically via finishGyroRound() as rounds converge.
     void commitGyroPhase();
-    // Accumulates one frame of raw-byte samples into m_gyroSamples for the current gyro phase.
-    // Rejects frames where a declared HID axis (stick/trigger) drifted past kGyroAxisContamination
-    // from its Baseline-start value — likely an accidental touch, not the gyro gesture.
-    void sampleGyroFrame();
-    // Clears the accumulated samples for one phase so it can be re-captured from scratch
-    // (used when the user steps back into a phase to redo it).
-    void resetGyroPhaseSamples(GyroPhase phase);
-    // Runs the accel/gyro offset classification over the 7 phases captured in m_gyroSamples.
-    // Called once, right after the YawFast phase's capture completes.
+    // Accumulates one frame of raw-byte samples into m_gyroSamples for the current gyro phase
+    // (used later by classifyGyro()'s cross-axis amplitude scoring). Rejects frames where a
+    // declared HID axis (stick/trigger) drifted past kGyroAxisContamination from its
+    // Baseline-start value — likely an accidental touch, not the gyro gesture. Returns true and
+    // fills outRaw (if non-null) with this frame's decoded per-offset values when a frame was
+    // actually captured, so updateGyroRound() can reuse them without a second HID read.
+    bool sampleGyroFrame(std::vector<float>* outRaw = nullptr);
+    // Advances the Move/Hold sub-state machine for the current axis phase by one frame of
+    // already-decoded raw offset values (see sampleGyroFrame()'s outRaw). Detects "moved enough"
+    // (MoveToA/MoveToB) and "settled" (HoldA/HoldB) transitions; calls finishGyroRound() once
+    // HoldB settles.
+    void updateGyroRound(const std::vector<float>& raw);
+    // Closes out one round given HoldB's stable reading (restB, one value per m_gyroCandidates
+    // index): computes each candidate's hold-delta (restB vs m_gyroRestA) and this round's move
+    // amplitude, casts this round's accel/gyro votes, and either confirms the axis winner
+    // (2-vote lead reached), starts another round, or fails the whole gyro step out
+    // (kGyroMaxRounds reached without a winner).
+    void finishGyroRound(const std::vector<float>& restB);
+    // Runs Step 1-3 of the old classifyGyro() (find the longest run of alive offsets, trim to
+    // 6/3, pick the gravity/"normal" axis) once, right when Baseline commits. Fills
+    // m_gyroCandidates/m_gyroHasAccel/m_gyroNormalOffset. Leaves m_gyroCandidates empty if no
+    // usable run was found.
+    void computeGyroCandidatePool();
+    // Commits the gyro BindStep and advances to the next component, same bookkeeping the other
+    // commit* methods do (overlay label, cooldown, ++m_currentStep, beginStep()). Shared by the
+    // success path (all 3 axes converged) and the 2 failure paths (no usable candidate pool,
+    // kGyroMaxRounds reached without a winner) — all three just differ in what m_gyroResult holds
+    // going in.
+    void finishGyroStep();
+    // Resets the per-round scratch state (rest streak, HoldA reading, this-round move amplitude)
+    // and, when starting a fresh axis (not just a fresh round within one), the vote tallies and
+    // round counter too.
+    void resetGyroRoundState(bool clearVotes);
+    // top-second vote count in `votes` ("ventaja"). Optionally returns the winning candidate's
+    // index (into m_gyroCandidates) via outTopCandidate.
+    static int voteLead(const std::vector<int>& votes, int* outTopCandidate = nullptr);
+    // Runs the final Step 5/6 of classifyGyro() (unchanged greedy "claimed -> removed" slot
+    // assignment) over the per-axis winners recorded in m_gyroAxisGyroOffset/m_gyroAxisAccelOffset.
+    // Called once, right after Yaw's axis winner is confirmed.
     ImuCalibrationResult classifyGyro() const;
     // Offsets that stayed quiet during Baseline (real sensor channels, not CRC/padding bytes).
     std::vector<bool> computeAliveOffsets() const;
-    // True for RollFast/PitchFast/YawFast — used to pick the Slow/Fast threshold pair and to
-    // score gyro vs accel candidates in classifyGyro().
-    static bool isFastGyroPhase(GyroPhase phase);
-    // Statistical confidence (0..1) that the current phase's leading candidate offset is a real,
-    // repeatable signal rather than noise. See definition in BindingWizard.cpp for the method.
-    float gyroConfidence() const;
+    // Statistical confidence (0..1) for the current axis: min of the gyro-vote lead and (when
+    // this axis also votes accel) the accel-vote lead, each as a fraction of kGyroRoundVoteLead.
+    // 0 before at least 2 rounds have completed — see definition in BindingWizard.cpp.
+    float axisConfidence() const;
     void skipStep();
     void goBack();
     void cancel();
@@ -208,8 +240,11 @@ private:
     bool      m_hasGyroStep = false; // true if the layout has a "gyro" component (set by buildSteps())
 
     // ── Gyro/IMU calibration capture ────────────────────────────────────────
-    static constexpr int kGyroPhaseCount = 7; // Baseline + 3 axes x (Slow, Fast)
-    // Outer index = raw report byte offset (0..rawLen-2), inner index = GyroPhase.
+    static constexpr int kGyroPhaseCount = 4; // Baseline + Roll + Pitch + Yaw
+    // Outer index = raw report byte offset (0..rawLen-2), inner index = GyroPhase. Accumulated
+    // unconditionally every frame regardless of round sub-stage — used both by
+    // computeAliveOffsets()/computeGyroCandidatePool() (Baseline slot) and by classifyGyro()'s
+    // final cross-axis amplitude scoring (Roll/Pitch/Yaw slots).
     // Resized to the report's raw length the first time a gyro step starts.
     std::vector<std::array<GyroOffsetStats, kGyroPhaseCount>> m_gyroSamples;
     int                   m_gyroPhaseFrames = 0;  // frames captured in the current phase
@@ -218,50 +253,87 @@ private:
     // hands on the controller instead of needing the mouse to click a "start" button.
     // Reset to false whenever a phase (re)starts: beginStep(), commitGyroPhase(), phase back-step, goBack().
     bool                  m_gyroPhaseStarted = false;
+    // True while waiting to see every button released at least once before the "press any button
+    // to start" prompt will honor a press. Without this, a button still physically held from
+    // CONFIRMING THE PREVIOUS STEP (or a stray bump while the hand repositions) can register as
+    // the start press instantly, skipping the prompt the user never got a chance to read. Set
+    // alongside every m_gyroPhaseStarted = false; cleared the first frame buttonMask reads 0.
+    bool                  m_gyroAwaitingRelease = false;
     RawHIDState           m_gyroAxisBaseline{};    // declared-axis snapshot at Baseline start
     // Diagnostic counters for a Baseline that never advances (2026/07/11 DS4 investigation) —
     // tells apart "HID read never valid" from "every frame contaminated" without flooding the
-    // log every frame. Reset alongside m_gyroPhaseFrames in resetGyroPhaseSamples().
+    // log every frame. Reset alongside m_gyroPhaseFrames in resetGyroRoundState().
     int                   m_gyroBaselineMisses = 0;
     int                   m_gyroBaselineContaminated = 0;
     ImuCalibrationResult  m_gyroResult;            // set by classifyGyro(), consumed by saveResult()
 
-    // Live confidence for the 6 Slow/Fast sub-gesture phases (see gyroConfidence()). Baseline
-    // has no gesture to repeat, so it keeps the plain frame-count gate below.
-    //
-    // This went through several more complicated designs first — discrete repetition
-    // detection (frame-to-frame rate, then deviation-from-baseline) feeding a Welch's t-test
-    // between the best and second-best candidate's peak. All of them needed the *segmentation*
-    // step (deciding where one "repetition" ends and the next begins) to be reliable, and none
-    // of it was: a slow smooth swing produces no sharp per-frame delta to key off; an
-    // accelerometer settling in a new tilt never decays back to the old Baseline value; and
-    // with only 2-3 noisy repetitions, a t-test's variance term dominates and the result gets
-    // LESS stable the more (noisy) data comes in, not more.
-    //
-    // gyroConfidence() below sidesteps all of that: it just watches the SAME running
-    // (max - min) amplitude per offset that classifyGyro() already accumulates unconditionally
-    // every frame for the final classification (see the loop in sampleGyroFrame() above). No
-    // segmentation, no per-repetition anything — whichever offset has swung the most so far
-    // simply IS the best candidate, and that comparison only gets more decisive over time
-    // (both amplitudes are monotonically non-decreasing), never less.
-    std::vector<bool> m_gyroAliveOffsets; // set once when Baseline commits, reused by all 6 phases
+    // ── Candidate pool (computeGyroCandidatePool(), run once when Baseline commits) ────────
+    std::vector<int> m_gyroCandidates;       // raw offsets still competing for a gyro/accel role
+    bool             m_gyroHasAccel     = false;
+    int              m_gyroNormalOffset = -1; // gravity axis, excluded from m_gyroCandidates
+
+    // ── Per-round stop-and-count state (2026/07/24 4th design) ─────────────────────────────
+    // See REFERENCE.md, "Wizard de calibracion IMU - 4 diseno de classifyGyro()", for the full
+    // algorithm. Round machinery is scoped to the CURRENT axis phase (Roll/Pitch/Yaw); reset by
+    // resetGyroRoundState() when a fresh axis (or a redo of the current one) starts.
+    GyroRoundStage m_gyroRoundStage = GyroRoundStage::MoveToA;
+    int            m_gyroRound      = 1; // 1-based round index within the current axis phase
+
+    // Rest-window detector: running min/max/sum per candidate (index into m_gyroCandidates)
+    // since the streak last broke (some candidate's peak-to-peak inside the streak exceeded
+    // kGyroBaselineNoiseFloor). A streak that survives kGyroRestMinFrames frames unbroken means
+    // the controller has settled — its mean IS the stable reading for that hold.
+    std::vector<GyroOffsetStats> m_gyroRestStreak;
+    int                          m_gyroRestStreakFrames = 0;
+    std::vector<float>           m_gyroRestA;            // stable reading captured at HoldA
+
+    // Movement amplitude for THIS round only (MoveToA + MoveToB combined), reset only at round
+    // start — decides at HoldB whether a candidate "reacted for real" during the move (gyro-vote
+    // eligibility, see finishGyroRound()).
+    std::vector<GyroOffsetStats> m_gyroRoundMoveAmp;
+    // Movement amplitude for the CURRENT leg only (MoveToA or MoveToB), reset every time a Move
+    // sub-stage starts — decides "moved enough to leave the hold" (Move->Hold transition). Kept
+    // separate from m_gyroRoundMoveAmp: that one must span the whole round for scoring, this one
+    // must reset per leg or the round's already-cleared MoveToA amplitude would make MoveToB
+    // transition to HoldB instantly, without the user having moved back at all.
+    std::vector<GyroOffsetStats> m_gyroLegMoveAmp;
+
+    // Vote tallies for the axis currently being captured, one slot per m_gyroCandidates index.
+    // Persist across rounds of the SAME axis; cleared when a new axis phase starts.
+    std::vector<int> m_gyroGyroVotes;
+    std::vector<int> m_gyroAccelVotes; // only meaningful for Roll/Pitch — Yaw doesn't move gravity
+
+    // Winning candidate offset per axis (raw report offset, -1 = not decided yet). Index
+    // 0/1/2 = Roll/Pitch/Yaw. Filled by finishGyroRound() once an axis's votes converge, consumed
+    // by classifyGyro()'s final cross-axis reconciliation.
+    int m_gyroAxisGyroOffset[3]  = { -1, -1, -1 };
+    int m_gyroAxisAccelOffset[3] = { -1, -1, -1 };
 
     static constexpr int   kGyroMinCaptureFrames  = 270;   // ~4.5s @60fps — min frames before "continue" enables (Baseline only)
     static constexpr float kGyroAxisContamination = 0.15f; // declared-axis drift beyond this discards the frame
-    static constexpr float kGyroBaselineNoiseFloor = 800.0f; // raw int16 peak-to-peak allowed while quiet (Baseline)
-    static constexpr float kGyroMinSignalAmp        = 1500.0f; // the leading candidate's amplitude must clear this before confidence is anything but 0 — otherwise "confident" just means "confident it's noise"; shared by Slow and Fast phases
-    // Slow (accelerometer) sub-gesture: hold a tilt so the angle reached (via gravity) has time
-    // to show up. Same values as the pre-Plan-B constants (2026/07/11 fix 3) — that tuning was
-    // already asking for a sustained gesture, which is exactly what the Slow phase now is.
-    static constexpr int   kGyroSlowMinPhaseFrames  = 180;    // ~1.5-3s depending on report rate
-    static constexpr float kGyroSlowTargetSignalAmp = 8000.0f; // leading-candidate amplitude that counts as "fully confident"
-    // Fast (gyroscope) sub-gesture: a quick flick — angular rate peaks fast and doesn't need to
-    // be held, unlike Slow. Starting point, not measured against the DS4 yet (see BITACORA
-    // 2026/07/11-12, Plan B) — expect this pair to need the same kind of empirical tuning pass
-    // kGyroSlow* already went through.
-    static constexpr int   kGyroFastMinPhaseFrames  = 60;     // ~0.5-1s depending on report rate
-    static constexpr float kGyroFastTargetSignalAmp = 8000.0f;
-    static constexpr float kGyroConfidenceThreshold = 0.90f; // each phase auto-advances once gyroConfidence() reaches this
+    // Raw int16 peak-to-peak allowed while quiet. Three uses: Baseline's own quiet check, the
+    // rest-streak break check (m_gyroRestStreak), and the hold-delta typing threshold in
+    // finishGyroRound() (a real accelerometer's two rest readings differ by much more than this).
+    static constexpr float kGyroBaselineNoiseFloor = 800.0f;
+    // Upper bound for computeGyroCandidatePool()'s single-offset bridge (see its definition) —
+    // a borderline sensor offset having a noisy Baseline capture, not a genuinely dead byte.
+    // 1.5x kGyroBaselineNoiseFloor: comfortably covers the documented DS4 case (957.0, still
+    // well under this) while staying far below what a real CRC/counter byte reads (those change
+    // by design every frame, not just noisily — thousands of counts over a multi-second capture).
+    static constexpr float kGyroBorderlineNoiseFloor = 1200.0f;
+    // Amplitude floor for "this is a real signal, not noise" — gates both "moved enough to leave
+    // a hold" (MoveToA/MoveToB -> HoldA/HoldB) and "reacted for real during the move" (gyro-vote
+    // eligibility in finishGyroRound()).
+    static constexpr float kGyroMinSignalAmp = 1500.0f;
+    // Frame floor before kGyroMinSignalAmp is allowed to end a Move leg — see updateGyroRound()
+    // for why (a gyro's angular-rate spike at motion onset can clear the amplitude bar long
+    // before the controller reaches the intended extreme).
+    static constexpr int   kGyroMoveMinFrames = 60; // ~0.5-1s depending on report rate
+    // Floor for a hold streak to count as "settled" (renamed from the old Fast-phase constant of
+    // the same value — the Slow/Fast split it belonged to no longer exists).
+    static constexpr int   kGyroRestMinFrames = 60; // ~0.5-1s depending on report rate
+    static constexpr int   kGyroRoundVoteLead = 2;  // vote lead over the runner-up needed to confirm an axis winner
+    static constexpr int   kGyroMaxRounds     = 6;  // hard cap per axis; no winner by then -> classify FAILED
 
     // Overlay: compIndex → display label (button number or axis name)
     std::unordered_map<int, std::string> m_overlayLabels;

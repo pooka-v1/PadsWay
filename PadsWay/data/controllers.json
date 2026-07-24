@@ -848,11 +848,11 @@
           "target": "left_x"
         },
         "hid_y": {
-          "invert": false,
+          "invert": true,
           "target": "left_y"
         },
         "hid_z": {
-          "invert": true,
+          "invert": false,
           "target": "right_x"
         }
       },
@@ -917,13 +917,13 @@
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 0.0001,
-        "accel_x_offset": 25,
+        "accel_x_offset": 17,
         "accel_y_offset": 15,
         "accel_z_offset": 19,
         "enabled": true,
         "gyro_scale": 0.0001,
         "gyro_x_offset": 23,
-        "gyro_y_offset": 17,
+        "gyro_y_offset": 25,
         "gyro_z_offset": 21
       },
       "layout_id": "8BitDo-Pro3",
@@ -944,7 +944,7 @@
           "target": "trigger_r"
         },
         "hid_rz": {
-          "invert": true,
+          "invert": false,
           "target": "right_y"
         },
         "hid_x": {
@@ -1013,13 +1013,13 @@
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 0.0001,
-        "accel_x_offset": 15,
+        "accel_x_offset": 19,
         "accel_y_offset": 23,
         "accel_z_offset": 21,
         "enabled": true,
         "gyro_scale": 0.0001,
         "gyro_x_offset": 13,
-        "gyro_y_offset": 19,
+        "gyro_y_offset": 15,
         "gyro_z_offset": 17
       },
       "layout_id": "dualshock4",
