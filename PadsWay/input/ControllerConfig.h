@@ -93,12 +93,21 @@ struct ImuConfig {
     int   gyroYOffset  = 15;   // yaw
     int   gyroZOffset  = 17;   // roll
     float gyroScale    = 1.0f / 32768.0f;  // int16 raw → normalized [-1..1]
+    // Sign fixup, set by the wizard's calibration: true when the raw reading decreases while
+    // rotating toward the axis's canonical positive direction (right/forward/clockwise) and
+    // needs flipping. See REFERENCE.md, "Inversion de ejes IMU - propuesta".
+    bool  gyroXInvert  = false;
+    bool  gyroYInvert  = false;
+    bool  gyroZInvert  = false;
 
     // Accelerometer (gravity/orientation). -1 = axis not present on this device.
     int   accelXOffset = -1;
     int   accelYOffset = -1;
     int   accelZOffset = -1;
     float accelScale   = 1.0f / 32768.0f;
+    bool  accelXInvert = false;
+    bool  accelYInvert = false;
+    bool  accelZInvert = false;
 };
 
 struct ControllerConfig {

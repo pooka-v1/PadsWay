@@ -883,9 +883,9 @@ void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     const auto& imu = m_config.imu;
 
     if (fits(imu.gyroXOffset) && fits(imu.gyroYOffset) && fits(imu.gyroZOffset)) {
-        state.gyroX = std::clamp(readI16(imu.gyroXOffset) * imu.gyroScale, -1.0f, 1.0f);
-        state.gyroY = std::clamp(readI16(imu.gyroYOffset) * imu.gyroScale, -1.0f, 1.0f);
-        state.gyroZ = std::clamp(readI16(imu.gyroZOffset) * imu.gyroScale, -1.0f, 1.0f);
+        state.gyroX = std::clamp(readI16(imu.gyroXOffset) * imu.gyroScale * (imu.gyroXInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.gyroY = std::clamp(readI16(imu.gyroYOffset) * imu.gyroScale * (imu.gyroYInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.gyroZ = std::clamp(readI16(imu.gyroZOffset) * imu.gyroScale * (imu.gyroZInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
         state.gyroActive = true;
         m_physicalState.gyroX      = state.gyroX;
         m_physicalState.gyroY      = state.gyroY;
@@ -894,9 +894,9 @@ void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     }
 
     if (fits(imu.accelXOffset) && fits(imu.accelYOffset) && fits(imu.accelZOffset)) {
-        state.accelX = std::clamp(readI16(imu.accelXOffset) * imu.accelScale, -1.0f, 1.0f);
-        state.accelY = std::clamp(readI16(imu.accelYOffset) * imu.accelScale, -1.0f, 1.0f);
-        state.accelZ = std::clamp(readI16(imu.accelZOffset) * imu.accelScale, -1.0f, 1.0f);
+        state.accelX = std::clamp(readI16(imu.accelXOffset) * imu.accelScale * (imu.accelXInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.accelY = std::clamp(readI16(imu.accelYOffset) * imu.accelScale * (imu.accelYInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.accelZ = std::clamp(readI16(imu.accelZOffset) * imu.accelScale * (imu.accelZInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
         state.accelActive = true;
         m_physicalState.accelX      = state.accelX;
         m_physicalState.accelY      = state.accelY;

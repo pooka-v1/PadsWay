@@ -444,6 +444,22 @@ void BindingWizard::renderReview() {
             const char* axes = m_gyroResult.accelXOffset >= 0 ? tr("wizard.gyro_result_full")
                                                                 : tr("wizard.gyro_result_gyro_only");
             ImGui::Text(tr("wizard.review_gyro_ok"), axes);
+
+            std::vector<const char*> inverted;
+            if (m_gyroResult.gyroXInvert)  inverted.push_back("pitch");
+            if (m_gyroResult.gyroYInvert)  inverted.push_back("yaw");
+            if (m_gyroResult.gyroZInvert)  inverted.push_back("roll");
+            if (m_gyroResult.accelXInvert) inverted.push_back("lateral");
+            if (m_gyroResult.accelYInvert) inverted.push_back("frontal");
+            if (m_gyroResult.accelZInvert) inverted.push_back("normal");
+            if (!inverted.empty()) {
+                std::string list;
+                for (size_t i = 0; i < inverted.size(); ++i) {
+                    if (i > 0) list += ", ";
+                    list += inverted[i];
+                }
+                ImGui::Text(tr("wizard.review_gyro_inverted"), list.c_str());
+            }
         } else {
             ImGui::TextColored({ 1.0f, 0.6f, 0.2f, 1.0f }, "%s", tr("wizard.review_gyro_failed"));
         }
@@ -904,6 +920,7 @@ void BindingWizard::resetGyroRoundState(bool clearVotes) {
     m_gyroRestStreakFrames = 0;
     m_gyroLegMoveAmp.clear();
     m_gyroRoundMoveAmp.clear();
+    m_gyroMoveASignMean.clear();
     if (clearVotes) {
         m_gyroRound = 1;
         m_gyroGyroVotes.clear();
@@ -1333,6 +1350,15 @@ void BindingWizard::updateGyroRound(const std::vector<float>& raw) {
 
     if (m_gyroRoundStage == GyroRoundStage::HoldA) {
         m_gyroRestA = stable;
+        // Snapshot the MoveToA leg's mean raw value per candidate before m_gyroLegMoveAmp resets
+        // for the B leg — its sign is what finishGyroRound() uses to type gyro axes (see
+        // ImuConfig::gyroXInvert et al.), since a gyro's rest reading (~0 either way) can't tell
+        // direction, only the reading WHILE moving toward "direction A" can.
+        m_gyroMoveASignMean.assign(nc, 0.0f);
+        for (int c = 0; c < nc; ++c) {
+            const GyroOffsetStats& leg = m_gyroLegMoveAmp[c];
+            m_gyroMoveASignMean[c] = (leg.count > 0) ? (leg.sum / leg.count) : 0.0f;
+        }
         m_gyroRoundStage = GyroRoundStage::MoveToB;
         m_gyroLegMoveAmp.assign(nc, {}); // fresh gate tracking for the B leg; m_gyroRoundMoveAmp keeps accumulating
     } else {
@@ -1408,7 +1434,15 @@ void BindingWizard::finishGyroRound(const std::vector<float>& restB) {
 
     if (gyroDone && accelDone) {
         m_gyroAxisGyroOffset[axis] = m_gyroCandidates[gyroTop];
-        if (accelApplies) m_gyroAxisAccelOffset[axis] = m_gyroCandidates[accelTop];
+        // Sign: rotating toward "direction A" (see gyro_roll_a/gyro_pitch_a/gyro_yaw_a prompts)
+        // should read positive after the fixup — invert when the MoveToA mean came out negative.
+        m_gyroAxisGyroInvert[axis] = m_gyroMoveASignMean[gyroTop] < 0.0f;
+        if (accelApplies) {
+            m_gyroAxisAccelOffset[axis] = m_gyroCandidates[accelTop];
+            // Sign: tilting toward "direction A" should read HIGHER than "direction B" after the
+            // fixup — invert when the hold reading at A came out lower than at B.
+            m_gyroAxisAccelInvert[axis] = m_gyroRestA[accelTop] < restB[accelTop];
+        }
         // Advance to the next axis, or finish the whole gyro step if this was Yaw.
         if (m_gyroPhase == GyroPhase::Yaw) {
             m_gyroResult = classifyGyro();
@@ -1545,10 +1579,32 @@ BindingWizard::ImuCalibrationResult BindingWizard::classifyGyro() const {
     result.gyroYOffset = yawOffset;
     result.gyroZOffset = rollOffset;
 
+    // Invert flags travel with their raw offset, not with the axis index — assignSlots() above
+    // can hand a candidate to a different axis than the one whose round-vote originally won it
+    // (see the comment on assignSlots' caller). Map offset -> invert per sensor so each final
+    // slot picks up the sign that was actually measured for that offset.
+    std::unordered_map<int, bool> gyroInvertByOffset, accelInvertByOffset;
+    for (int i = 0; i < 3; ++i)
+        if (m_gyroAxisGyroOffset[i] >= 0) gyroInvertByOffset[m_gyroAxisGyroOffset[i]] = m_gyroAxisGyroInvert[i];
+    for (int i = 0; i < 2; ++i)
+        if (m_gyroAxisAccelOffset[i] >= 0) accelInvertByOffset[m_gyroAxisAccelOffset[i]] = m_gyroAxisAccelInvert[i];
+
+    result.gyroXInvert = gyroInvertByOffset[pitchOffset];
+    result.gyroYInvert = gyroInvertByOffset[yawOffset];
+    result.gyroZInvert = gyroInvertByOffset[rollOffset];
+
     if (m_gyroHasAccel) {
         result.accelZOffset = m_gyroNormalOffset;
         result.accelXOffset = lateralOffset;
         result.accelYOffset = frontalOffset;
+        result.accelXInvert = accelInvertByOffset[lateralOffset];
+        result.accelYInvert = accelInvertByOffset[frontalOffset];
+        // AccelZ (gravity/normal) has no directional gesture of its own — its polarity is read
+        // straight from the Baseline posture ("top of the controller facing the ceiling" is
+        // documented as the positive reference, see wizard.gyro_baseline).
+        const GyroOffsetStats& normalBaseline = m_gyroSamples[m_gyroNormalOffset][static_cast<int>(GyroPhase::Baseline)];
+        float normalMean = (normalBaseline.count > 0) ? (normalBaseline.sum / normalBaseline.count) : 0.0f;
+        result.accelZInvert = normalMean < 0.0f;
         spdlog::trace("[GyroCal] classify OK: gyroX(pitch)={} gyroY(yaw)={} gyroZ(roll)={} accelX(lateral)={} accelY(frontal)={} accelZ(normal)={}",
                       pitchOffset, yawOffset, rollOffset, lateralOffset, frontalOffset, m_gyroNormalOffset);
     } else {
@@ -1736,11 +1792,17 @@ void BindingWizard::saveResult() {
         imu["gyro_x_offset"]  = m_gyroResult.gyroXOffset;
         imu["gyro_y_offset"]  = m_gyroResult.gyroYOffset;
         imu["gyro_z_offset"]  = m_gyroResult.gyroZOffset;
+        imu["gyro_x_invert"]  = m_gyroResult.gyroXInvert;
+        imu["gyro_y_invert"]  = m_gyroResult.gyroYInvert;
+        imu["gyro_z_invert"]  = m_gyroResult.gyroZInvert;
         if (m_gyroResult.accelXOffset >= 0) {
             imu["accel_scale"]    = 0.0001;
             imu["accel_x_offset"] = m_gyroResult.accelXOffset;
             imu["accel_y_offset"] = m_gyroResult.accelYOffset;
             imu["accel_z_offset"] = m_gyroResult.accelZOffset;
+            imu["accel_x_invert"] = m_gyroResult.accelXInvert;
+            imu["accel_y_invert"] = m_gyroResult.accelYInvert;
+            imu["accel_z_invert"] = m_gyroResult.accelZInvert;
         }
         entry["imu"] = imu;
     }

@@ -113,6 +113,13 @@ private:
         int  accelXOffset = -1;  // lateral
         int  accelYOffset = -1;  // frontal
         int  accelZOffset = -1;  // normal (gravity)
+        // Sign fixup per axis — see REFERENCE.md, "Inversion de ejes IMU - propuesta".
+        bool gyroXInvert  = false;
+        bool gyroYInvert  = false;
+        bool gyroZInvert  = false;
+        bool accelXInvert = false;
+        bool accelYInvert = false;
+        bool accelZInvert = false;
     };
 
     // ── Render sub-methods ───────────────────────────────────────────────────
@@ -297,6 +304,11 @@ private:
     // must reset per leg or the round's already-cleared MoveToA amplitude would make MoveToB
     // transition to HoldB instantly, without the user having moved back at all.
     std::vector<GyroOffsetStats> m_gyroLegMoveAmp;
+    // Mean raw value per candidate during the MoveToA leg only, snapshotted from
+    // m_gyroLegMoveAmp right before it gets reset for MoveToB (updateGyroRound()'s
+    // HoldA->MoveToB transition) — the reset would otherwise erase the only signal that tells
+    // sign detection which way the axis moved during "toward direction A" (see finishGyroRound()).
+    std::vector<float>           m_gyroMoveASignMean;
 
     // Vote tallies for the axis currently being captured, one slot per m_gyroCandidates index.
     // Persist across rounds of the SAME axis; cleared when a new axis phase starts.
@@ -308,6 +320,10 @@ private:
     // by classifyGyro()'s final cross-axis reconciliation.
     int m_gyroAxisGyroOffset[3]  = { -1, -1, -1 };
     int m_gyroAxisAccelOffset[3] = { -1, -1, -1 };
+    // Sign of each axis's winning candidate, filled alongside m_gyroAxisGyroOffset/
+    // m_gyroAxisAccelOffset (same convergence point) — see finishGyroRound().
+    bool m_gyroAxisGyroInvert[3]  = { false, false, false };
+    bool m_gyroAxisAccelInvert[3] = { false, false, false };
 
     static constexpr int   kGyroMinCaptureFrames  = 270;   // ~4.5s @60fps — min frames before "continue" enables (Baseline only)
     static constexpr float kGyroAxisContamination = 0.15f; // declared-axis drift beyond this discards the frame

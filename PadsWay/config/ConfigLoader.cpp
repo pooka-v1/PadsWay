@@ -303,11 +303,17 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.imu.gyroYOffset = im.value("gyro_y_offset", 15);
             cfg.imu.gyroZOffset = im.value("gyro_z_offset", 17);
             cfg.imu.gyroScale   = im.value("gyro_scale", 1.0f / 32768.0f);
+            cfg.imu.gyroXInvert = im.value("gyro_x_invert", false);
+            cfg.imu.gyroYInvert = im.value("gyro_y_invert", false);
+            cfg.imu.gyroZInvert = im.value("gyro_z_invert", false);
 
             cfg.imu.accelXOffset = im.value("accel_x_offset", -1);
             cfg.imu.accelYOffset = im.value("accel_y_offset", -1);
             cfg.imu.accelZOffset = im.value("accel_z_offset", -1);
             cfg.imu.accelScale   = im.value("accel_scale", 1.0f / 32768.0f);
+            cfg.imu.accelXInvert = im.value("accel_x_invert", false);
+            cfg.imu.accelYInvert = im.value("accel_y_invert", false);
+            cfg.imu.accelZInvert = im.value("accel_z_invert", false);
         }
 
         result.push_back(std::move(cfg));
