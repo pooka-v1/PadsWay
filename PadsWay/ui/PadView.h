@@ -85,4 +85,13 @@ private:
 
     // Directional arrow overlays (loaded once in load(), used by renderStickArrows)
     PadTexture m_arrowUp, m_arrowDown, m_arrowLeft, m_arrowRight;
+
+    // Gyroscope widget assets (loaded once in load(), used by the "gyro" component type —
+    // fixed set, not driven by PadComponent::image like other component types since the gyro
+    // widget's look isn't per-layout configurable). See REFERENCE.md, "Widget visual del
+    // giroscopio - spec UI completa".
+    PadTexture m_gyroSphere;                                      // background ring, gyrosspera.png
+    PadTexture m_gyroArrowN, m_gyroArrowS, m_gyroArrowE, m_gyroArrowW; // pitch/roll cardinals
+    PadTexture m_gyroArrowCW, m_gyroArrowCCW;                     // yaw rotation direction
+    PadTexture m_gyroLevelBar;                                    // yaw clock-hand, LevelBar.png
 };

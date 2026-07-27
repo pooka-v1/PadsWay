@@ -177,6 +177,7 @@
         "gyro_axes":      "Gyro axes",
         "gyro_h":         "Horizontal (X):",
         "gyro_v":         "Vertical (Y):",
+        "gyro_rot":       "Rotational (Z):",
         "delete_elem":    "Delete element",
         "colors":         "Colors",
         "color_base":     "Base:",

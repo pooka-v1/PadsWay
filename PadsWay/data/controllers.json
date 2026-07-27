@@ -2,145 +2,6 @@
   "controllers": [
     {
       "axes": {
-        "hid_accel": {
-          "invert": false,
-          "target": "trigger_l"
-        },
-        "hid_brake": {
-          "invert": false,
-          "target": "trigger_r"
-        },
-        "hid_rz": {
-          "invert": true,
-          "target": "right_y"
-        },
-        "hid_x": {
-          "invert": false,
-          "target": "left_x"
-        },
-        "hid_y": {
-          "invert": true,
-          "target": "left_y"
-        },
-        "hid_z": {
-          "invert": false,
-          "target": "right_x"
-        }
-      },
-      "axis_actions": {
-        "left_x_neg": {
-          "virtual": "left_x_neg"
-        },
-        "left_x_pos": {
-          "virtual": "left_x_pos"
-        },
-        "left_y_neg": {
-          "virtual": "left_y_neg"
-        },
-        "left_y_pos": {
-          "virtual": "left_y_pos"
-        },
-        "right_x_neg": {
-          "virtual": "right_x_neg"
-        },
-        "right_x_pos": {
-          "virtual": "right_x_pos"
-        },
-        "right_y_neg": {
-          "virtual": "right_y_neg"
-        },
-        "right_y_pos": {
-          "virtual": "right_y_pos"
-        }
-      },
-      "buttons": {
-        "1": {
-          "physical": "b",
-          "virtual": "b"
-        },
-        "11": {
-          "physical": "select",
-          "virtual": "select"
-        },
-        "12": {
-          "physical": "start",
-          "virtual": "start"
-        },
-        "13": {
-          "physical": "home",
-          "virtual": "home"
-        },
-        "14": {
-          "physical": "l3",
-          "virtual": "l3"
-        },
-        "15": {
-          "physical": "r3",
-          "virtual": "r3"
-        },
-        "17": {
-          "physical": "l4"
-        },
-        "18": {
-          "physical": "r4"
-        },
-        "2": {
-          "physical": "a",
-          "virtual": "a"
-        },
-        "3": {
-          "physical": "rp"
-        },
-        "4": {
-          "physical": "y",
-          "virtual": "y"
-        },
-        "5": {
-          "physical": "x",
-          "virtual": "x"
-        },
-        "6": {
-          "physical": "lp"
-        },
-        "7": {
-          "physical": "l1",
-          "virtual": "l1"
-        },
-        "8": {
-          "physical": "r1",
-          "virtual": "r1"
-        }
-      },
-      "dpad": "hid_hat",
-      "imu": {
-        "accel_scale": 0.0001,
-        "accel_x_offset": 15,
-        "accel_y_offset": 17,
-        "accel_z_offset": 19,
-        "enabled": true,
-        "gyro_scale": 0.0001,
-        "gyro_x_offset": 23,
-        "gyro_y_offset": 25,
-        "gyro_z_offset": 21
-      },
-      "layout_id": "8BitDo-Pro3",
-      "mode": "hid",
-      "pid": "6009",
-      "source_name": "8BitDo Pro 3 (D-mode)",
-      "trigger_actions": {
-        "l2": {
-          "target": "l2",
-          "type": "trigger_passthrough"
-        },
-        "r2": {
-          "target": "r2",
-          "type": "trigger_passthrough"
-        }
-      },
-      "vid": "2DC8"
-    },
-    {
-      "axes": {
         "hid_rx": {
           "invert": false,
           "target": "right_x"
@@ -831,6 +692,108 @@
     },
     {
       "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "trigger_l"
+        },
+        "hid_ry": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_rz": {
+          "invert": false,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "right_x"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "10": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "11": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "12": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "13": {
+          "physical": "home",
+          "virtual": "home"
+        },
+        "14": {
+          "physical": "touch_btn"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "9": {
+          "physical": "select",
+          "virtual": "select"
+        }
+      },
+      "connection": "usb",
+      "dpad": "hid_hat",
+      "imu": {
+        "accel_scale": 0.0001,
+        "accel_x_invert": true,
+        "accel_x_offset": 19,
+        "accel_y_invert": false,
+        "accel_y_offset": 23,
+        "accel_z_invert": false,
+        "accel_z_offset": 21,
+        "enabled": true,
+        "gyro_scale": 0.0001,
+        "gyro_x_invert": true,
+        "gyro_x_offset": 13,
+        "gyro_y_invert": true,
+        "gyro_y_offset": 15,
+        "gyro_z_invert": true,
+        "gyro_z_offset": 17
+      },
+      "layout_id": "dualshock4",
+      "mode": "hid",
+      "pid": "09CC",
+      "product_name": "Wireless Controller",
+      "source_name": "Wireless Controller",
+      "vid": "054C"
+    },
+    {
+      "axes": {
         "hid_accel": {
           "invert": false,
           "target": "trigger_l"
@@ -936,110 +899,8 @@
       "mode": "hid",
       "pid": "6009",
       "product_name": "8BitDo Pro 3",
-      "source_name": "8BitDo Pro 3",
+      "source_name": "8BitDo Pro 3 (D-mode)",
       "vid": "2DC8"
-    },
-    {
-      "axes": {
-        "hid_rx": {
-          "invert": false,
-          "target": "trigger_l"
-        },
-        "hid_ry": {
-          "invert": false,
-          "target": "trigger_r"
-        },
-        "hid_rz": {
-          "invert": false,
-          "target": "right_y"
-        },
-        "hid_x": {
-          "invert": false,
-          "target": "left_x"
-        },
-        "hid_y": {
-          "invert": true,
-          "target": "left_y"
-        },
-        "hid_z": {
-          "invert": false,
-          "target": "right_x"
-        }
-      },
-      "buttons": {
-        "1": {
-          "physical": "x",
-          "virtual": "x"
-        },
-        "10": {
-          "physical": "start",
-          "virtual": "start"
-        },
-        "11": {
-          "physical": "l3",
-          "virtual": "l3"
-        },
-        "12": {
-          "physical": "r3",
-          "virtual": "r3"
-        },
-        "13": {
-          "physical": "home",
-          "virtual": "home"
-        },
-        "14": {
-          "physical": "touch_btn"
-        },
-        "2": {
-          "physical": "a",
-          "virtual": "a"
-        },
-        "3": {
-          "physical": "b",
-          "virtual": "b"
-        },
-        "4": {
-          "physical": "y",
-          "virtual": "y"
-        },
-        "5": {
-          "physical": "l1",
-          "virtual": "l1"
-        },
-        "6": {
-          "physical": "r1",
-          "virtual": "r1"
-        },
-        "9": {
-          "physical": "select",
-          "virtual": "select"
-        }
-      },
-      "connection": "usb",
-      "dpad": "hid_hat",
-      "imu": {
-        "accel_scale": 0.0001,
-        "accel_x_invert": true,
-        "accel_x_offset": 19,
-        "accel_y_invert": false,
-        "accel_y_offset": 23,
-        "accel_z_invert": false,
-        "accel_z_offset": 21,
-        "enabled": true,
-        "gyro_scale": 0.0001,
-        "gyro_x_invert": true,
-        "gyro_x_offset": 13,
-        "gyro_y_invert": true,
-        "gyro_y_offset": 15,
-        "gyro_z_invert": true,
-        "gyro_z_offset": 17
-      },
-      "layout_id": "dualshock4",
-      "mode": "hid",
-      "pid": "09CC",
-      "product_name": "Wireless Controller",
-      "source_name": "Wireless Controller",
-      "vid": "054C"
     }
   ]
 }

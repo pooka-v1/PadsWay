@@ -53,6 +53,12 @@ void BindingWizard::unload() {
     m_arrowRight.release();
     m_arrowUp.release();
     m_arrowDown.release();
+    m_gyroArrowN.release();
+    m_gyroArrowS.release();
+    m_gyroArrowE.release();
+    m_gyroArrowW.release();
+    m_gyroArrowCW.release();
+    m_gyroArrowCCW.release();
 }
 
 void BindingWizard::loadArrows() {
@@ -60,6 +66,12 @@ void BindingWizard::loadArrows() {
     PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRight);
     PadView::loadPng(m_device, "images/decorations/ArrowUp.png",    m_arrowUp);
     PadView::loadPng(m_device, "images/decorations/ArrowDown.png",  m_arrowDown);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowNort.png",             m_gyroArrowN);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowSouth.png",            m_gyroArrowS);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowEst.png",              m_gyroArrowE);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowWest.png",             m_gyroArrowW);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowClockwise.png",        m_gyroArrowCW);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowCounterclockwise.png", m_gyroArrowCCW);
 }
 
 // ---------------------------------------------------------------------------
@@ -572,6 +584,32 @@ void BindingWizard::renderCanvas(int highlightComp) {
             } else {
                 drawArrow(m_arrowDown, { center.x - kArrowSize * 0.5f,
                                          center.y + offset });
+            }
+        } else if (type == "gyro" &&
+                   (m_gyroRoundStage == GyroRoundStage::MoveToA || m_gyroRoundStage == GyroRoundStage::MoveToB) &&
+                   step.compIndex >= 0 && step.compIndex < (int)m_layout.components.size()) {
+            // Light the gyro widget's own reference arrow for the gesture being requested
+            // (see gyro_roll_a/gyro_pitch_a/gyro_yaw_a prompts) — drawn at native size centered
+            // on the component, same as every other gyro-widget layer (PadView.cpp), as an
+            // overlay on top of the widget's always-dim arrows (PadView's fake wizard state has
+            // no gyro reading).
+            const PadComponent& comp = m_layout.components[step.compIndex];
+            ImVec2 gCenter = { m_canvasOrigin.x + comp.cx, m_canvasOrigin.y + comp.cy };
+
+            auto drawGyroArrow = [&](const PadTexture& tex) {
+                if (!tex.valid()) return;
+                ImVec2 tl = { gCenter.x - tex.w * 0.5f, gCenter.y - tex.h * 0.5f };
+                ImVec2 br = { tl.x + tex.w, tl.y + tex.h };
+                dl->AddImage((ImTextureID)(intptr_t)tex.srv, tl, br,
+                             {0,0}, {1,1}, IM_COL32(255, 235, 120, 255));
+            };
+
+            bool toA = (m_gyroRoundStage == GyroRoundStage::MoveToA);
+            switch (m_gyroPhase) {
+            case GyroPhase::Roll:  drawGyroArrow(toA ? m_gyroArrowE : m_gyroArrowW);  break;
+            case GyroPhase::Pitch: drawGyroArrow(toA ? m_gyroArrowN : m_gyroArrowS);  break;
+            case GyroPhase::Yaw:   drawGyroArrow(toA ? m_gyroArrowCW : m_gyroArrowCCW); break;
+            default: break;
             }
         }
     }

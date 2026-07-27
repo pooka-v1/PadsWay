@@ -1178,6 +1178,7 @@ std::vector<PadLayout> loadPadLayouts(const std::string& path) {
             c.state      = cj.value("state",        "");
             c.stateX     = cj.value("state_x",      "");
             c.stateY     = cj.value("state_y",      "");
+            c.stateZ     = cj.value("state_z",      "");
             c.stateClick = cj.value("state_click",  "");
             c.stateUp    = cj.value("state_up",     "");
             c.stateDown  = cj.value("state_down",   "");
@@ -1248,6 +1249,7 @@ void savePadLayouts(const std::string& path, const std::vector<PadLayout>& layou
             if (!c.state.empty())      jc["state"]       = c.state;
             if (!c.stateX.empty())     jc["state_x"]     = c.stateX;
             if (!c.stateY.empty())     jc["state_y"]     = c.stateY;
+            if (!c.stateZ.empty())     jc["state_z"]     = c.stateZ;
             if (!c.stateClick.empty()) jc["state_click"]  = c.stateClick;
             if (!c.stateUp.empty())    jc["state_up"]    = c.stateUp;
             if (!c.stateDown.empty())  jc["state_down"]  = c.stateDown;

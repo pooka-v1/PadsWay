@@ -177,6 +177,7 @@
         "gyro_axes":      "Ejes giroscopio",
         "gyro_h":         "Horizontal (X):",
         "gyro_v":         "Vertical (Y):",
+        "gyro_rot":       "Rotacional (Z):",
         "delete_elem":    "Eliminar elemento",
         "colors":         "Colores",
         "color_base":     "Base:",

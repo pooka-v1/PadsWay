@@ -28,6 +28,7 @@ struct PadComponent {
     std::string state;             // bool or float field name
     float       threshold = 0.05f; // float-as-button: pressed if state > threshold
     std::string stateX, stateY, stateClick;           // stick
+    std::string stateZ;                               // gyro only: yaw
     std::string stateUp, stateDown, stateLeft, stateRight;  // dpad
 
     // Colors [r, g, b, a]

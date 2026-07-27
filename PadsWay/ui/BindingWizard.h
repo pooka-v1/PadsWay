@@ -378,6 +378,12 @@ private:
     PadTexture m_arrowUp;
     PadTexture m_arrowDown;
 
+    // Gyroscope widget arrows (same assets as PadView's gyro widget, see loadArrows()) —
+    // lit during the gyro step's Roll/Pitch/Yaw MoveToA/MoveToB to show which gesture is
+    // being requested, instead of the generic axis arrows above.
+    PadTexture m_gyroArrowN, m_gyroArrowS, m_gyroArrowE, m_gyroArrowW;
+    PadTexture m_gyroArrowCW, m_gyroArrowCCW;
+
     static constexpr float kAxisNoiseFloor = 0.30f;  // below this is drift/noise — resets confirmation
     static constexpr float kAxisThreshold  = 0.45f;  // must exceed this to commit
     static constexpr DWORD kWinmmThreshold = 12000;  // out of 65535
