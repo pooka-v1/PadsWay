@@ -464,6 +464,10 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
             cfg.stickSelectThreshold = pc["stick_select_threshold"].get<float>();
         if (pc.contains("stick_hold_ms") && pc["stick_hold_ms"].is_number_integer())
             cfg.stickHoldMs = pc["stick_hold_ms"].get<int>();
+        if (pc.contains("gyro_select_threshold") && pc["gyro_select_threshold"].is_number())
+            cfg.gyroSelectThreshold = pc["gyro_select_threshold"].get<float>();
+        if (pc.contains("accel_select_threshold") && pc["accel_select_threshold"].is_number())
+            cfg.accelSelectThreshold = pc["accel_select_threshold"].get<float>();
     }
     return cfg;
 }

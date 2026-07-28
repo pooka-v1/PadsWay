@@ -658,25 +658,27 @@ void PadView::renderGyroArrows(ImVec2 canvasOrigin, int selectedComp, const std:
     const PadComponent& c = m_layout.components[selectedComp];
     if (c.type != "gyro") return;
 
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    float r  = c.size > 0.0f ? c.size * 0.5f : 35.0f;
+    // Redraw the same native arrow texture the gyro widget itself draws for this direction, on
+    // top, with an "active" (selected) tint — same idea as a stick component turning active-color
+    // when clicked, not a separate marker shape. Native size/position matches render()'s "gyro"
+    // branch exactly, so this lines up with the visible arrowhead regardless of where within the
+    // texture it's drawn.
+    const PadTexture* tex = nullptr;
+    if      (selDir == "up")    tex = &m_gyroArrowN;
+    else if (selDir == "down")  tex = &m_gyroArrowS;
+    else if (selDir == "right") tex = &m_gyroArrowE;
+    else if (selDir == "left")  tex = &m_gyroArrowW;
+    else if (selDir == "cw")    tex = &m_gyroArrowCW;
+    else if (selDir == "ccw")   tex = &m_gyroArrowCCW;
+    if (!tex || !tex->valid()) return;
+
     float cx = canvasOrigin.x + c.cx;
     float cy = canvasOrigin.y + c.cy;
-
-    // A yellow ring over the selected direction — same selection color as stick arrows, but drawn
-    // as a highlight ring rather than a substitute arrow image (the gyro widget's own native
-    // arrows already provide the icon; this just marks which one is currently armed for editing).
-    ImVec2 sel;
-    if      (selDir == "up" || selDir == "down" || selDir == "left" || selDir == "right")
-        sel = gyroCardinalCenter(cx, cy, r, selDir.c_str());
-    else if (selDir == "cw")
-        sel = gyroRotCenter(cx, cy, r, true);
-    else if (selDir == "ccw")
-        sel = gyroRotCenter(cx, cy, r, false);
-    else
-        return;
-
-    dl->AddCircle(sel, kArrowHitSz, IM_COL32(255, 224, 0, 220), 16, 2.5f);
+    ImVec2 p0 = { cx - tex->w * 0.5f, cy - tex->h * 0.5f };
+    ImVec2 p1 = { p0.x + tex->w, p0.y + tex->h };
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddImage((ImTextureID)(intptr_t)tex->srv, p0, p1, { 0, 0 }, { 1, 1 },
+                 ImGui::ColorConvertFloat4ToU32({ 1.0f, 0.88f, 0.15f, 1.0f }));
 }
 
 int PadView::hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const {

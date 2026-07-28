@@ -33,7 +33,8 @@ public:
     void init(ID3D11Device* device, PadEngine* engine,
               const std::vector<PadLayout>& layouts,
               const std::vector<std::string>& acceptedXbox,
-              float stickSelectThreshold, int stickHoldMs);
+              float stickSelectThreshold, int stickHoldMs,
+              float gyroSelectThreshold, float accelSelectThreshold);
 
     // Update the controller config snapshot (call after any save/reload).
     void setConfigs(const std::vector<ControllerConfig>& configs);
@@ -91,6 +92,8 @@ private:
     std::vector<std::string>    m_acceptedXbox;
     float                       m_stickSelectThreshold = 0.85f;
     int                         m_stickHoldMs          = 2000;
+    float                       m_gyroSelectThreshold  = 0.6f;
+    float                       m_accelSelectThreshold = 0.5f;
 
     MappingModel     m_model;
     MappingSelection m_sel;

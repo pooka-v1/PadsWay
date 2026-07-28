@@ -77,7 +77,16 @@
         "hint_click_any":   "Haz clic en el boton, stick o cruceta virtual para asignar",
         "hint_half_axis":   "Elige la accion del semieje en el panel",
         "hint_click_stick": "Haz clic en el stick o cruceta virtual al que quieres asignar",
-        "hint_pick_target": "Elige boton, stick o cruceta en el virtual  —  o pulsa el boton fisico"
+        "hint_pick_target": "Elige boton, stick o cruceta en el virtual  —  o pulsa el boton fisico",
+        "hint_hold_gyro":   "Sigue moviendo/inclinando el mando en esa direccion...",
+        "gyro_dir_pitch_pos": "Adelante (Pitch+)",
+        "gyro_dir_pitch_neg": "Atras (Pitch-)",
+        "gyro_dir_roll_pos":  "Derecha (Roll+)",
+        "gyro_dir_roll_neg":  "Izquierda (Roll-)",
+        "gyro_dir_yaw_pos":   "Giro horario (Yaw+)",
+        "gyro_dir_yaw_neg":   "Giro antihorario (Yaw-)",
+        "gyro_source_gyro":   "Gyro",
+        "gyro_source_accel":  "Accel"
     },
     "wizard": {
         "step_select_title": "Emparejar mando — Selecciona el controlador",

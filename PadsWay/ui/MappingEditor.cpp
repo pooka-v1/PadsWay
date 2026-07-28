@@ -15,13 +15,16 @@ using json = nlohmann::json;
 void MappingEditor::init(ID3D11Device* device, PadEngine* engine,
                          const std::vector<PadLayout>& layouts,
                          const std::vector<std::string>& acceptedXbox,
-                         float stickSelectThreshold, int stickHoldMs) {
+                         float stickSelectThreshold, int stickHoldMs,
+                         float gyroSelectThreshold, float accelSelectThreshold) {
     m_device               = device;
     m_engine               = engine;
     m_layouts              = layouts;
     m_acceptedXbox         = acceptedXbox;
     m_stickSelectThreshold = stickSelectThreshold;
     m_stickHoldMs          = stickHoldMs;
+    m_gyroSelectThreshold  = gyroSelectThreshold;
+    m_accelSelectThreshold = accelSelectThreshold;
     m_macroModal.init(device);
 }
 
@@ -381,27 +384,31 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (!dir.empty()) { activeStickComp = i; activeStickDir = dir; break; }
             }
 
-            // Gyro/accel: a sustained gesture on EITHER sensor arms the same logical direction —
-            // gyro catches the motion of turning/tilting, accel catches a held tilt afterward.
-            // "Un poco excéntrico" thresholds on purpose (well above the widget's 0.12 deadzone),
-            // so a normal handling jostle doesn't accidentally arm a direction.
+            // Gyro/accel: a sustained gesture arms the same logical direction. Accel checked
+            // FIRST for the 4 cardinal (pitch/roll) directions — it's orientation, so it holds
+            // steady for as long as the controller stays tilted, which is what actually lets the
+            // hold timer complete. Gyro is angular velocity: it spikes during the motion of
+            // tilting into place and decays back to ~0 the instant the controller stops moving,
+            // even while still held tilted — checking it first made the progress bar start then
+            // reset every time. Gyro remains the fallback for pitch/roll and the only source for
+            // yaw (cw/ccw), which accel cannot sense at all while flat.
+            // Thresholds deliberately well above the widget's own 0.12 live-feedback deadzone —
+            // a held gesture should be unmistakable, not a casual jostle.
             int gyroCompIdx = -1;
             for (int i = 0; i < (int)physComps.size(); ++i)
                 if (physComps[i].type == "gyro") { gyroCompIdx = i; break; }
             std::string activeGyroDir;
             if (gyroCompIdx >= 0) {
-                constexpr float kGyroHoldThreshold  = 0.6f;
-                constexpr float kAccelHoldThreshold = 0.5f;
-                if      (physNow.gyroX  >=  kGyroHoldThreshold)  activeGyroDir = "up";
-                else if (physNow.gyroX  <= -kGyroHoldThreshold)  activeGyroDir = "down";
-                else if (physNow.gyroZ  >=  kGyroHoldThreshold)  activeGyroDir = "right";
-                else if (physNow.gyroZ  <= -kGyroHoldThreshold)  activeGyroDir = "left";
-                else if (physNow.gyroY  >=  kGyroHoldThreshold)  activeGyroDir = "cw";
-                else if (physNow.gyroY  <= -kGyroHoldThreshold)  activeGyroDir = "ccw";
-                else if (physNow.accelY >=  kAccelHoldThreshold) activeGyroDir = "up";
-                else if (physNow.accelY <= -kAccelHoldThreshold) activeGyroDir = "down";
-                else if (physNow.accelX >=  kAccelHoldThreshold) activeGyroDir = "right";
-                else if (physNow.accelX <= -kAccelHoldThreshold) activeGyroDir = "left";
+                if      (physNow.accelY >=  m_accelSelectThreshold) activeGyroDir = "up";
+                else if (physNow.accelY <= -m_accelSelectThreshold) activeGyroDir = "down";
+                else if (physNow.accelX >=  m_accelSelectThreshold) activeGyroDir = "right";
+                else if (physNow.accelX <= -m_accelSelectThreshold) activeGyroDir = "left";
+                else if (physNow.gyroY  >=  m_gyroSelectThreshold)  activeGyroDir = "cw";
+                else if (physNow.gyroY  <= -m_gyroSelectThreshold)  activeGyroDir = "ccw";
+                else if (physNow.gyroX  >=  m_gyroSelectThreshold)  activeGyroDir = "up";
+                else if (physNow.gyroX  <= -m_gyroSelectThreshold)  activeGyroDir = "down";
+                else if (physNow.gyroZ  >=  m_gyroSelectThreshold)  activeGyroDir = "right";
+                else if (physNow.gyroZ  <= -m_gyroSelectThreshold)  activeGyroDir = "left";
             }
 
             if (activeStickComp >= 0) {
@@ -1166,7 +1173,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             msg = tr("mapper.hint_hold_trigger");
         } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && m_sel.h9HoldComp >= 0 &&
                    !m_sel.h9HoldGyroDir.empty()) {
-            msg = "Sigue moviendo/inclinando el mando en esa direccion...";
+            msg = tr("mapper.hint_hold_gyro");
         } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && m_sel.h9HoldComp >= 0) {
             msg = m_sel.h9HoldStickDir.empty()
                 ? tr("mapper.hint_hold_button")
@@ -1238,7 +1245,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         ImGui::Spacing();
         float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
 
-    if (selType != "stick" || m_sel.stickAsButton) {
+    if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
         // ── H5: botón seleccionado ─────────────────────────────────────────
         const auto& selPhysComp = physComps[m_sel.physComp];
         const std::string physShortSel = (selType == "stick" && m_sel.stickAsButton)
@@ -1579,13 +1586,13 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             const std::string dir = m_sel.stickDir;
             bool dirIsYaw = (dir == "cw" || dir == "ccw");
 
-            static const std::unordered_map<std::string, const char*> kDirLabels = {
-                {"up",    "Adelante (Pitch+)"}, {"down", "Atras (Pitch-)"},
-                {"right", "Derecha (Roll+)"},   {"left", "Izquierda (Roll-)"},
-                {"cw",    "Giro horario (Yaw+)"}, {"ccw", "Giro antihorario (Yaw-)"},
+            static const std::unordered_map<std::string, const char*> kDirLabelKeys = {
+                {"up",    "mapper.gyro_dir_pitch_pos"}, {"down", "mapper.gyro_dir_pitch_neg"},
+                {"right", "mapper.gyro_dir_roll_pos"},  {"left", "mapper.gyro_dir_roll_neg"},
+                {"cw",    "mapper.gyro_dir_yaw_pos"},   {"ccw",  "mapper.gyro_dir_yaw_neg"},
             };
-            auto dirLabelIt = kDirLabels.find(dir);
-            const char* dirLabel = dirLabelIt != kDirLabels.end() ? dirLabelIt->second : dir.c_str();
+            auto dirLabelIt = kDirLabelKeys.find(dir);
+            const char* dirLabel = dirLabelIt != kDirLabelKeys.end() ? tr(dirLabelIt->second) : dir.c_str();
 
             float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
             ImGui::Spacing();
@@ -1598,11 +1605,28 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 ImGui::TextColored({ 1.0f, 0.86f, 0.0f, 1.0f }, "%s", dirLabel);
             }
 
-            // Source toggle: Auto (per-type default) / Gyro / Accel. Hidden for yaw (cw/ccw) -
-            // accel cannot sense rotation around the vertical axis while flat, always gyro.
+            // Source toggle: Gyro / Accel. Whichever is the type's own default shows marked
+            // until the user picks one explicitly. Hidden for yaw (cw/ccw) - accel cannot sense
+            // rotation around the vertical axis while flat, always gyro.
             if (!dirIsYaw) {
+                // Representative HalfAxisActionType per tab, used only to preview the default
+                // before a concrete target is picked. The "Mando" tab covers 4 different target
+                // kinds (button/dpad/trigger/stick) decided only at click time — VirtualButton
+                // (gyro-default) previews it since button is the most common case there.
+                HalfAxisActionType previewType = HalfAxisActionType::VirtualButton;
+                switch (m_sel.actionType) {
+                    case ActionType::Macro:     previewType = HalfAxisActionType::Macro;      break;
+                    case ActionType::Keyboard:  previewType = HalfAxisActionType::Keyboard;   break;
+                    case ActionType::Mouse:     previewType = HalfAxisActionType::MouseClick; break;
+                    case ActionType::MouseMove: previewType = HalfAxisActionType::MouseMove;  break;
+                    case ActionType::Bot:       previewType = HalfAxisActionType::Bot;        break;
+                    default: break;
+                }
+                bool displayAccel = m_sel.imuSourceOverridden ? m_sel.imuUseAccel
+                                                               : imuDefaultUsesAccel(previewType);
+
                 constexpr float kSrcBtnW = 70.0f;
-                float totalSrcW = kSrcBtnW * 3 + ImGui::GetStyle().ItemSpacing.x * 2;
+                float totalSrcW = kSrcBtnW * 2 + ImGui::GetStyle().ItemSpacing.x;
                 float offXs = (availW - totalSrcW) * 0.5f;
                 if (offXs > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offXs);
                 auto srcBtn = [&](const char* label, bool active) {
@@ -1611,14 +1635,14 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     if (active) ImGui::PopStyleColor();
                     return clicked;
                 };
-                if (srcBtn("Auto##imuSrcAuto", !m_sel.imuSourceOverridden))
-                    m_sel.imuSourceOverridden = false;
-                ImGui::SameLine();
-                if (srcBtn("Gyro##imuSrcGyro", m_sel.imuSourceOverridden && !m_sel.imuUseAccel)) {
+                char lblSrcGyro[64], lblSrcAccel[64];
+                snprintf(lblSrcGyro,  sizeof(lblSrcGyro),  "%s##imuSrcGyro",  tr("mapper.gyro_source_gyro"));
+                snprintf(lblSrcAccel, sizeof(lblSrcAccel), "%s##imuSrcAccel", tr("mapper.gyro_source_accel"));
+                if (srcBtn(lblSrcGyro, !displayAccel)) {
                     m_sel.imuSourceOverridden = true; m_sel.imuUseAccel = false;
                 }
                 ImGui::SameLine();
-                if (srcBtn("Accel##imuSrcAccel", m_sel.imuSourceOverridden && m_sel.imuUseAccel)) {
+                if (srcBtn(lblSrcAccel, displayAccel)) {
                     m_sel.imuSourceOverridden = true; m_sel.imuUseAccel = true;
                 }
             }

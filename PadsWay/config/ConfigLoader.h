@@ -54,6 +54,13 @@ struct VirtualPadConfig {
     std::vector<std::string> acceptedXboxButtons    = {"a","b","x","y","l1","r1","select","start","home","l3","r3"};
     float                    stickSelectThreshold   = 0.85f;    // normalized [0,1]
     int                      stickHoldMs            = 2000;     // ms held at tope to select direction
+    // Gyro/accel hold-to-arm thresholds for the Mapper (Component System half-axis reassignment).
+    // Deliberately well above the gyro widget's own 0.12 deadzone — a held gesture should be
+    // unmistakable, not a casual jostle. Accel (orientation, sustains while tilted) is what
+    // actually completes the hold for pitch/roll; gyro (angular velocity, decays to 0 at rest)
+    // is checked as a fallback for pitch/roll and is the only source for yaw (cw/ccw).
+    float                    gyroSelectThreshold    = 0.6f;
+    float                    accelSelectThreshold   = 0.5f;
     bool                     console                = false;    // open a console window for live logs (set "console": true)
 };
 

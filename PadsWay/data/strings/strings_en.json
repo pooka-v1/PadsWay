@@ -77,7 +77,16 @@
         "hint_click_any":   "Click a virtual button, stick or d-pad to assign",
         "hint_half_axis":   "Pick the half-axis action in the panel",
         "hint_click_stick": "Click the virtual stick or d-pad to assign",
-        "hint_pick_target": "Pick button, stick or d-pad on virtual  —  or press physical button"
+        "hint_pick_target": "Pick button, stick or d-pad on virtual  —  or press physical button",
+        "hint_hold_gyro":   "Keep moving/tilting the controller in that direction...",
+        "gyro_dir_pitch_pos": "Forward (Pitch+)",
+        "gyro_dir_pitch_neg": "Backward (Pitch-)",
+        "gyro_dir_roll_pos":  "Right (Roll+)",
+        "gyro_dir_roll_neg":  "Left (Roll-)",
+        "gyro_dir_yaw_pos":   "Turn clockwise (Yaw+)",
+        "gyro_dir_yaw_neg":   "Turn counter-clockwise (Yaw-)",
+        "gyro_source_gyro":   "Gyro",
+        "gyro_source_accel":  "Accel"
     },
     "wizard": {
         "step_select_title": "Pair controller — Select controller",

@@ -93,6 +93,8 @@ int AppWindow::run() {
         m_acceptedXboxButtons  = vpCfg.acceptedXboxButtons;
         m_stickSelectThreshold = vpCfg.stickSelectThreshold;
         m_stickHoldMs          = vpCfg.stickHoldMs;
+        m_gyroSelectThreshold  = vpCfg.gyroSelectThreshold;
+        m_accelSelectThreshold = vpCfg.accelSelectThreshold;
         locale = vpCfg.locale;
     } catch (...) {}  // struct defaults apply if file is missing or malformed
     Strings::load(locale);
@@ -110,7 +112,8 @@ int AppWindow::run() {
     m_virtualPadView.load(m_device);
     m_layoutEditor.init(m_device, &m_padLayouts, Paths::userData("data/pad_layouts.json"));
     m_mappingEditor.init(m_device, &m_engine, m_padLayouts,
-                         m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs);
+                         m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs,
+                         m_gyroSelectThreshold, m_accelSelectThreshold);
     m_mappingEditor.setConfigs(m_controllerConfigs);
     m_macroManager.init(m_device);
 
