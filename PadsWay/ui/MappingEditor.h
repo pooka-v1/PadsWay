@@ -103,7 +103,7 @@ private:
     // Inline macro modal
     MacroCreatorModal m_macroModal;
     struct MacroModalPending {
-        enum class Ctx { None, Button, Axis, Trigger } ctx = Ctx::None;
+        enum class Ctx { None, Button, Axis, Trigger, Gyro } ctx = Ctx::None;
         std::string key;
     } m_macroModalPending;
 
@@ -122,6 +122,7 @@ private:
     // Click handling — chained dispatch
     void handleClick(PadView& phys, PadView& virt, ImVec2 mouse);
     void onArrowHit(int arrowComp, const std::string& dir);
+    void onGyroArrowHit(int arrowComp, const std::string& dir);
     void onPhysButtonHit(PadView& phys, int physHit);
     void onPhysStickHit(int physHit);
     void onPhysDpadHit(PadView& phys, int physHit, ImVec2 mouse);
@@ -130,4 +131,25 @@ private:
     void onVirtHitTriggerSrc(PadView& virt, ImVec2 mouse);
     void onVirtArrowHit(PadView& phys, PadView& virt, int virtComp, const std::string& dir);
     void onVirtHitAxisAction(PadView& phys, PadView& virt, ImVec2 mouse);
+    void onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mouse);
+
+    // PURE lookup, no side effects — safe to call every frame for display purposes as well as
+    // right before a write. Resolves which map (m_model.gyroActionEdits or accelActionEdits) a
+    // gyro-widget logical direction ("up"/"down"/"left"/"right"/"cw"/"ccw") should read/write for
+    // the given HalfAxisActionType, and writes the native key for that sensor to outKey (gyro and
+    // accel use different keys for the same direction — see PhysicalAccel's comment in
+    // ComponentTypes.h). cw/ccw always resolve to gyro (accel can't sense yaw). Otherwise:
+    // m_sel.imuSourceOverridden wins if set, else the type's own default (Dpad/StickSlot/Trigger
+    // -> accel, everything else -> gyro).
+    std::unordered_map<std::string, HalfAxisAction>& resolveImuTargetMap(
+        const std::string& dir, HalfAxisActionType targetType, std::string& outKey);
+
+    // Erases the OTHER sensor's entry for this direction — call right before actually committing
+    // a new assignment (not on every frame) so a direction only ever has one active source.
+    void clearImuOtherMap(const std::string& dir, bool chosenIsAccel);
+
+    // Resolve + clear-other + write in one step, for the common "assign this action outright"
+    // call sites (macro/keyboard/mouse-click/bot/mouse-move). Toggle-off-if-already-same sites
+    // (onVirtHitGyroAction, Ranges, macro-inline modal) do their own read-then-write instead.
+    void assignImuAction(const std::string& dir, const HalfAxisAction& ha);
 };

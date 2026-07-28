@@ -622,3 +622,92 @@ int PadView::hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string
     }
     return -1;
 }
+
+// ---------------------------------------------------------------------------
+// renderGyroArrows / hitTestGyroArrow
+// ---------------------------------------------------------------------------
+// The gyro widget's own N/S/E/W/CW/CCW arrows (drawn natively, see render()'s "gyro" branch) sit
+// near the rim of the sphere, all stacked at the same center as the widget. Cardinal zones
+// (up/down/left/right = pitch/roll) reuse the same radial layout as renderStickArrows/
+// hitTestStickArrow above. CW/CCW have no formulaic position (their curved-arrow art is
+// hand-authored, mirrored: the "turn right" glyph sits on the LEFT of the widget, "turn left" on
+// the RIGHT — see REFERENCE.md) so their hit zones are placed diagonally, offset from the
+// cardinals to avoid overlap. TUNE constants below after seeing it rendered for real.
+static constexpr float kGyroCardinalGapFactor = 0.0f;   // gyro arrows sit ON the rim, no outward push
+static constexpr float kGyroRotZoneAngleDeg   = 45.0f;  // CW/CCW zones, degrees off pure left/right
+
+static ImVec2 gyroCardinalCenter(float cx, float cy, float r, const char* dir) {
+    float dist = r + kGyroCardinalGapFactor;
+    if      (dir[0] == 'u') return { cx,        cy - dist };  // up (pitch+)
+    else if (dir[0] == 'd') return { cx,        cy + dist };  // down (pitch-)
+    else if (dir[0] == 'l') return { cx - dist, cy        };  // left (roll-)
+    else                    return { cx + dist, cy        };  // right (roll+)
+}
+
+// cw -> lower-left arc, ccw -> lower-right arc (mirrored glyph convention, see comment above).
+static ImVec2 gyroRotCenter(float cx, float cy, float r, bool cw) {
+    float rad = kGyroRotZoneAngleDeg * 3.14159265f / 180.0f;
+    float sx  = cw ? -sinf(rad) : sinf(rad);
+    float sy  = cosf(rad);
+    return { cx + sx * r, cy + sy * r };
+}
+
+void PadView::renderGyroArrows(ImVec2 canvasOrigin, int selectedComp, const std::string& selDir) {
+    if (!m_loaded || selectedComp < 0 || selDir.empty()) return;
+    if (selectedComp >= (int)m_layout.components.size()) return;
+    const PadComponent& c = m_layout.components[selectedComp];
+    if (c.type != "gyro") return;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float r  = c.size > 0.0f ? c.size * 0.5f : 35.0f;
+    float cx = canvasOrigin.x + c.cx;
+    float cy = canvasOrigin.y + c.cy;
+
+    // A yellow ring over the selected direction — same selection color as stick arrows, but drawn
+    // as a highlight ring rather than a substitute arrow image (the gyro widget's own native
+    // arrows already provide the icon; this just marks which one is currently armed for editing).
+    ImVec2 sel;
+    if      (selDir == "up" || selDir == "down" || selDir == "left" || selDir == "right")
+        sel = gyroCardinalCenter(cx, cy, r, selDir.c_str());
+    else if (selDir == "cw")
+        sel = gyroRotCenter(cx, cy, r, true);
+    else if (selDir == "ccw")
+        sel = gyroRotCenter(cx, cy, r, false);
+    else
+        return;
+
+    dl->AddCircle(sel, kArrowHitSz, IM_COL32(255, 224, 0, 220), 16, 2.5f);
+}
+
+int PadView::hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const {
+    const char* dirs[4] = { "up", "down", "left", "right" };
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "gyro") continue;
+
+        float r  = c.size > 0.0f ? c.size * 0.5f : 35.0f;
+        float cx = canvasOrigin.x + c.cx;
+        float cy = canvasOrigin.y + c.cy;
+
+        for (int d = 0; d < 4; ++d) {
+            ImVec2 ac = gyroCardinalCenter(cx, cy, r, dirs[d]);
+            if (mousePos.x >= ac.x - kArrowHitSz && mousePos.x <= ac.x + kArrowHitSz &&
+                mousePos.y >= ac.y - kArrowHitSz && mousePos.y <= ac.y + kArrowHitSz) {
+                outDir = dirs[d];
+                return i;
+            }
+        }
+
+        const char* rotDirs[2] = { "cw", "ccw" };
+        for (int d = 0; d < 2; ++d) {
+            ImVec2 rc = gyroRotCenter(cx, cy, r, d == 0);
+            if (mousePos.x >= rc.x - kArrowHitSz && mousePos.x <= rc.x + kArrowHitSz &&
+                mousePos.y >= rc.y - kArrowHitSz && mousePos.y <= rc.y + kArrowHitSz) {
+                outDir = rotDirs[d];
+                return i;
+            }
+        }
+    }
+    return -1;
+}

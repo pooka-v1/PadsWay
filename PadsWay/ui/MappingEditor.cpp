@@ -139,6 +139,69 @@ static std::pair<int, std::string> slotKeyToArrow(const PadLayout& vLayout, cons
 }
 
 // ---------------------------------------------------------------------------
+// Gyro/accel logical direction ("up"/"down"/"left"/"right"/"cw"/"ccw") -> each sensor's own
+// native half-axis key. Unlike stick slots (left_x_pos…), gyro is a single fixed axis set per
+// controller, so this is a static table, not a per-instance lookup. cw/ccw have no accel
+// equivalent — the accelerometer cannot sense rotation around the vertical axis while flat.
+// See PhysicalAccel's comment in ComponentTypes.h for the letter-to-gesture mapping per sensor.
+static std::string gyroKeyFromDir(const std::string& dir) {
+    if (dir == "up")    return "x_pos";   // pitch+
+    if (dir == "down")  return "x_neg";   // pitch-
+    if (dir == "right") return "z_pos";   // roll+
+    if (dir == "left")  return "z_neg";   // roll-
+    if (dir == "cw")    return "y_pos";   // yaw+
+    if (dir == "ccw")   return "y_neg";   // yaw-
+    return "";
+}
+static std::string accelKeyFromDir(const std::string& dir) {
+    if (dir == "up")    return "y_pos";   // frontal+
+    if (dir == "down")  return "y_neg";   // frontal-
+    if (dir == "right") return "x_pos";   // lateral+
+    if (dir == "left")  return "x_neg";   // lateral-
+    return "";   // cw/ccw: no accel equivalent, always resolves to gyro
+}
+
+// Default source per destination type, agreed with the user: proportional/held-position targets
+// (dpad hold, analog stick, trigger) default to accel (it sustains a value while tilted); every
+// other target (a discrete press/toggle, or mouse-move which already accumulates like a gyro
+// mouse) defaults to gyro.
+static bool imuDefaultUsesAccel(HalfAxisActionType t) {
+    return t == HalfAxisActionType::Dpad ||
+           t == HalfAxisActionType::StickSlot ||
+           t == HalfAxisActionType::Trigger;
+}
+
+// The other half of the same logical axis (for MouseMove's bidirectional auto-assign and Clear).
+static std::string oppositeGyroDir(const std::string& dir) {
+    if (dir == "up")    return "down";
+    if (dir == "down")  return "up";
+    if (dir == "left")  return "right";
+    if (dir == "right") return "left";
+    if (dir == "cw")    return "ccw";
+    if (dir == "ccw")   return "cw";
+    return "";
+}
+
+// Reverse of gyroKeyFromDir/accelKeyFromDir — used by the Rangos/macro-inline modals, which only
+// carry the already-resolved sensor-specific key (they were opened with it, not the direction).
+static std::string dirFromGyroKey(const std::string& k) {
+    if (k == "x_pos") return "up";
+    if (k == "x_neg") return "down";
+    if (k == "z_pos") return "right";
+    if (k == "z_neg") return "left";
+    if (k == "y_pos") return "cw";
+    if (k == "y_neg") return "ccw";
+    return "";
+}
+static std::string dirFromAccelKey(const std::string& k) {
+    if (k == "y_pos") return "up";
+    if (k == "y_neg") return "down";
+    if (k == "x_pos") return "right";
+    if (k == "x_neg") return "left";
+    return "";
+}
+
+// ---------------------------------------------------------------------------
 // render — full mapping editor UI (called each frame when active)
 // ---------------------------------------------------------------------------
 void MappingEditor::render(PadView& phys, PadView& virt) {
@@ -318,6 +381,29 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (!dir.empty()) { activeStickComp = i; activeStickDir = dir; break; }
             }
 
+            // Gyro/accel: a sustained gesture on EITHER sensor arms the same logical direction —
+            // gyro catches the motion of turning/tilting, accel catches a held tilt afterward.
+            // "Un poco excéntrico" thresholds on purpose (well above the widget's 0.12 deadzone),
+            // so a normal handling jostle doesn't accidentally arm a direction.
+            int gyroCompIdx = -1;
+            for (int i = 0; i < (int)physComps.size(); ++i)
+                if (physComps[i].type == "gyro") { gyroCompIdx = i; break; }
+            std::string activeGyroDir;
+            if (gyroCompIdx >= 0) {
+                constexpr float kGyroHoldThreshold  = 0.6f;
+                constexpr float kAccelHoldThreshold = 0.5f;
+                if      (physNow.gyroX  >=  kGyroHoldThreshold)  activeGyroDir = "up";
+                else if (physNow.gyroX  <= -kGyroHoldThreshold)  activeGyroDir = "down";
+                else if (physNow.gyroZ  >=  kGyroHoldThreshold)  activeGyroDir = "right";
+                else if (physNow.gyroZ  <= -kGyroHoldThreshold)  activeGyroDir = "left";
+                else if (physNow.gyroY  >=  kGyroHoldThreshold)  activeGyroDir = "cw";
+                else if (physNow.gyroY  <= -kGyroHoldThreshold)  activeGyroDir = "ccw";
+                else if (physNow.accelY >=  kAccelHoldThreshold) activeGyroDir = "up";
+                else if (physNow.accelY <= -kAccelHoldThreshold) activeGyroDir = "down";
+                else if (physNow.accelX >=  kAccelHoldThreshold) activeGyroDir = "right";
+                else if (physNow.accelX <= -kAccelHoldThreshold) activeGyroDir = "left";
+            }
+
             if (activeStickComp >= 0) {
                 if (m_sel.h9HoldComp != activeStickComp || m_sel.h9HoldStickDir != activeStickDir) {
                     m_sel.h9HoldComp      = activeStickComp;
@@ -334,6 +420,31 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         m_sel.h9HoldTimer   = 0.0f;
                     }
                 }
+            } else if (gyroCompIdx >= 0 && !activeGyroDir.empty()) {
+                // ── Paso 1a-bis: gyro/accel sostenido → seleccionar eje ──────────
+                if (m_sel.h9HoldComp != gyroCompIdx || m_sel.h9HoldGyroDir != activeGyroDir) {
+                    m_sel.h9HoldComp    = gyroCompIdx;
+                    m_sel.h9HoldGyroDir = activeGyroDir;
+                    m_sel.h9HoldTimer   = 0.0f;
+                } else {
+                    m_sel.h9HoldTimer += dt;
+                    if (m_sel.h9HoldTimer >= m_stickHoldMs / 1000.0f) {
+                        m_sel.physComp      = gyroCompIdx;
+                        m_sel.stickDir      = activeGyroDir;
+                        m_sel.stickAsButton = false;
+                        m_sel.actionType    = ActionType::Xbox;
+                        m_sel.imuUseAccel = false; m_sel.imuSourceOverridden = false;
+                        m_sel.h9HoldComp    = -1;
+                        m_sel.h9HoldGyroDir.clear();
+                        m_sel.h9HoldTimer   = 0.0f;
+                    }
+                }
+            } else if (!m_sel.h9HoldGyroDir.empty()) {
+                // Gyro/accel hold released before completing — debounce-reset, same pattern as
+                // the stick-hold reset below.
+                m_sel.h9HoldComp = -1;
+                m_sel.h9HoldGyroDir.clear();
+                m_sel.h9HoldTimer = 0.0f;
             } else {
                 // ── Paso 1b: botón mantenido 1s → seleccionarlo ──
                 if (!m_sel.h9HoldStickDir.empty()) {
@@ -920,6 +1031,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             physArrowDir  = m_sel.flashPhysArrowDir;
         }
         phys.renderStickArrows(m_physOrigin, physArrowComp, physArrowDir);
+        phys.renderGyroArrows(m_physOrigin, physArrowComp, physArrowDir);
     }
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
@@ -976,6 +1088,20 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         it->second.type == HalfAxisActionType::StickSlot)
                         std::tie(virtArrowComp, virtArrowDir) =
                             slotKeyToArrow(virt.getLayout(), it->second.target);
+                } else if (sc.type == "gyro" && !m_sel.stickDir.empty()) {
+                    // Gyro/accel source: show StickSlot target if assigned, whichever sensor holds it.
+                    auto git = m_model.gyroActionEdits.find(gyroKeyFromDir(m_sel.stickDir));
+                    std::string accK = accelKeyFromDir(m_sel.stickDir);
+                    auto ait = accK.empty() ? m_model.accelActionEdits.end()
+                                            : m_model.accelActionEdits.find(accK);
+                    if (git != m_model.gyroActionEdits.end() &&
+                        git->second.type == HalfAxisActionType::StickSlot)
+                        std::tie(virtArrowComp, virtArrowDir) =
+                            slotKeyToArrow(virt.getLayout(), git->second.target);
+                    else if (ait != m_model.accelActionEdits.end() &&
+                             ait->second.type == HalfAxisActionType::StickSlot)
+                        std::tie(virtArrowComp, virtArrowDir) =
+                            slotKeyToArrow(virt.getLayout(), ait->second.target);
                 }
                 if (!physShort.empty()) {
                     auto it = m_model.buttonEdits.find(physShort);
@@ -1038,6 +1164,9 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             col = { 1.0f, 0.3f, 0.3f, 1.0f };
         } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && !m_sel.h9HoldTriggerSrc.empty()) {
             msg = tr("mapper.hint_hold_trigger");
+        } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && m_sel.h9HoldComp >= 0 &&
+                   !m_sel.h9HoldGyroDir.empty()) {
+            msg = "Sigue moviendo/inclinando el mando en esa direccion...";
         } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && m_sel.h9HoldComp >= 0) {
             msg = m_sel.h9HoldStickDir.empty()
                 ? tr("mapper.hint_hold_button")
@@ -1089,7 +1218,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             constexpr float kBarW = 160.0f;
             float barOffX = (availW - kBarW) * 0.5f;
             if (barOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + barOffX);
-            float holdSec = m_sel.h9HoldStickDir.empty() ? 1.0f : (m_stickHoldMs / 1000.0f);
+            float holdSec = (!m_sel.h9HoldStickDir.empty() || !m_sel.h9HoldGyroDir.empty())
+                ? (m_stickHoldMs / 1000.0f) : 1.0f;
             ImGui::ProgressBar(m_sel.h9HoldTimer / holdSec, { kBarW, 6.0f }, "");
         }
         if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() &&
@@ -1439,6 +1569,245 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
         }
     } // stick axis action panel
+
+    // ── Gyro/Accel axis action panel ──────────────────────────────────────────
+    if (m_sel.physComp >= 0) {
+        const auto& gyroComps = phys.getLayout().components;
+        if (m_sel.physComp < (int)gyroComps.size() &&
+            gyroComps[m_sel.physComp].type == "gyro" && !m_sel.stickDir.empty()) {
+
+            const std::string dir = m_sel.stickDir;
+            bool dirIsYaw = (dir == "cw" || dir == "ccw");
+
+            static const std::unordered_map<std::string, const char*> kDirLabels = {
+                {"up",    "Adelante (Pitch+)"}, {"down", "Atras (Pitch-)"},
+                {"right", "Derecha (Roll+)"},   {"left", "Izquierda (Roll-)"},
+                {"cw",    "Giro horario (Yaw+)"}, {"ccw", "Giro antihorario (Yaw-)"},
+            };
+            auto dirLabelIt = kDirLabels.find(dir);
+            const char* dirLabel = dirLabelIt != kDirLabels.end() ? dirLabelIt->second : dir.c_str();
+
+            float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
+            ImGui::Spacing();
+
+            // Direction label
+            {
+                float hdrW = ImGui::CalcTextSize(dirLabel).x;
+                float offX = (availW - hdrW) * 0.5f;
+                if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
+                ImGui::TextColored({ 1.0f, 0.86f, 0.0f, 1.0f }, "%s", dirLabel);
+            }
+
+            // Source toggle: Auto (per-type default) / Gyro / Accel. Hidden for yaw (cw/ccw) -
+            // accel cannot sense rotation around the vertical axis while flat, always gyro.
+            if (!dirIsYaw) {
+                constexpr float kSrcBtnW = 70.0f;
+                float totalSrcW = kSrcBtnW * 3 + ImGui::GetStyle().ItemSpacing.x * 2;
+                float offXs = (availW - totalSrcW) * 0.5f;
+                if (offXs > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offXs);
+                auto srcBtn = [&](const char* label, bool active) {
+                    if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                    bool clicked = ImGui::Button(label, { kSrcBtnW, 0.0f });
+                    if (active) ImGui::PopStyleColor();
+                    return clicked;
+                };
+                if (srcBtn("Auto##imuSrcAuto", !m_sel.imuSourceOverridden))
+                    m_sel.imuSourceOverridden = false;
+                ImGui::SameLine();
+                if (srcBtn("Gyro##imuSrcGyro", m_sel.imuSourceOverridden && !m_sel.imuUseAccel)) {
+                    m_sel.imuSourceOverridden = true; m_sel.imuUseAccel = false;
+                }
+                ImGui::SameLine();
+                if (srcBtn("Accel##imuSrcAccel", m_sel.imuSourceOverridden && m_sel.imuUseAccel)) {
+                    m_sel.imuSourceOverridden = true; m_sel.imuUseAccel = true;
+                }
+            }
+
+            // Tab buttons
+            constexpr float kBtnW = 80.0f;
+            float totalW = kBtnW * 7 + ImGui::GetStyle().ItemSpacing.x * 6;
+            float offX = (availW - totalW) * 0.5f;
+            if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
+            auto renderTypeTab = [&](const char* label, ActionType type) {
+                bool s = (m_sel.actionType == type);
+                if (s) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                if (ImGui::Button(label, { kBtnW, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
+                if (s) ImGui::PopStyleColor();
+            };
+            char lblGamepad2[64], lblMacro2[64], lblKeyboard2[64], lblMouse2[64], lblMouseMove2[64], lblBot2[64];
+            snprintf(lblGamepad2,   sizeof(lblGamepad2),   "%s##gyGamepad", tr("action.type_gamepad"));
+            snprintf(lblMacro2,     sizeof(lblMacro2),     "%s##gyMacro",   tr("action.type_macro"));
+            snprintf(lblKeyboard2,  sizeof(lblKeyboard2),  "%s##gyKb",      tr("action.type_keyboard"));
+            snprintf(lblMouse2,     sizeof(lblMouse2),     "%s##gyMouse",   tr("action.type_mouse"));
+            snprintf(lblMouseMove2, sizeof(lblMouseMove2), "%s##gyMMove",   tr("action.type_mousemove"));
+            snprintf(lblBot2,       sizeof(lblBot2),       "%s##gyBot",     tr("action.type_bot"));
+            renderTypeTab(lblGamepad2,   ActionType::Xbox);      ImGui::SameLine();
+            renderTypeTab(lblMacro2,     ActionType::Macro);     ImGui::SameLine();
+            renderTypeTab(lblKeyboard2,  ActionType::Keyboard);  ImGui::SameLine();
+            renderTypeTab(lblMouse2,     ActionType::Mouse);     ImGui::SameLine();
+            renderTypeTab(lblMouseMove2, ActionType::MouseMove); ImGui::SameLine();
+            renderTypeTab(lblBot2,       ActionType::Bot);       ImGui::SameLine();
+            {
+                std::string rangesKey;
+                auto& rangesMap = resolveImuTargetMap(dir, HalfAxisActionType::Ranges, rangesKey);
+                auto gyAxisEdit = rangesMap.find(rangesKey);
+                bool hasRanges = (gyAxisEdit != rangesMap.end() &&
+                                  gyAxisEdit->second.type == HalfAxisActionType::Ranges &&
+                                  !gyAxisEdit->second.ranges.empty());
+                if (hasRanges) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                if (ImGui::Button(trid("btn.ranges", "gyroRanges").c_str(), { kBtnW, 0.0f })) {
+                    std::vector<RangeEdit> cur;
+                    if (hasRanges)
+                        for (const auto& tr : gyAxisEdit->second.ranges) {
+                            RangeEdit re; re.from = tr.from; re.to = tr.to;
+                            re.action = tr.action; re.hasAction = tr.hasAction;
+                            cur.push_back(re);
+                        }
+                    bool usedAccel = (&rangesMap == &m_model.accelActionEdits);
+                    m_trigRangeModal.open((usedAccel ? "accel_" : "gyro_") + rangesKey, cur,
+                                          m_engine->getLoadedBotNames());
+                    m_sel.actionType = ActionType::Xbox;
+                    m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+                }
+                if (hasRanges) ImGui::PopStyleColor();
+            }
+
+            ImGui::Spacing();
+
+            if (m_sel.actionType == ActionType::Macro) {
+                if (!m_macroNamesLoaded) {
+                    m_macroNames.clear(); m_macroLibrary.clear();
+                    try {
+                        std::ifstream f(Paths::userData("data/macros.json"));
+                        if (f.is_open()) {
+                            json j = json::parse(f);
+                            for (auto& [k,v] : j.items()) {
+                                m_macroNames.push_back(k);
+                                m_macroLibrary.emplace_back(k, v.get<std::string>());
+                            }
+                        }
+                    } catch (...) {}
+                    m_macroNamesLoaded = true;
+                }
+                bool editInlineMacro = false;
+                if (ActionPanel::renderMacroCombo("macGyro", m_sel.macroSel, m_macroNames, availW,
+                                                  tr("btn.edit_macro"), &editInlineMacro)) {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::Macro; ha.target = m_sel.macroSel;
+                    assignImuAction(dir, ha);
+                    m_sel.physComp = -1; m_sel.stickDir.clear();
+                    m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
+                }
+                if (editInlineMacro) {
+                    std::string key;
+                    auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Macro, key);
+                    bool usedAccel = (&map == &m_model.accelActionEdits);
+                    m_macroModalPending.ctx = MacroModalPending::Ctx::Gyro;
+                    m_macroModalPending.key = (usedAccel ? "accel_" : "gyro_") + key;
+                    m_macroModal.setMacroLibrary(m_macroLibrary);
+                    std::string currentDsl;
+                    auto actIt = map.find(key);
+                    if (actIt != map.end() && actIt->second.type == HalfAxisActionType::Macro)
+                        currentDsl = actIt->second.execution;
+                    m_macroModal.open(MacroCreatorModal::Mode::kInline, "", currentDsl);
+                }
+            } else if (m_sel.actionType == ActionType::Keyboard) {
+                bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                if (cancel) { m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear(); }
+                else if (ActionPanel::renderKeyboardCapture("kbGyro", m_sel.captureKeys, availW)) {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::Keyboard;
+                    for (const auto& p : m_sel.captureKeys) ha.keys.push_back(p.first);
+                    assignImuAction(dir, ha);
+                    m_sel.physComp = -1; m_sel.stickDir.clear();
+                    m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
+                }
+            } else if (m_sel.actionType == ActionType::Mouse) {
+                std::string mbResult;
+                if (ActionPanel::renderMouseButtons("mbGyro", mbResult, availW)) {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::MouseClick; ha.mouseButton = mbResult;
+                    assignImuAction(dir, ha);
+                    m_sel.physComp = -1; m_sel.stickDir.clear();
+                    m_sel.actionType = ActionType::Xbox;
+                }
+            } else if (m_sel.actionType == ActionType::MouseMove) {
+                float panelW = 280.0f;
+                float offX2 = (availW - panelW) * 0.5f;
+                if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
+                ImGui::TextDisabled("%s", tr("mapper.axis_hint"));
+                if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
+                ImGui::SetNextItemWidth(100.0f);
+                ImGui::SliderFloat(trid("mapper.mouse_speed", "gyroMouseSpeed").c_str(), &m_sel.axisMouseSpeed, 1.0f, 50.0f, "%.0f");
+                ImGui::SameLine();
+                const char* mouseAxes[] = { "X", "Y" };
+                int axIdx = (m_sel.axisMouseAxis == "mouse_y") ? 1 : 0;
+                ImGui::SetNextItemWidth(60.0f);
+                if (ImGui::Combo(trid("mapper.mouse_axis", "gyroMouseAxis").c_str(), &axIdx, mouseAxes, 2))
+                    m_sel.axisMouseAxis = (axIdx == 1) ? "mouse_y" : "mouse_x";
+                ImGui::SameLine();
+                if (ImGui::Button(trid("btn.assign", "gyroMouseAssign").c_str())) {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::MouseMove;
+                    ha.target = m_sel.axisMouseAxis; ha.speed = m_sel.axisMouseSpeed;
+                    assignImuAction(dir, ha);
+                    // Auto-assign the opposite logical direction too, so the whole axis controls
+                    // the mouse bidirectionally (same sensor, resolved independently but
+                    // consistently since the override/default only depends on type+yaw-ness).
+                    std::string oppDir = oppositeGyroDir(dir);
+                    if (!oppDir.empty()) assignImuAction(oppDir, ha);
+                    m_sel.physComp = -1; m_sel.stickDir.clear();
+                    m_sel.actionType = ActionType::Xbox;
+                }
+            } else if (m_sel.actionType == ActionType::Bot) {
+                std::vector<std::string> availableBots = m_engine->getLoadedBotNames();
+                if (m_sel.botSel.empty()) {
+                    std::string key;
+                    auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Bot, key);
+                    auto it = map.find(key);
+                    if (it != map.end() && it->second.type == HalfAxisActionType::Bot)
+                        m_sel.botSel = it->second.target;
+                }
+                if (ActionPanel::renderBotCombo("botGyro", m_sel.botSel, availableBots, availW)) {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::Bot; ha.target = m_sel.botSel;
+                    assignImuAction(dir, ha);
+                    m_sel.physComp = -1; m_sel.stickDir.clear();
+                    m_sel.actionType = ActionType::Xbox; m_sel.botSel.clear();
+                }
+            }
+            // Mando mode: user clicks virtual pad → onVirtHitGyroAction
+
+            // Clear button if already assigned (checks whichever sensor currently holds it)
+            {
+                bool inGyro  = m_model.gyroActionEdits.count(gyroKeyFromDir(dir))  > 0;
+                bool inAccel = !accelKeyFromDir(dir).empty() &&
+                               m_model.accelActionEdits.count(accelKeyFromDir(dir)) > 0;
+                if (inGyro || inAccel) {
+                    ImGui::Spacing();
+                    float clearW = 100.0f;
+                    float offX3 = (availW - clearW) * 0.5f;
+                    if (offX3 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX3);
+                    if (ImGui::Button(trid("btn.clear", "gyroClear").c_str(), { clearW, 0.0f })) {
+                        std::string gk = gyroKeyFromDir(dir), ak = accelKeyFromDir(dir);
+                        bool wasMouseMove =
+                            (m_model.gyroActionEdits.count(gk) &&
+                             m_model.gyroActionEdits[gk].type == HalfAxisActionType::MouseMove) ||
+                            (!ak.empty() && m_model.accelActionEdits.count(ak) &&
+                             m_model.accelActionEdits[ak].type == HalfAxisActionType::MouseMove);
+                        if (!gk.empty()) m_model.gyroActionEdits.erase(gk);
+                        if (!ak.empty()) m_model.accelActionEdits.erase(ak);
+                        if (wasMouseMove) {
+                            std::string oppDir = oppositeGyroDir(dir);
+                            std::string ogk = gyroKeyFromDir(oppDir), oak = accelKeyFromDir(oppDir);
+                            if (!ogk.empty()) m_model.gyroActionEdits.erase(ogk);
+                            if (!oak.empty()) m_model.accelActionEdits.erase(oak);
+                        }
+                    }
+                }
+            }
+        }
+    } // gyro/accel axis action panel
     } // action panels
 
     // ── Trigger action panel ─────────────────────────────────────────────────
@@ -1567,6 +1936,27 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             else             m_model.trigRRangeEdits = m_trigRangeModal.result();
             m_model.trigActionEdits.erase(key);
             m_sel.triggerSrc.clear();
+        } else if (key.rfind("gyro_", 0) == 0 || key.rfind("accel_", 0) == 0) {
+            // Gyro/accel direction ranges — key is "gyro_x_pos"/"accel_y_neg"/…
+            bool isAccel = key.rfind("accel_", 0) == 0;
+            std::string sensorKey = key.substr(isAccel ? 6 : 5);
+            std::string dir = isAccel ? dirFromAccelKey(sensorKey) : dirFromGyroKey(sensorKey);
+            auto& map = isAccel ? m_model.accelActionEdits : m_model.gyroActionEdits;
+            const auto& edits = m_trigRangeModal.result();
+            if (edits.empty()) {
+                map.erase(sensorKey);
+            } else {
+                HalfAxisAction ha;
+                ha.type = HalfAxisActionType::Ranges;
+                for (const auto& re : edits) {
+                    TriggerRange tr; tr.from = re.from; tr.to = re.to;
+                    tr.action = re.action; tr.hasAction = re.hasAction;
+                    ha.ranges.push_back(tr);
+                }
+                if (!dir.empty()) clearImuOtherMap(dir, isAccel);
+                map[sensorKey] = ha;
+            }
+            m_sel.physComp = -1; m_sel.stickDir.clear();
         } else {
             // Axis direction ranges
             const auto& edits = m_trigRangeModal.result();
@@ -1608,6 +1998,16 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 act.type = ButtonActionType::Macro;
                 act.physical = key; act.name = ""; act.execution = ex;
                 m_model.trigActionEdits[key] = act;
+            } else if (m_macroModalPending.ctx == MacroModalPending::Ctx::Gyro) {
+                // key is "gyro_x_pos"/"accel_y_neg"/… (set when the inline modal was opened).
+                bool isAccel = key.rfind("accel_", 0) == 0;
+                std::string sensorKey = key.substr(isAccel ? 6 : 5);
+                std::string dir = isAccel ? dirFromAccelKey(sensorKey) : dirFromGyroKey(sensorKey);
+                auto& map = isAccel ? m_model.accelActionEdits : m_model.gyroActionEdits;
+                HalfAxisAction ha;
+                ha.type = HalfAxisActionType::Macro; ha.target = ""; ha.execution = ex;
+                if (!dir.empty()) clearImuOtherMap(dir, isAccel);
+                map[sensorKey] = ha;
             }
         }
         m_macroModalPending.ctx = MacroModalPending::Ctx::None;
@@ -1655,6 +2055,10 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
     int arrowComp = phys.hitTestStickArrow(mouse, m_physOrigin, arrowDir);
     if (arrowComp >= 0) { onArrowHit(arrowComp, arrowDir); return; }
 
+    std::string gyroArrowDir;
+    int gyroArrowComp = phys.hitTestGyroArrow(mouse, m_physOrigin, gyroArrowDir);
+    if (gyroArrowComp >= 0) { onGyroArrowHit(gyroArrowComp, gyroArrowDir); return; }
+
     int physHit = phys.hitTest(mouse, m_physOrigin);
     if (physHit >= 0) {
         const std::string& hitType = phys.getLayout().components[physHit].type;
@@ -1669,9 +2073,11 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
         std::string virtArrowDir;
         int virtArrowComp = virt.hitTestStickArrow(mouse, m_virtOrigin, virtArrowDir);
         if (virtArrowComp >= 0) {
-            bool hasSource = (m_sel.physComp >= 0 &&
-                              (phys.getLayout().components[m_sel.physComp].type != "stick" ||
-                               m_sel.stickAsButton)) ||
+            bool selIsAxisSource = m_sel.physComp >= 0 &&
+                                    (phys.getLayout().components[m_sel.physComp].type == "stick" ||
+                                     phys.getLayout().components[m_sel.physComp].type == "gyro") &&
+                                    !m_sel.stickAsButton;
+            bool hasSource = (m_sel.physComp >= 0 && !selIsAxisSource) ||
                              (!m_sel.triggerSrc.empty() && m_sel.actionType == ActionType::Xbox);
             if (hasSource) { onVirtArrowHit(phys, virt, virtArrowComp, virtArrowDir); return; }
         }
@@ -1679,7 +2085,10 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
 
     if (m_sel.physComp >= 0) {
         const std::string& selType = phys.getLayout().components[m_sel.physComp].type;
-        if (selType == "stick" && !m_sel.stickAsButton) {
+        if (selType == "gyro") {
+            if (!m_sel.stickDir.empty() && m_sel.actionType == ActionType::Xbox)
+                onVirtHitGyroAction(phys, virt, mouse);
+        } else if (selType == "stick" && !m_sel.stickAsButton) {
             if (!m_sel.stickDir.empty() && m_sel.actionType == ActionType::Xbox)
                 onVirtHitAxisAction(phys, virt, mouse);
             else if (m_sel.stickDir.empty())
@@ -1704,6 +2113,51 @@ void MappingEditor::onArrowHit(int arrowComp, const std::string& dir) {
         m_sel.triggerSrc.clear(); m_sel.dpadDir.clear();
         m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
     }
+}
+
+// ---------------------------------------------------------------------------
+void MappingEditor::onGyroArrowHit(int arrowComp, const std::string& dir) {
+    if (m_sel.physComp == arrowComp && m_sel.stickDir == dir) {
+        m_sel.physComp = -1; m_sel.stickDir.clear();
+    } else {
+        m_sel.physComp = arrowComp; m_sel.stickDir = dir; m_sel.stickAsButton = false;
+        m_sel.actionType = ActionType::Xbox;
+        m_sel.triggerSrc.clear(); m_sel.dpadDir.clear();
+        m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+        m_sel.imuUseAccel = false; m_sel.imuSourceOverridden = false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+std::unordered_map<std::string, HalfAxisAction>& MappingEditor::resolveImuTargetMap(
+        const std::string& dir, HalfAxisActionType targetType, std::string& outKey) {
+    bool useAccel = (dir != "cw" && dir != "ccw") &&
+                     (m_sel.imuSourceOverridden ? m_sel.imuUseAccel : imuDefaultUsesAccel(targetType));
+    if (useAccel) {
+        outKey = accelKeyFromDir(dir);
+        return m_model.accelActionEdits;
+    }
+    outKey = gyroKeyFromDir(dir);
+    return m_model.gyroActionEdits;
+}
+
+// ---------------------------------------------------------------------------
+void MappingEditor::clearImuOtherMap(const std::string& dir, bool chosenIsAccel) {
+    if (chosenIsAccel) {
+        std::string gk = gyroKeyFromDir(dir);
+        if (!gk.empty()) m_model.gyroActionEdits.erase(gk);
+    } else {
+        std::string ak = accelKeyFromDir(dir);
+        if (!ak.empty()) m_model.accelActionEdits.erase(ak);
+    }
+}
+
+// ---------------------------------------------------------------------------
+void MappingEditor::assignImuAction(const std::string& dir, const HalfAxisAction& ha) {
+    std::string key;
+    auto& map = resolveImuTargetMap(dir, ha.type, key);
+    clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+    map[key] = ha;
 }
 
 // ---------------------------------------------------------------------------
@@ -2136,6 +2590,137 @@ void MappingEditor::onVirtHitAxisAction(PadView& phys, PadView& virt, ImVec2 mou
     if (assigned) {
         m_sel.flashPhysArrowComp = m_sel.physComp;
         m_sel.flashPhysArrowDir  = m_sel.stickDir;
+        m_sel.flashTimer = 1.0f;
+        m_sel.physComp = -1; m_sel.stickDir.clear();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Virtual pad click when a gyro logical direction (m_sel.stickDir) is selected.
+// Mirrors onVirtHitAxisAction, but the target map (gyro vs accel) is resolved per assignment via
+// resolveImuTargetMap() instead of being a single fixed axisKey/axisActionEdits.
+// ---------------------------------------------------------------------------
+void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mouse) {
+    const std::string dir = m_sel.stickDir;
+    if (dir.empty()) return;
+
+    // Virtual stick arrow → StickSlot (defaults to accel: proportional, held-tilt).
+    std::string virtArrowDir;
+    int virtArrowComp = virt.hitTestStickArrow(mouse, m_virtOrigin, virtArrowDir);
+    if (virtArrowComp >= 0) {
+        const auto& virtComps = virt.getLayout().components;
+        auto [vxId, vyId] = stickIdsFromStateX(virtComps[virtArrowComp].stateX);
+        if (!vxId.empty()) {
+            std::string slotKey;
+            if      (virtArrowDir == "up")    slotKey = vyId + "_pos";
+            else if (virtArrowDir == "down")  slotKey = vyId + "_neg";
+            else if (virtArrowDir == "right") slotKey = vxId + "_pos";
+            else if (virtArrowDir == "left")  slotKey = vxId + "_neg";
+            if (!slotKey.empty()) {
+                std::string key;
+                auto& map = resolveImuTargetMap(dir, HalfAxisActionType::StickSlot, key);
+                auto it = map.find(key);
+                bool already = (it != map.end() && it->second.type == HalfAxisActionType::StickSlot &&
+                                it->second.target == slotKey);
+                if (already) {
+                    map.erase(key);
+                    m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f;
+                } else {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
+                    clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                    map[key] = ha;
+                    m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
+                    m_sel.flashPhysArrowComp = m_sel.physComp;
+                    m_sel.flashPhysArrowDir  = dir;
+                }
+            }
+        }
+        m_sel.physComp = -1; m_sel.stickDir.clear();
+        return;
+    }
+
+    int virtHit = virt.hitTest(mouse, m_virtOrigin);
+    if (virtHit < 0) return;
+
+    const auto& virtComp = virt.getLayout().components[virtHit];
+    bool assigned = false;
+
+    if (virtComp.type == "button") {
+        const std::string& vState = virtComp.state;
+        if (vState == "triggerL" || vState == "triggerR") {
+            std::string trigTarget = (vState == "triggerL") ? "l2" : "r2";
+            std::string key;
+            auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Trigger, key);
+            auto it = map.find(key);
+            bool already = (it != map.end() && it->second.type == HalfAxisActionType::Trigger &&
+                            it->second.target == trigTarget);
+            if (already) map.erase(key);
+            else {
+                HalfAxisAction ha;
+                ha.type = HalfAxisActionType::Trigger; ha.target = trigTarget;
+                clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                map[key] = ha;
+            }
+            assigned = true;
+        } else {
+            std::string vShort = stateToShort(vState);
+            if (!vShort.empty()) {
+                std::string key;
+                auto& map = resolveImuTargetMap(dir, HalfAxisActionType::VirtualButton, key);
+                auto it = map.find(key);
+                bool already = (it != map.end() && it->second.type == HalfAxisActionType::VirtualButton &&
+                                it->second.target == vShort);
+                if (already) map.erase(key);
+                else {
+                    HalfAxisAction ha;
+                    ha.type = HalfAxisActionType::VirtualButton; ha.target = vShort;
+                    clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                    map[key] = ha;
+                }
+                assigned = true;
+            }
+        }
+    } else if (virtComp.type == "stick" && !virtComp.stateClick.empty()) {
+        std::string vShort = stateToShort(virtComp.stateClick);
+        if (!vShort.empty()) {
+            std::string key;
+            auto& map = resolveImuTargetMap(dir, HalfAxisActionType::VirtualButton, key);
+            auto it = map.find(key);
+            bool already = (it != map.end() && it->second.type == HalfAxisActionType::VirtualButton &&
+                            it->second.target == vShort);
+            if (already) map.erase(key);
+            else {
+                HalfAxisAction ha;
+                ha.type = HalfAxisActionType::VirtualButton; ha.target = vShort;
+                clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                map[key] = ha;
+            }
+            assigned = true;
+        }
+    } else if (virtComp.type == "dpad") {
+        std::string vdir = dpadDirFromMouse(mouse,
+            m_virtOrigin.x + virtComp.cx, m_virtOrigin.y + virtComp.cy);
+        if (!vdir.empty()) {
+            std::string key;
+            auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Dpad, key);
+            auto it = map.find(key);
+            bool already = (it != map.end() && it->second.type == HalfAxisActionType::Dpad &&
+                            it->second.target == vdir);
+            if (already) map.erase(key);
+            else {
+                HalfAxisAction ha;
+                ha.type = HalfAxisActionType::Dpad; ha.target = vdir;
+                clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                map[key] = ha;
+            }
+            assigned = true;
+        }
+    }
+
+    if (assigned) {
+        m_sel.flashPhysArrowComp = m_sel.physComp;
+        m_sel.flashPhysArrowDir  = dir;
         m_sel.flashTimer = 1.0f;
         m_sel.physComp = -1; m_sel.stickDir.clear();
     }

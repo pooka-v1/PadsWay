@@ -68,6 +68,15 @@ struct MappingSelection {
     std::string h9HoldTriggerSrc;
     float       h9HoldTriggerTimer = 0.0f;
 
+    // --- H9 gyro/accel hold state (arms a logical direction: up/down/left/right/cw/ccw) ---
+    std::string h9HoldGyroDir;
+    float       h9HoldGyroTimer = 0.0f;
+
+    // --- Gyro/accel source resolution for the currently armed direction (physComp+stickDir,
+    // reused: a "gyro" component with stickDir in {up,down,left,right,cw,ccw}) ---
+    bool imuUseAccel       = false;  // current toggle state
+    bool imuSourceOverridden = false; // true once the user has touched the toggle by hand
+
     // Reset everything except macro/key names (those are UI resources, not state).
     void clear() {
         physComp      = -1;
@@ -93,6 +102,10 @@ struct MappingSelection {
         h9PrevPhysState = {};
         h9HoldTriggerSrc.clear();
         h9HoldTriggerTimer = 0.0f;
+        h9HoldGyroDir.clear();
+        h9HoldGyroTimer = 0.0f;
+        imuUseAccel = false;
+        imuSourceOverridden = false;
         axisMouseSpeed = 15.0f;
         axisMouseAxis  = "mouse_x";
     }
