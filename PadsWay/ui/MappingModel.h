@@ -46,6 +46,10 @@ public:
     // Half-axis / dpad-direction actions: source key → HalfAxisAction.
     std::unordered_map<std::string, HalfAxisAction> axisActionEdits;
 
+    // Gyro/accel half-axis actions: "x_pos"/"x_neg"/… (each sensor's own native letter) → action.
+    std::unordered_map<std::string, HalfAxisAction> gyroActionEdits;
+    std::unordered_map<std::string, HalfAxisAction> accelActionEdits;
+
     // Simple trigger actions: "l2"/"r2" → ButtonAction.
     std::unordered_map<std::string, ButtonAction>   trigActionEdits;
 

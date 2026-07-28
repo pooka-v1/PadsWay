@@ -88,6 +88,12 @@ struct GameProfile {
     bool hasAxisActions = false;
     std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "left_x_pos"… -> action
 
+    bool hasGyroActions = false;
+    std::unordered_map<std::string, HalfAxisAction> gyro_actions;   // "x_pos"… (gyro's own axes)
+
+    bool hasAccelActions = false;
+    std::unordered_map<std::string, HalfAxisAction> accel_actions;  // "x_pos"… (accel's own axes)
+
     bool hasDpadRemap = false;
     std::unordered_map<std::string, std::string>  dpadRemap;   // dir -> virtual short name
     std::unordered_map<std::string, ButtonAction> dpadActions; // dir -> keyboard/mouse/macro action
@@ -110,8 +116,8 @@ GameProfile loadGameProfile(const std::string& path);
 // Overrides for virtual buttons not produced by this controller are silently ignored.
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
 
-// Rebuilds pc's base layer (buttons, dpad, triggers, analog dirs) from cfg.
-// Touchpad and gyro components are left as parsed (not profile-overridable).
+// Rebuilds pc's base layer (buttons, dpad, triggers, analog dirs, gyro, accel) from cfg.
+// Touchpad is left as parsed (not profile-overridable).
 // Call after applyProfile() to ensure the Component System reflects profile overrides.
 void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg);
 

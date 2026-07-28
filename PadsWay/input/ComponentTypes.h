@@ -21,7 +21,7 @@ enum class ComponentId : uint8_t {
     TriggerL, TriggerR,
     LeftXPos,  LeftXNeg,  LeftYPos,  LeftYNeg,
     RightXPos, RightXNeg, RightYPos, RightYNeg,
-    Touchpad, Gyro,
+    Touchpad, Gyro, Accel,
     // 8BitDo extra paddles (not present on standard XInput controllers)
     BtnL4, BtnR4,     // short paddles (L4 / R4)
     BtnLP, BtnRP,     // long  paddles (L5 / R5)
@@ -164,13 +164,29 @@ struct PhysicalGyro {
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;
 };
 
+// Accelerometer (gravity/orientation) — same shape as PhysicalGyro, but the letter of each axis
+// does NOT share gyro's pitch/yaw/roll semantics: accelX = lateral tilt (roll-equivalent),
+// accelY = frontal tilt (pitch-equivalent), accelZ = normal/gravity (face up/down at rest, no
+// rotational gesture of its own). See BindingWizard.cpp classifyGyro()/finishGyroRound() and
+// REFERENCE.md. GyroAccumulator is reused here too — it accumulates any 3-axis half-axis
+// passthrough, not something gyro-specific.
+struct PhysicalAccel {
+    RangedHalfAxis xPos, xNeg;
+    RangedHalfAxis yPos, yNeg;
+    RangedHalfAxis zPos, zNeg;
+
+    void process(const GamepadState& physical, GamepadState& out,
+                 StickAccumulator& left, StickAccumulator& right, GyroAccumulator& accel) const;
+};
+
 using PhysicalComponent = std::variant<
     PhysicalButton,
     PhysicalDpadDir,
     PhysicalTrigger,
     PhysicalAnalogDir,
     PhysicalTouchpad,
-    PhysicalGyro
+    PhysicalGyro,
+    PhysicalAccel
 >;
 
 // ─── Modifier mask ────────────────────────────────────────────────────────────

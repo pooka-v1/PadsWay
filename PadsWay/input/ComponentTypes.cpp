@@ -255,11 +255,42 @@ void PhysicalGyro::process(const GamepadState& physical, GamepadState& out,
               [&](float v) { gyro.zNeg = std::max(gyro.zNeg, v); });
 }
 
+// ─── PhysicalAccel ─────────────────────────────────────────────────────────────
+
+void PhysicalAccel::process(const GamepadState& physical, GamepadState& out,
+                             StickAccumulator& left, StickAccumulator& right,
+                             GyroAccumulator& accel) const {
+    // Per-axis passthrough or remapped output via RangedHalfAxis. Same shape as
+    // PhysicalGyro::process() — see the struct comment for the axis-letter caveat.
+    out.accelActive = physical.accelActive;
+    if (!physical.accelActive) return;
+
+    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned,
+                          std::function<void(float)> passthroughFn) {
+        float halfVal = rawSigned > 0.0f ? rawSigned : 0.0f;
+        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, accel);
+    };
+
+    applyHalf(xPos, physical.accelX,
+              [&](float v) { accel.xPos = std::max(accel.xPos, v); });
+    applyHalf(xNeg, -physical.accelX,
+              [&](float v) { accel.xNeg = std::max(accel.xNeg, v); });
+    applyHalf(yPos, physical.accelY,
+              [&](float v) { accel.yPos = std::max(accel.yPos, v); });
+    applyHalf(yNeg, -physical.accelY,
+              [&](float v) { accel.yNeg = std::max(accel.yNeg, v); });
+    applyHalf(zPos, physical.accelZ,
+              [&](float v) { accel.zPos = std::max(accel.zPos, v); });
+    applyHalf(zNeg, -physical.accelZ,
+              [&](float v) { accel.zNeg = std::max(accel.zNeg, v); });
+}
+
 // ─── PhysicalController::process() ───────────────────────────────────────────
 
 void PhysicalController::process(const GamepadState& physical, GamepadState& output) const {
     StickAccumulator accumLeft, accumRight;
     GyroAccumulator  accumGyro;
+    GyroAccumulator  accumAccel;
 
     // Pass 1: evaluate modifier sources → build active ModifierMask.
     ModifierMask activeMask = kModNone;
@@ -312,10 +343,13 @@ void PhysicalController::process(const GamepadState& physical, GamepadState& out
             else if constexpr (std::is_same_v<T, PhysicalTouchpad> ||
                                std::is_same_v<T, PhysicalGyro>)
                 c.process(physical, output, accumLeft, accumRight, accumGyro);
+            else if constexpr (std::is_same_v<T, PhysicalAccel>)
+                c.process(physical, output, accumLeft, accumRight, accumAccel);
         }, *opt);
     }
 
     accumLeft .flush(output.leftX,  output.leftY);
     accumRight.flush(output.rightX, output.rightY);
     accumGyro .flush(output.gyroX,  output.gyroY, output.gyroZ);
+    accumAccel.flush(output.accelX, output.accelY, output.accelZ);
 }

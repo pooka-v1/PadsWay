@@ -121,6 +121,13 @@ struct ControllerConfig {
     std::unordered_map<int, ButtonAction>           buttons;       // physical bit (1-indexed) -> action
     std::unordered_map<std::string, AxisMapping>    axes;          // HID source name -> whole-axis mapping
     std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "left_x_pos"/"right_y_neg"/... -> per-direction action
+    // Gyro/accel half-axis actions. Keys "x_pos"/"x_neg"/"y_pos"/"y_neg"/"z_pos"/"z_neg" use each
+    // sensor's own native letter (gyroX=pitch/gyroY=yaw/gyroZ=roll vs accelX=lateral/accelY=frontal/
+    // accelZ=normal — they do NOT share the same letter-to-gesture mapping, see BindingWizard.cpp
+    // classifyGyro()/finishGyroRound()). The Mapper UI translates arrow direction -> the right key
+    // per sensor; this struct just stores whatever was assigned, generically.
+    std::unordered_map<std::string, HalfAxisAction> gyro_actions;
+    std::unordered_map<std::string, HalfAxisAction> accel_actions;
     std::unordered_map<std::string, std::string>    dpadRemap;     // "up"/"down"/"left"/"right" -> virtual short name
     std::unordered_map<std::string, ButtonAction>   dpadActions;   // "up"/"down"/"left"/"right" -> keyboard/mouse/macro action
     std::string    dpad;

@@ -247,6 +247,11 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         if (c.contains("axis_actions"))
             cfg.axis_actions = parseAxisActionsJson(c.at("axis_actions"));
 
+        if (c.contains("gyro_actions"))
+            cfg.gyro_actions = parseAxisActionsJson(c.at("gyro_actions"));
+        if (c.contains("accel_actions"))
+            cfg.accel_actions = parseAxisActionsJson(c.at("accel_actions"));
+
         if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
             std::unordered_map<std::string, std::string> dpadSlots;
             parseDpadRemapJson(c["dpad_remap"], cfg.dpadRemap, cfg.dpadActions, dpadSlots);
@@ -495,6 +500,14 @@ GameProfile loadGameProfile(const std::string& path) {
         profile.hasAxisActions = true;
         profile.axis_actions   = parseAxisActionsJson(root["axis_actions"]);
     }
+    if (root.contains("gyro_actions") && root["gyro_actions"].is_object()) {
+        profile.hasGyroActions = true;
+        profile.gyro_actions   = parseAxisActionsJson(root["gyro_actions"]);
+    }
+    if (root.contains("accel_actions") && root["accel_actions"].is_object()) {
+        profile.hasAccelActions = true;
+        profile.accel_actions   = parseAxisActionsJson(root["accel_actions"]);
+    }
     if (root.contains("dpad_remap") && root["dpad_remap"].is_object()) {
         profile.hasDpadRemap = true;
         parseDpadRemapJson(root["dpad_remap"],
@@ -592,6 +605,12 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
     // ── Axis actions (whole-section replace) ─────────────────────────────────
     if (profile.hasAxisActions)
         result.axis_actions = profile.axis_actions;
+
+    // ── Gyro / accel actions (whole-section replace) ─────────────────────────
+    if (profile.hasGyroActions)
+        result.gyro_actions = profile.gyro_actions;
+    if (profile.hasAccelActions)
+        result.accel_actions = profile.accel_actions;
 
     // ── Dpad (whole-section replace) ─────────────────────────────────────────
     if (profile.hasDpadRemap) {
@@ -833,6 +852,22 @@ static RangedHalfAxis buildRangedHalfAxisFromHalf(const HalfAxisAction& action) 
     return rha;
 }
 
+// Builds a PhysicalGyro/PhysicalAccel (same 6-field shape) from a HalfAxisAction map keyed by
+// "x_pos"/"x_neg"/"y_pos"/"y_neg"/"z_pos"/"z_neg". Missing keys stay as an empty RangedHalfAxis
+// (implicit passthrough), same convention as every other half-axis in this file.
+template <typename ImuComponent>
+static ImuComponent buildImuComponent(const std::unordered_map<std::string, HalfAxisAction>& actions) {
+    ImuComponent comp;
+    auto get = [&](const char* key) -> RangedHalfAxis {
+        auto it = actions.find(key);
+        return it != actions.end() ? buildRangedHalfAxisFromHalf(it->second) : RangedHalfAxis{};
+    };
+    comp.xPos = get("x_pos"); comp.xNeg = get("x_neg");
+    comp.yPos = get("y_pos"); comp.yNeg = get("y_neg");
+    comp.zPos = get("z_pos"); comp.zNeg = get("z_neg");
+    return comp;
+}
+
 static PhysicalController parsePhysicalController(const json& c) {
     PhysicalController ctrl;
     ctrl.vid  = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
@@ -996,9 +1031,18 @@ static PhysicalController parsePhysicalController(const json& c) {
         setBase(ComponentId::Touchpad, PhysicalTouchpad{tpc});
     }
 
-    // ── Gyro ─────────────────────────────────────────────────────────────────
-    if (c.contains("imu") && c["imu"].value("enabled", false))
-        setBase(ComponentId::Gyro, PhysicalGyro{});
+    // ── Gyro / Accel ─────────────────────────────────────────────────────────
+    if (c.contains("imu") && c["imu"].value("enabled", false)) {
+        std::unordered_map<std::string, HalfAxisAction> gyroActions;
+        if (c.contains("gyro_actions"))
+            gyroActions = parseAxisActionsJson(c.at("gyro_actions"));
+        setBase(ComponentId::Gyro, buildImuComponent<PhysicalGyro>(gyroActions));
+
+        std::unordered_map<std::string, HalfAxisAction> accelActions;
+        if (c.contains("accel_actions"))
+            accelActions = parseAxisActionsJson(c.at("accel_actions"));
+        setBase(ComponentId::Accel, buildImuComponent<PhysicalAccel>(accelActions));
+    }
 
     return ctrl;
 }
@@ -1097,6 +1141,15 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
             setBase(h.cid, PhysicalAnalogDir{h.slot, {}});   // empty = passthrough
         else
             setBase(h.cid, std::nullopt);
+    }
+
+    // ── Gyro / Accel ─────────────────────────────────────────────────────────
+    if (cfg.imu.enabled) {
+        setBase(ComponentId::Gyro,  buildImuComponent<PhysicalGyro>(cfg.gyro_actions));
+        setBase(ComponentId::Accel, buildImuComponent<PhysicalAccel>(cfg.accel_actions));
+    } else {
+        setBase(ComponentId::Gyro,  std::nullopt);
+        setBase(ComponentId::Accel, std::nullopt);
     }
 }
 
