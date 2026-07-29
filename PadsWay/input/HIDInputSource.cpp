@@ -87,6 +87,12 @@ bool HIDInputSource::read(GamepadState& state) {
         m_physicalState = {};
         buildPhysicalButtons(buf, bufLen);
         buildPhysicalAxes(buf, bufLen);
+        // Gyro/accel must land in m_physicalState (the "physical" input to process() below),
+        // not just in the output `state` — otherwise PhysicalGyro/PhysicalAccel always see
+        // gyroActive/accelActive false and every gyro_actions/accel_actions mapping is a no-op,
+        // even though the widget still shows live motion (it reads the applyIMU(state) call
+        // further down, which stays as-is for the legacy path and as an output passthrough here).
+        applyIMU(buf, bytesRead, m_physicalState);
 
         // Hat switch → physical state; process() handles virtual output via PhysicalDpadDir.
         if (!hasAxisDpad && m_config.dpad == "hid_hat") {
