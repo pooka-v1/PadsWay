@@ -18,6 +18,7 @@
 #include "ui/LayoutEditor.h"
 #include "ui/MappingEditor.h"
 #include "ui/MacroManagerPanel.h"
+#include "ui/CalibrationPanel.h"
 
 // Manages the Win32 window, Direct3D 11 device, and ImGui context.
 // Call run() from the main thread — it blocks until the window is closed.
@@ -134,4 +135,7 @@ private:
 
     // --- Macro manager panel ---
     MacroManagerPanel m_macroManager;
+
+    // --- Calibration panel ---
+    CalibrationPanel m_calibrationPanel;
 };

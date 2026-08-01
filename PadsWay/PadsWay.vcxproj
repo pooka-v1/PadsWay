@@ -163,6 +163,7 @@
     <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="ui\MappingEditor.cpp" />
     <ClCompile Include="ui\MacroManagerPanel.cpp" />
+    <ClCompile Include="ui\CalibrationPanel.cpp" />
     <ClCompile Include="ui\MacroCreatorModal.cpp" />
     <ClCompile Include="ui\MacroStep.cpp" />
     <ClCompile Include="ui\MacroStepGrid.cpp" />
@@ -210,6 +211,7 @@
     <ClInclude Include="ui\PadView.h" />
     <ClInclude Include="ui\LayoutEditor.h" />
     <ClInclude Include="ui\MacroManagerPanel.h" />
+    <ClInclude Include="ui\CalibrationPanel.h" />
     <ClInclude Include="ui\MacroCreatorModal.h" />
     <ClInclude Include="ui\MacroStep.h" />
     <ClInclude Include="ui\MacroStepGrid.h" />

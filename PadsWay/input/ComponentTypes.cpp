@@ -292,6 +292,17 @@ void PhysicalController::process(const GamepadState& physical, GamepadState& out
     GyroAccumulator  accumGyro;
     GyroAccumulator  accumAccel;
 
+    // Gyro/accel readings with per-axis deadzone/max applied — see ARCHITECTURE.md
+    // "Calibracion de entrada". PhysicalGyro/PhysicalAccel read from this copy instead of
+    // `physical` directly; everything else (buttons, touchpad, ...) keeps using the raw state.
+    GamepadState shapedPhysical = physical;
+    shapedPhysical.gyroX  = applyDeadzoneMaxSigned(physical.gyroX,  gyroXCalib.deadzone,  gyroXCalib.max);
+    shapedPhysical.gyroY  = applyDeadzoneMaxSigned(physical.gyroY,  gyroYCalib.deadzone,  gyroYCalib.max);
+    shapedPhysical.gyroZ  = applyDeadzoneMaxSigned(physical.gyroZ,  gyroZCalib.deadzone,  gyroZCalib.max);
+    shapedPhysical.accelX = applyDeadzoneMaxSigned(physical.accelX, accelXCalib.deadzone, accelXCalib.max);
+    shapedPhysical.accelY = applyDeadzoneMaxSigned(physical.accelY, accelYCalib.deadzone, accelYCalib.max);
+    shapedPhysical.accelZ = applyDeadzoneMaxSigned(physical.accelZ, accelZCalib.deadzone, accelZCalib.max);
+
     // Pass 1: evaluate modifier sources → build active ModifierMask.
     ModifierMask activeMask = kModNone;
     for (size_t i = 0; i < modifierSources.size() && i < 8; ++i) {
@@ -335,21 +346,25 @@ void PhysicalController::process(const GamepadState& physical, GamepadState& out
                 c.process(physPressed(cid, physical), output, accumLeft, accumRight, accumGyro);
             else if constexpr (std::is_same_v<T, PhysicalDpadDir>)
                 c.process(physPressed(cid, physical), output, accumLeft, accumRight, accumGyro);
-            else if constexpr (std::is_same_v<T, PhysicalTrigger>)
-                c.process(c.side == TriggerSide::L ? physical.triggerL : physical.triggerR,
+            else if constexpr (std::is_same_v<T, PhysicalTrigger>) {
+                float raw = c.side == TriggerSide::L ? physical.triggerL : physical.triggerR;
+                const TriggerCalibration& tc = c.side == TriggerSide::L ? triggerLCalib : triggerRCalib;
+                c.process(applyDeadzoneMax(raw, tc.deadzone, tc.max),
                           output, accumLeft, accumRight, accumGyro);
+            }
             else if constexpr (std::is_same_v<T, PhysicalAnalogDir>)
                 c.process(physHalfAxis(c.slot, physical), output, accumLeft, accumRight, accumGyro);
-            else if constexpr (std::is_same_v<T, PhysicalTouchpad> ||
-                               std::is_same_v<T, PhysicalGyro>)
+            else if constexpr (std::is_same_v<T, PhysicalTouchpad>)
                 c.process(physical, output, accumLeft, accumRight, accumGyro);
+            else if constexpr (std::is_same_v<T, PhysicalGyro>)
+                c.process(shapedPhysical, output, accumLeft, accumRight, accumGyro);
             else if constexpr (std::is_same_v<T, PhysicalAccel>)
-                c.process(physical, output, accumLeft, accumRight, accumAccel);
+                c.process(shapedPhysical, output, accumLeft, accumRight, accumAccel);
         }, *opt);
     }
 
-    accumLeft .flush(output.leftX,  output.leftY);
-    accumRight.flush(output.rightX, output.rightY);
+    accumLeft .flush(output.leftX,  output.leftY,  leftStickCalib);
+    accumRight.flush(output.rightX, output.rightY, rightStickCalib);
     accumGyro .flush(output.gyroX,  output.gyroY, output.gyroZ);
     accumAccel.flush(output.accelX, output.accelY, output.accelZ);
 }

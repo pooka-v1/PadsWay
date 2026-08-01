@@ -1537,7 +1537,7 @@ void PadEngine::threadFunc() {
                         applyVirtualBtnByName(state, act.name, active);
                         break;
                     case ButtonActionType::Keyboard:
-                        if (active != prev) {
+                        if (active != (prev != 0)) {
                             sendKeyCombo(act.keys, active);
                             if (active) {
                                 std::string combo;
@@ -1547,7 +1547,7 @@ void PadEngine::threadFunc() {
                         }
                         break;
                     case ButtonActionType::MouseClick:
-                        if (active != prev) {
+                        if (active != (prev != 0)) {
                             sendMouseButton(act.mouseButton, active);
                             if (active) pushEvent({ PadEventType::MouseAction, act.mouseButton + " click", true });
                         }
@@ -1640,6 +1640,9 @@ void PadEngine::threadFunc() {
             }
 
             { std::lock_guard<std::mutex> lock(m_mutex); m_lastVirtualState = state; }
+            spdlog::trace("[Virtual] L({:+.3f},{:+.3f}) R({:+.3f},{:+.3f}) LT:{:.3f} RT:{:.3f}",
+                          state.leftX, state.leftY, state.rightX, state.rightY,
+                          state.triggerL, state.triggerR);
             if (!editorOpen) output->update(state);
         }
 

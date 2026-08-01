@@ -110,6 +110,9 @@
     <ClCompile Include="ui\MacroManagerPanel.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="ui\CalibrationPanel.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="ui\MacroCreatorModal.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -209,6 +212,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ui\MacroManagerPanel.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\CalibrationPanel.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ui\MacroCreatorModal.h">

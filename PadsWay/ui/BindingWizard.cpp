@@ -1826,7 +1826,7 @@ void BindingWizard::saveResult() {
     if (m_hasGyroStep && m_gyroResult.ok) {
         json imu;
         imu["enabled"]        = true;
-        imu["gyro_scale"]     = 0.0001;
+        imu["gyro_scale"]     = 1.0f / 32768.0f;
         imu["gyro_x_offset"]  = m_gyroResult.gyroXOffset;
         imu["gyro_y_offset"]  = m_gyroResult.gyroYOffset;
         imu["gyro_z_offset"]  = m_gyroResult.gyroZOffset;
@@ -1834,7 +1834,7 @@ void BindingWizard::saveResult() {
         imu["gyro_y_invert"]  = m_gyroResult.gyroYInvert;
         imu["gyro_z_invert"]  = m_gyroResult.gyroZInvert;
         if (m_gyroResult.accelXOffset >= 0) {
-            imu["accel_scale"]    = 0.0001;
+            imu["accel_scale"]    = 1.0f / 32768.0f;
             imu["accel_x_offset"] = m_gyroResult.accelXOffset;
             imu["accel_y_offset"] = m_gyroResult.accelYOffset;
             imu["accel_z_offset"] = m_gyroResult.accelZOffset;

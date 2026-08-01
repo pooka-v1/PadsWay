@@ -291,6 +291,30 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             }
         }
 
+        if (c.contains("stick_calibration")) {
+            const auto& sc = c["stick_calibration"];
+            if (sc.contains("left")) {
+                cfg.leftStickCalib.deadzone = sc["left"].value("deadzone", 0.0f);
+                cfg.leftStickCalib.max      = sc["left"].value("max",      1.0f);
+            }
+            if (sc.contains("right")) {
+                cfg.rightStickCalib.deadzone = sc["right"].value("deadzone", 0.0f);
+                cfg.rightStickCalib.max      = sc["right"].value("max",      1.0f);
+            }
+        }
+
+        if (c.contains("trigger_calibration")) {
+            const auto& tc = c["trigger_calibration"];
+            if (tc.contains("l2")) {
+                cfg.triggerLCalib.deadzone = tc["l2"].value("deadzone", 0.0f);
+                cfg.triggerLCalib.max      = tc["l2"].value("max",      1.0f);
+            }
+            if (tc.contains("r2")) {
+                cfg.triggerRCalib.deadzone = tc["r2"].value("deadzone", 0.0f);
+                cfg.triggerRCalib.max      = tc["r2"].value("max",      1.0f);
+            }
+        }
+
         if (c.contains("touchpad")) {
             const auto& tp        = c["touchpad"];
             cfg.touchpad.enabled      = tp.value("enabled",       false);
@@ -312,6 +336,13 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.imu.gyroYInvert = im.value("gyro_y_invert", false);
             cfg.imu.gyroZInvert = im.value("gyro_z_invert", false);
 
+            cfg.imu.gyroXDeadzone = im.value("gyro_x_deadzone", 0.0f);
+            cfg.imu.gyroYDeadzone = im.value("gyro_y_deadzone", 0.0f);
+            cfg.imu.gyroZDeadzone = im.value("gyro_z_deadzone", 0.0f);
+            cfg.imu.gyroXMax      = im.value("gyro_x_max", 1.0f);
+            cfg.imu.gyroYMax      = im.value("gyro_y_max", 1.0f);
+            cfg.imu.gyroZMax      = im.value("gyro_z_max", 1.0f);
+
             cfg.imu.accelXOffset = im.value("accel_x_offset", -1);
             cfg.imu.accelYOffset = im.value("accel_y_offset", -1);
             cfg.imu.accelZOffset = im.value("accel_z_offset", -1);
@@ -319,6 +350,13 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.imu.accelXInvert = im.value("accel_x_invert", false);
             cfg.imu.accelYInvert = im.value("accel_y_invert", false);
             cfg.imu.accelZInvert = im.value("accel_z_invert", false);
+
+            cfg.imu.accelXDeadzone = im.value("accel_x_deadzone", 0.0f);
+            cfg.imu.accelYDeadzone = im.value("accel_y_deadzone", 0.0f);
+            cfg.imu.accelZDeadzone = im.value("accel_z_deadzone", 0.0f);
+            cfg.imu.accelXMax      = im.value("accel_x_max", 1.0f);
+            cfg.imu.accelYMax      = im.value("accel_y_max", 1.0f);
+            cfg.imu.accelZMax      = im.value("accel_z_max", 1.0f);
         }
 
         result.push_back(std::move(cfg));
@@ -376,6 +414,79 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
         }
     }
     return best;
+}
+
+void saveCalibration(const std::string& path, const std::string& sourceName,
+                     const StickCalibration& leftStick, const StickCalibration& rightStick,
+                     const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
+                     const ImuConfig& imu,
+                     const std::vector<std::pair<std::string, bool>>& axisInverts) {
+    nlohmann::ordered_json root;
+    {
+        std::ifstream in(path);
+        if (in.is_open()) root = nlohmann::ordered_json::parse(in);
+    }
+    if (!root.contains("controllers") || !root["controllers"].is_array())
+        throw std::runtime_error("No 'controllers' array in " + path);
+
+    for (auto& ctrl : root["controllers"]) {
+        if (ctrl.value("source_name", "") != sourceName) continue;
+
+        auto& sc = ctrl["stick_calibration"];
+        sc["left"]["deadzone"]  = leftStick.deadzone;
+        sc["left"]["max"]       = leftStick.max;
+        sc["right"]["deadzone"] = rightStick.deadzone;
+        sc["right"]["max"]      = rightStick.max;
+
+        auto& tc = ctrl["trigger_calibration"];
+        tc["l2"]["deadzone"] = triggerL.deadzone;
+        tc["l2"]["max"]      = triggerL.max;
+        tc["r2"]["deadzone"] = triggerR.deadzone;
+        tc["r2"]["max"]      = triggerR.max;
+
+        // Merge into the existing "imu" object — offset/scale fields are the wizard's, left
+        // untouched. Invert fields ARE written here now: CalibrationPanel lets the user flip a
+        // wrongly-detected axis without re-running the wizard. Missing "imu" (no-IMU controller)
+        // just creates a minimal object; callers are expected not to reach here for those (see
+        // CalibrationPanel's imu.enabled guard).
+        auto& im = ctrl["imu"];
+        im["gyro_x_deadzone"]  = imu.gyroXDeadzone;
+        im["gyro_y_deadzone"]  = imu.gyroYDeadzone;
+        im["gyro_z_deadzone"]  = imu.gyroZDeadzone;
+        im["gyro_x_max"]       = imu.gyroXMax;
+        im["gyro_y_max"]       = imu.gyroYMax;
+        im["gyro_z_max"]       = imu.gyroZMax;
+        im["gyro_x_invert"]    = imu.gyroXInvert;
+        im["gyro_y_invert"]    = imu.gyroYInvert;
+        im["gyro_z_invert"]    = imu.gyroZInvert;
+        im["accel_x_deadzone"] = imu.accelXDeadzone;
+        im["accel_y_deadzone"] = imu.accelYDeadzone;
+        im["accel_z_deadzone"] = imu.accelZDeadzone;
+        im["accel_x_max"]      = imu.accelXMax;
+        im["accel_y_max"]      = imu.accelYMax;
+        im["accel_z_max"]      = imu.accelZMax;
+        im["accel_x_invert"]   = imu.accelXInvert;
+        im["accel_y_invert"]   = imu.accelYInvert;
+        im["accel_z_invert"]   = imu.accelZInvert;
+
+        // Stick axis invert lives on the whole-axis `axes` map (keyed by HID source name), not
+        // on StickCalibration — see this function's declaration comment. Skip any HID key this
+        // file doesn't have (shouldn't happen: CalibrationPanel only builds this list from keys
+        // it already found in the loaded config, but a stale/hand-edited file is possible).
+        if (ctrl.contains("axes") && ctrl["axes"].is_object()) {
+            for (const auto& [hidKey, invert] : axisInverts) {
+                if (ctrl["axes"].contains(hidKey))
+                    ctrl["axes"][hidKey]["invert"] = invert;
+            }
+        }
+
+        std::ofstream f(path);
+        if (!f.is_open())
+            throw std::runtime_error("Cannot write " + path);
+        f << root.dump(4);
+        return;
+    }
+    throw std::runtime_error("source_name not found in " + path + ": " + sourceName);
 }
 
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path) {
@@ -1052,6 +1163,18 @@ static PhysicalController parsePhysicalController(const json& c) {
 }
 
 void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg) {
+    pc.leftStickCalib  = cfg.leftStickCalib;
+    pc.rightStickCalib = cfg.rightStickCalib;
+    pc.triggerLCalib   = cfg.triggerLCalib;
+    pc.triggerRCalib   = cfg.triggerRCalib;
+
+    pc.gyroXCalib  = { cfg.imu.gyroXDeadzone,  cfg.imu.gyroXMax };
+    pc.gyroYCalib  = { cfg.imu.gyroYDeadzone,  cfg.imu.gyroYMax };
+    pc.gyroZCalib  = { cfg.imu.gyroZDeadzone,  cfg.imu.gyroZMax };
+    pc.accelXCalib = { cfg.imu.accelXDeadzone, cfg.imu.accelXMax };
+    pc.accelYCalib = { cfg.imu.accelYDeadzone, cfg.imu.accelYMax };
+    pc.accelZCalib = { cfg.imu.accelZDeadzone, cfg.imu.accelZMax };
+
     auto setBase = [&](ComponentId id, std::optional<PhysicalComponent> comp) {
         pc.baseLayer[static_cast<size_t>(id)] = std::move(comp);
     };

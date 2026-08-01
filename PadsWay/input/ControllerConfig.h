@@ -100,6 +100,19 @@ struct ImuConfig {
     bool  gyroYInvert  = false;
     bool  gyroZInvert  = false;
 
+    // Per-axis calibration (mirrored bar around 0 in the Calibracion UI, see ARCHITECTURE.md
+    // "Calibracion de entrada"). deadzone: fraction of the normalized [-1,1] reading below which
+    // the axis is treated as 0. max: same threshold role as StickCalibration/TriggerCalibration's
+    // `max` (the raw reading at which output already saturates to +-1.0), except it isn't
+    // clamped to <=1.0 here — the sensor has no mechanical stop, so max<1.0 boosts sensitivity
+    // and max>1.0 softens it (the raw ceiling alone doesn't reach full output).
+    float gyroXDeadzone = 0.0f;
+    float gyroYDeadzone = 0.0f;
+    float gyroZDeadzone = 0.0f;
+    float gyroXMax      = 1.0f;
+    float gyroYMax      = 1.0f;
+    float gyroZMax      = 1.0f;
+
     // Accelerometer (gravity/orientation). -1 = axis not present on this device.
     int   accelXOffset = -1;
     int   accelYOffset = -1;
@@ -108,6 +121,30 @@ struct ImuConfig {
     bool  accelXInvert = false;
     bool  accelYInvert = false;
     bool  accelZInvert = false;
+
+    // Same shape as the gyro calibration fields above.
+    float accelXDeadzone = 0.0f;
+    float accelYDeadzone = 0.0f;
+    float accelZDeadzone = 0.0f;
+    float accelXMax      = 1.0f;
+    float accelYMax      = 1.0f;
+    float accelZMax      = 1.0f;
+};
+
+// Radial deadzone/max for one analog stick (shared between its X and Y half-axes — see
+// ARCHITECTURE.md "Calibracion de entrada": calibrating both axes together keeps the feel
+// symmetric between directions). No gain: max is the stick's mechanical travel limit, output
+// can never exceed 1.0.
+struct StickCalibration {
+    float deadzone = 0.0f;  // [0, 1) of the radial magnitude below which the stick reads 0
+    float max      = 1.0f;  // (0, 1] radial magnitude that already saturates output to 1.0
+};
+
+// Deadzone/max for one physical trigger's proportional [0,1] reading. No gain, same reasoning
+// as StickCalibration: the trigger's own travel is the ceiling.
+struct TriggerCalibration {
+    float deadzone = 0.0f;
+    float max      = 1.0f;
 };
 
 struct ControllerConfig {
@@ -134,6 +171,12 @@ struct ControllerConfig {
     std::string    layout_id;  // references an entry in data/pad_layouts.json; empty = use defaults
     TouchpadConfig touchpad;
     ImuConfig      imu;
+
+    // Physical input calibration (deadzone/max) — see ARCHITECTURE.md "Calibracion de entrada".
+    StickCalibration   leftStickCalib;
+    StickCalibration   rightStickCalib;
+    TriggerCalibration triggerLCalib;
+    TriggerCalibration triggerRCalib;
 
     // Physical trigger → action mapping (physical trigger as source)
     ButtonAction   triggerLAction;

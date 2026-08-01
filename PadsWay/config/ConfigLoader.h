@@ -21,6 +21,23 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    const std::string& sourceName   = "",
                                    const std::string& productName  = "");
 
+// Persists one controller entry's stick, trigger and gyro/accel calibration (deadzone/max, see
+// ARCHITECTURE.md "Calibracion de entrada") plus per-axis invert flags, preserving every other
+// field in the file untouched. imu's invert fields (gyro_x_invert...accel_z_invert) come from
+// `imu` itself and are written alongside deadzone/max — CalibrationPanel now owns those too, not
+// just the wizard. Stick axis invert doesn't live on StickCalibration (it's on the whole-axis
+// `axes` map, keyed by HID source name, not by logical stick axis), so it's passed separately as
+// (HID source name, invert) pairs and merged into ctrl["axes"][key]["invert"]; entries whose HID
+// key doesn't exist in this file are skipped. Matches the entry by source_name (exact, unlike
+// vid+pid which duplicate across compat-mode fallbacks — see findConfig's productName/connection
+// discriminators).
+// Throws std::runtime_error if the file can't be written or sourceName isn't found.
+void saveCalibration(const std::string& path, const std::string& sourceName,
+                     const StickCalibration& leftStick, const StickCalibration& rightStick,
+                     const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
+                     const ImuConfig& imu,
+                     const std::vector<std::pair<std::string, bool>>& axisInverts);
+
 // Loads macro library from a JSON file (name -> execution string).
 // Returns an empty map if the file does not exist.
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path);

@@ -116,6 +116,7 @@ int AppWindow::run() {
                          m_gyroSelectThreshold, m_accelSelectThreshold);
     m_mappingEditor.setConfigs(m_controllerConfigs);
     m_macroManager.init(m_device);
+    m_calibrationPanel.init(&m_engine);
 
     m_engine.start();
 
@@ -838,7 +839,7 @@ void AppWindow::renderPadsTab() {
     }
 
     {
-      if (!m_mappingEditor.isActive() && !m_macroManager.isActive()) {
+      if (!m_mappingEditor.isActive() && !m_macroManager.isActive() && !m_calibrationPanel.isActive()) {
         ImGui::Spacing();
 
         if (!m_engine.isConnected()) {
@@ -888,6 +889,11 @@ void AppWindow::renderPadsTab() {
         ImGui::SameLine(0.0f, 8.0f);
         if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
             m_macroManager.activate();
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("calibration.title", "openCalibration").c_str(), { 120.0f, 0.0f })) {
+            m_calibrationPanel.setConfigs(m_controllerConfigs);
+            m_calibrationPanel.activate();
+        }
 
             // ── Marquee ───────────────────────────────────────────────────────────
 
@@ -949,7 +955,7 @@ void AppWindow::renderPadsTab() {
         }
     }
 
-      } // !m_mappingEditor.isActive() && !m_macroManager.isActive()
+      } // !m_mappingEditor.isActive() && !m_macroManager.isActive() && !m_calibrationPanel.isActive()
     }
 
     if (m_mappingEditor.isActive()) {
@@ -970,6 +976,14 @@ void AppWindow::renderPadsTab() {
         m_macroManager.render();
     if (m_macroManager.pollMacrosSaved())
         m_engine.reloadMacros();
+
+    if (m_calibrationPanel.isActive())
+        m_calibrationPanel.render();
+    if (m_calibrationPanel.pollCalibrationSaved()) {
+        m_controllerConfigs = loadControllerConfigs(Paths::userData("data/controllers.json"));
+        m_calibrationPanel.setConfigs(m_controllerConfigs);
+        m_engine.reloadConfigs();
+    }
 }
 
 // ---------------------------------------------------------------------------
