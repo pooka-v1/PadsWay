@@ -232,6 +232,7 @@ bool HIDInputSource::read(GamepadState& state) {
 
     applyTouchpad(buf, bytesRead, state);
     applyIMU     (buf, bytesRead, state);
+    applyImuActions();
 
     return true;
 }
@@ -916,6 +917,82 @@ void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
         spdlog::trace("[IMU] gyro({:+.3f},{:+.3f},{:+.3f}) accel({:+.3f},{:+.3f},{:+.3f})",
                       state.gyroX, state.gyroY, state.gyroZ,
                       state.accelX, state.accelY, state.accelZ);
+    }
+}
+
+// Populates m_activeGyroActions/m_activeAccelActions (and their Ranges counterparts) from
+// cfg.gyro_actions/accel_actions, mirroring applyAxesResidual()'s checkHalf() for stick/trigger
+// axes. This is the piece PhysicalGyro/PhysicalAccel::process() deliberately leaves undone —
+// they resolve VirtualButton/Dpad/Trigger/StickSlot/MouseMove targets directly into GamepadState,
+// but Keyboard/Macro/MouseClick/Bot are marker-only there (see ComponentTypes.cpp,
+// applyVirtualTarget()) and need PadEngine to pick them up from here, same as for axis_actions.
+// Uses the same per-axis deadzone/max shaping as PhysicalController::process() (imu.*Deadzone/
+// *Max) so a Ranges entry mixing e.g. a VirtualButton sub-range and a Macro sub-range on the
+// same half-axis activates both at the same physical threshold.
+void HIDInputSource::applyImuActions() {
+    m_activeGyroActions.clear();
+    m_activeGyroRangeActions.clear();
+    m_activeAccelActions.clear();
+    m_activeAccelRangeActions.clear();
+    if (!m_config.imu.enabled) return;
+
+    auto checkHalf = [](const std::unordered_map<std::string, HalfAxisAction>& actions,
+                         const std::string& key, float magnitude,
+                         std::vector<std::string>& activeActions,
+                         std::unordered_map<std::string, ButtonAction>& activeRangeActions) {
+        auto ait = actions.find(key);
+        if (ait == actions.end()) return;
+        const HalfAxisAction& ha = ait->second;
+        switch (ha.type) {
+        case HalfAxisActionType::Macro:
+        case HalfAxisActionType::Keyboard:
+        case HalfAxisActionType::MouseClick:
+        case HalfAxisActionType::Bot:
+            if (magnitude > ha.threshold) activeActions.push_back(key);
+            break;
+        case HalfAxisActionType::Ranges:
+            for (const auto& r : ha.ranges) {
+                if (magnitude < r.from || magnitude > r.to || !r.hasAction) continue;
+                if (r.action.type == ButtonActionType::Keyboard   ||
+                    r.action.type == ButtonActionType::MouseClick ||
+                    r.action.type == ButtonActionType::Macro      ||
+                    r.action.type == ButtonActionType::Bot)
+                    activeRangeActions[key] = r.action;
+                break;
+            }
+            break;
+        default: break;
+        }
+    };
+
+    const auto& imu = m_config.imu;
+
+    // Note: plain (v > 0.0f) ? v : 0.0f instead of std::max() — this file includes hidsdi.h
+    // (-> windows.h) without NOMINMAX, so the max()/min() macros from windows.h would otherwise
+    // shadow std::max/std::min here. Same workaround PhysicalGyro::process() uses in
+    // ComponentTypes.cpp (which doesn't include windows.h, so it can use std::max directly).
+    if (m_physicalState.gyroActive && !m_config.gyro_actions.empty()) {
+        float gx = applyDeadzoneMaxSigned(m_physicalState.gyroX, imu.gyroXDeadzone, imu.gyroXMax);
+        float gy = applyDeadzoneMaxSigned(m_physicalState.gyroY, imu.gyroYDeadzone, imu.gyroYMax);
+        float gz = applyDeadzoneMaxSigned(m_physicalState.gyroZ, imu.gyroZDeadzone, imu.gyroZMax);
+        checkHalf(m_config.gyro_actions, "x_pos", (gx  > 0.0f) ? gx  : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "x_neg", (-gx > 0.0f) ? -gx : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "y_pos", (gy  > 0.0f) ? gy  : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "y_neg", (-gy > 0.0f) ? -gy : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "z_pos", (gz  > 0.0f) ? gz  : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "z_neg", (-gz > 0.0f) ? -gz : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+    }
+
+    if (m_physicalState.accelActive && !m_config.accel_actions.empty()) {
+        float ax = applyDeadzoneMaxSigned(m_physicalState.accelX, imu.accelXDeadzone, imu.accelXMax);
+        float ay = applyDeadzoneMaxSigned(m_physicalState.accelY, imu.accelYDeadzone, imu.accelYMax);
+        float az = applyDeadzoneMaxSigned(m_physicalState.accelZ, imu.accelZDeadzone, imu.accelZMax);
+        checkHalf(m_config.accel_actions, "x_pos", (ax  > 0.0f) ? ax  : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "x_neg", (-ax > 0.0f) ? -ax : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "y_pos", (ay  > 0.0f) ? ay  : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "y_neg", (-ay > 0.0f) ? -ay : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "z_pos", (az  > 0.0f) ? az  : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "z_neg", (-az > 0.0f) ? -az : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
     }
 }
 

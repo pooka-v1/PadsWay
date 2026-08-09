@@ -6,7 +6,9 @@
 #include "../nlohmann/json.hpp"
 using json = nlohmann::json;
 #include "../config/ConfigLoader.h"
+#include "../input/ComponentTypes.h"  // applyDeadzoneMaxSigned — see H9 gyro/accel hold-to-arm
 #include "../Paths.h"
+#include "../Log.h"
 
 #include <fstream>
 #include <algorithm>
@@ -65,7 +67,8 @@ void MappingEditor::reload() {
     if (m_mode == Mode::kProfile) {
         if (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size()) {
             DeviceCandidate dev = m_engine->getActiveDevice();
-            const ControllerConfig* base = findConfig(m_configs, dev.vid, dev.pid);
+            const ControllerConfig* base =
+                findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
             if (base) {
                 GameProfile profile = loadGameProfile(m_profilePaths[m_profIdx]);
                 m_model.loadProfile(*base, profile);
@@ -74,7 +77,8 @@ void MappingEditor::reload() {
         } else {
             // New profile: load base config as starting point
             DeviceCandidate dev = m_engine->getActiveDevice();
-            const ControllerConfig* base = findConfig(m_configs, dev.vid, dev.pid);
+            const ControllerConfig* base =
+                findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
             if (base) m_model.reloadFromConfig(*base);
             memset(m_profNameBuf, 0, sizeof(m_profNameBuf));
         }
@@ -90,20 +94,52 @@ void MappingEditor::reload() {
     m_sel.h9HoldTriggerTimer = 0.0f;
 }
 
+void MappingEditor::updateProfileList(const std::vector<std::string>& paths,
+                                      const std::vector<std::string>& names) {
+    std::string currentPath = (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size())
+        ? m_profilePaths[m_profIdx] : std::string();
+    m_profilePaths = paths;
+    m_profileNames = names;
+    if (currentPath.empty()) return;
+    auto it = std::find(m_profilePaths.begin(), m_profilePaths.end(), currentPath);
+    m_profIdx = (it != m_profilePaths.end()) ? (int)(it - m_profilePaths.begin()) : -1;
+}
+
 void MappingEditor::save() {
     if (m_mode == Mode::kProfile) {
+        m_profSaveError.clear();
+        spdlog::trace("[Profile] save() called, profIdx={}, profilePaths.size()={}",
+                     m_profIdx, m_profilePaths.size());
         if (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size()) {
             DeviceCandidate dev = m_engine->getActiveDevice();
-            const ControllerConfig* base = findConfig(m_configs, dev.vid, dev.pid);
+            const ControllerConfig* base =
+                findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+            spdlog::trace("[Profile] active device VID={:04X} PID={:04X}, base config {}",
+                         dev.vid, dev.pid, base ? "FOUND" : "NOT FOUND");
             if (base) {
                 try {
-                    m_model.saveProfile(m_profilePaths[m_profIdx],
-                                        m_profNameBuf[0] ? m_profNameBuf : m_profileNames[m_profIdx].c_str(),
-                                        *base);
-                    m_engine->requestProfileReload();
-                    m_profToast     = true;
-                    m_profToastTime = GetTickCount64();
-                } catch (...) {}
+                    bool ok = m_model.saveProfile(m_profilePaths[m_profIdx],
+                                                  m_profNameBuf[0] ? m_profNameBuf : m_profileNames[m_profIdx].c_str(),
+                                                  *base);
+                    spdlog::trace("[Profile] saveProfile('{}') returned {}",
+                                 m_profilePaths[m_profIdx], ok);
+                    if (ok) {
+                        m_engine->requestProfileReload();
+                        m_profToast     = true;
+                        m_profToastTime = GetTickCount64();
+                    } else {
+                        m_profSaveError = tr("profiles.save_error");
+                    }
+                } catch (const std::exception& e) {
+                    spdlog::warn("[Profile] saveProfile() threw: {}", e.what());
+                    m_profSaveError = tr("profiles.save_error");
+                } catch (...) {
+                    spdlog::warn("[Profile] saveProfile() threw an unknown exception");
+                    m_profSaveError = tr("profiles.save_error");
+                }
+            } else {
+                spdlog::warn("[Profile] save() aborted: no base ControllerConfig found for the active device");
+                m_profSaveError = tr("profiles.save_error");
             }
         }
         return;
@@ -156,6 +192,11 @@ static std::string gyroKeyFromDir(const std::string& dir) {
     if (dir == "ccw")   return "y_neg";   // yaw-
     return "";
 }
+// Sustain time required at/above the arm threshold for the gyro/accel progressive-sweep arming
+// (see the H9 block in render() and MappingSelection.h's h9ImuSweep). Shared with the
+// progress-bar display code so both sides agree on the same duration.
+constexpr float kImuConfirmSec = 0.18f;
+
 static std::string accelKeyFromDir(const std::string& dir) {
     if (dir == "up")    return "y_pos";   // frontal+
     if (dir == "down")  return "y_neg";   // frontal-
@@ -238,6 +279,10 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 m_profToast = false;
             }
         }
+        if (!m_profSaveError.empty()) {
+            ImGui::SameLine(0.0f, 16.0f);
+            ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", m_profSaveError.c_str());
+        }
 
         ImGui::Separator();
         ImGui::Spacing();
@@ -271,6 +316,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::string safeName(m_profNameBuf);
                 for (auto& c : safeName) if (c == ' ' || c == '/' || c == '\\') c = '_';
                 std::string newPath = Paths::userData("data/profiles/") + safeName + ".json";
+                spdlog::trace("[Profile] 'Crear' clicked, name='{}' path='{}' VID={:04X} PID={:04X}",
+                            m_profNameBuf, newPath, dev.vid, dev.pid);
                 m_profilePaths.push_back(newPath);
                 m_profileNames.push_back(m_profNameBuf);
                 m_profIdx = (int)m_profilePaths.size() - 1;
@@ -384,33 +431,6 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (!dir.empty()) { activeStickComp = i; activeStickDir = dir; break; }
             }
 
-            // Gyro/accel: a sustained gesture arms the same logical direction. Accel checked
-            // FIRST for the 4 cardinal (pitch/roll) directions — it's orientation, so it holds
-            // steady for as long as the controller stays tilted, which is what actually lets the
-            // hold timer complete. Gyro is angular velocity: it spikes during the motion of
-            // tilting into place and decays back to ~0 the instant the controller stops moving,
-            // even while still held tilted — checking it first made the progress bar start then
-            // reset every time. Gyro remains the fallback for pitch/roll and the only source for
-            // yaw (cw/ccw), which accel cannot sense at all while flat.
-            // Thresholds deliberately well above the widget's own 0.12 live-feedback deadzone —
-            // a held gesture should be unmistakable, not a casual jostle.
-            int gyroCompIdx = -1;
-            for (int i = 0; i < (int)physComps.size(); ++i)
-                if (physComps[i].type == "gyro") { gyroCompIdx = i; break; }
-            std::string activeGyroDir;
-            if (gyroCompIdx >= 0) {
-                if      (physNow.accelY >=  m_accelSelectThreshold) activeGyroDir = "up";
-                else if (physNow.accelY <= -m_accelSelectThreshold) activeGyroDir = "down";
-                else if (physNow.accelX >=  m_accelSelectThreshold) activeGyroDir = "right";
-                else if (physNow.accelX <= -m_accelSelectThreshold) activeGyroDir = "left";
-                else if (physNow.gyroY  >=  m_gyroSelectThreshold)  activeGyroDir = "cw";
-                else if (physNow.gyroY  <= -m_gyroSelectThreshold)  activeGyroDir = "ccw";
-                else if (physNow.gyroX  >=  m_gyroSelectThreshold)  activeGyroDir = "up";
-                else if (physNow.gyroX  <= -m_gyroSelectThreshold)  activeGyroDir = "down";
-                else if (physNow.gyroZ  >=  m_gyroSelectThreshold)  activeGyroDir = "right";
-                else if (physNow.gyroZ  <= -m_gyroSelectThreshold)  activeGyroDir = "left";
-            }
-
             if (activeStickComp >= 0) {
                 if (m_sel.h9HoldComp != activeStickComp || m_sel.h9HoldStickDir != activeStickDir) {
                     m_sel.h9HoldComp      = activeStickComp;
@@ -427,33 +447,10 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         m_sel.h9HoldTimer   = 0.0f;
                     }
                 }
-            } else if (gyroCompIdx >= 0 && !activeGyroDir.empty()) {
-                // ── Paso 1a-bis: gyro/accel sostenido → seleccionar eje ──────────
-                if (m_sel.h9HoldComp != gyroCompIdx || m_sel.h9HoldGyroDir != activeGyroDir) {
-                    m_sel.h9HoldComp    = gyroCompIdx;
-                    m_sel.h9HoldGyroDir = activeGyroDir;
-                    m_sel.h9HoldTimer   = 0.0f;
-                } else {
-                    m_sel.h9HoldTimer += dt;
-                    if (m_sel.h9HoldTimer >= m_stickHoldMs / 1000.0f) {
-                        m_sel.physComp      = gyroCompIdx;
-                        m_sel.stickDir      = activeGyroDir;
-                        m_sel.stickAsButton = false;
-                        m_sel.actionType    = ActionType::Xbox;
-                        m_sel.imuUseAccel = false; m_sel.imuSourceOverridden = false;
-                        m_sel.h9HoldComp    = -1;
-                        m_sel.h9HoldGyroDir.clear();
-                        m_sel.h9HoldTimer   = 0.0f;
-                    }
-                }
-            } else if (!m_sel.h9HoldGyroDir.empty()) {
-                // Gyro/accel hold released before completing — debounce-reset, same pattern as
-                // the stick-hold reset below.
-                m_sel.h9HoldComp = -1;
-                m_sel.h9HoldGyroDir.clear();
-                m_sel.h9HoldTimer = 0.0f;
             } else {
-                // ── Paso 1b: botón mantenido 1s → seleccionarlo ──
+                // ── Paso 1b: botón mantenido 1s → seleccionarlo ── (gyro/accel arming is
+                // handled independently below, after this if/else chain — see the
+                // per-direction progressive-sweep block.)
                 if (!m_sel.h9HoldStickDir.empty()) {
                     m_sel.h9HoldComp = -1;
                     m_sel.h9HoldStickDir.clear();
@@ -530,9 +527,107 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     }
                 }
             }
+
+            // ── Paso 1a-bis: gyro/accel → barrido de reposo a extremo, confirmado ──────────
+            // Runs unconditionally (not part of the if/else chain above) so it never competes
+            // with stick/button/trigger selection for a shared "candidate" slot — each of the 6
+            // logical directions (up/down/left/right/cw/ccw) is tracked independently via
+            // m_sel.h9ImuSweep (see MappingSelection.h for the full rationale): must be seen at
+            // rest, then sustain near its calibrated max for kImuConfirmSec before arming.
+            // up/down/left/right read accel (orientation — holds steady while tilted); cw/ccw
+            // read gyro (angular velocity — sustaining near-max here means "keep spinning", the
+            // only thing yaw can sustain).
+            {
+                int gyroCompIdx = -1;
+                for (int i = 0; i < (int)physComps.size(); ++i)
+                    if (physComps[i].type == "gyro") { gyroCompIdx = i; break; }
+
+                if (gyroCompIdx >= 0 && m_sel.physComp < 0) {
+                    // Accel's rest threshold is higher than gyro's: just holding the controller
+                    // normally (to be able to rotate it at all) already tilts it back a fair
+                    // amount, and that alone shouldn't count as "left rest". Gyro (angular
+                    // velocity) doesn't have this problem — it reads ~0 whenever the controller
+                    // isn't actively rotating, static tilt included, so its rest threshold stays
+                    // low.
+                    constexpr float kImuAccelRestThresh = 0.45f;
+                    constexpr float kImuGyroRestThresh  = 0.20f;
+                    float restThresh[6] = { kImuAccelRestThresh, kImuAccelRestThresh,
+                                             kImuAccelRestThresh, kImuAccelRestThresh,
+                                             kImuGyroRestThresh,  kImuGyroRestThresh };
+                    static const char* kImuDirs[6] = { "up", "down", "left", "right", "cw", "ccw" };
+
+                    // Accel-only: getting the controller into position to rotate it tilts it back
+                    // in a single continuous motion that usually overshoots close to the sensor's
+                    // calibrated ceiling — a deliberate "hold this tilt" calibration gesture
+                    // rarely does, since there's no reason to push all the way to the mechanical/
+                    // sensor limit just to hold a cardinal direction. So: if an ascent ever
+                    // touches near-max, it's disqualified as "positioning" (not armed) until the
+                    // axis returns to rest; only an ascent that stays in the [armThresh, nearMax)
+                    // band for the whole confirm window counts as a deliberate hold.
+                    constexpr float kImuNearMaxFrac = 0.90f;
+
+                    // m_gyroSelectThreshold/m_accelSelectThreshold are calibrated-space
+                    // constants, but physNow carries the RAW pre-calibration reading — shape it
+                    // through the active device's own per-axis deadzone/max first (see the
+                    // identical reasoning that used to live here for the old design).
+                    DeviceCandidate dev = m_engine->getActiveDevice();
+                    const ControllerConfig* activeCfg =
+                        findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+                    float accelX = physNow.accelX, accelY = physNow.accelY, gyroY = physNow.gyroY;
+                    if (activeCfg) {
+                        const auto& imu = activeCfg->imu;
+                        accelX = applyDeadzoneMaxSigned(accelX, imu.accelXDeadzone, imu.accelXMax);
+                        accelY = applyDeadzoneMaxSigned(accelY, imu.accelYDeadzone, imu.accelYMax);
+                        gyroY  = applyDeadzoneMaxSigned(gyroY,  imu.gyroYDeadzone,  imu.gyroYMax);
+                    }
+
+                    // Magnitude in the direction of travel (can be negative — that's fine, the
+                    // rest/arm comparisons below treat it as "not there yet") for each of the 6
+                    // directions, paired with the threshold that counts as "reached the extreme".
+                    float mags[6]      = { accelY, -accelY, -accelX, accelX, gyroY, -gyroY };
+                    float armThresh[6] = { m_accelSelectThreshold, m_accelSelectThreshold,
+                                            m_accelSelectThreshold, m_accelSelectThreshold,
+                                            m_gyroSelectThreshold,  m_gyroSelectThreshold };
+
+                    // Core state transition lives in advanceImuSweep() (MappingSelection.h) so
+                    // it can run under Catch2 without pulling in D3D11/HWND/PadEngine — see
+                    // PadsWayTests/tests/test_MappingSelection.cpp.
+                    ImuSweepResult sweep = advanceImuSweep(m_sel.h9ImuSweep, mags, restThresh,
+                                                           armThresh, kImuNearMaxFrac,
+                                                           kImuConfirmSec, dt);
+                    int   armedIdx     = sweep.armedIdx;
+                    int   bestDisplay  = sweep.bestDisplay;
+                    float bestProgress = sweep.bestProgress;
+
+                    if (armedIdx >= 0) {
+                        m_sel.physComp      = gyroCompIdx;
+                        m_sel.stickDir      = kImuDirs[armedIdx];
+                        m_sel.stickAsButton = false;
+                        m_sel.actionType    = ActionType::Xbox;
+                        m_sel.imuUseAccel = false; m_sel.imuSourceOverridden = false;
+                        m_sel.h9ImuSweep   = {};  // force a fresh rest-to-max sweep for the next gesture
+                        m_sel.h9HoldGyroDir.clear();
+                        m_sel.h9HoldGyroTimer = 0.0f;
+                    } else if (bestDisplay >= 0) {
+                        m_sel.h9HoldGyroDir   = kImuDirs[bestDisplay];
+                        m_sel.h9HoldGyroTimer = bestProgress;
+                    } else {
+                        m_sel.h9HoldGyroDir.clear();
+                        m_sel.h9HoldGyroTimer = 0.0f;
+                    }
+                } else {
+                    m_sel.h9HoldGyroDir.clear();
+                    m_sel.h9HoldGyroTimer = 0.0f;
+                }
+            }
         } else if (m_sel.physComp >= 0 && m_sel.actionType == ActionType::Xbox) {
             // Xbox mode: detect rising edge on physical input → assign virtual button
             const PadComponent& selPhysComp = physComps[m_sel.physComp];
+            // Gyro/accel source: target maps live in gyroActionEdits/accelActionEdits (resolved
+            // per-direction via resolveImuTargetMap), never in axisActionEdits — that map is
+            // keyed by stick slot ids derived from selPhysComp.stateX, which gyro components
+            // don't have. Mirrors the mouse-click path (onVirtHitGyroAction).
+            bool isGyroSource = selPhysComp.type == "gyro";
             std::string selState;
             if (m_sel.stickAsButton)
                 selState = selPhysComp.stateClick;
@@ -565,8 +660,47 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 bool valid = false;
                 for (const auto& s : m_acceptedXbox) if (virtShort == s) { valid = true; break; }
 
-                // ── Axis-action mode: stick direction seleccionada → asignar VirtualButton/Dpad ──
-                if (!m_sel.stickDir.empty()) {
+                // ── Axis-action mode: stick/gyro direction seleccionada → asignar VirtualButton/Dpad ──
+                if (!m_sel.stickDir.empty() && isGyroSource) {
+                    bool isDpad9 = (virtShort.rfind("dpad_", 0) == 0);
+                    if (valid || isDpad9) {
+                        HalfAxisAction ha;
+                        if (isDpad9) {
+                            ha.type = HalfAxisActionType::Dpad;
+                            ha.target = virtShort.substr(5); // "up"/"down"/"left"/"right"
+                        } else {
+                            ha.type = HalfAxisActionType::VirtualButton;
+                            ha.target = virtShort;
+                        }
+                        std::string key;
+                        auto& map = resolveImuTargetMap(m_sel.stickDir, ha.type, key);
+                        auto it = map.find(key);
+                        bool alreadyAssigned = (it != map.end() && it->second.type == ha.type &&
+                                                 it->second.target == ha.target);
+                        if (alreadyAssigned) {
+                            map.erase(key);
+                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+                        } else {
+                            clearImuOtherMap(m_sel.stickDir, &map == &m_model.accelActionEdits);
+                            map[key] = ha;
+                            if (!isDpad9) {
+                                int fc = findCompByState(virt.getLayout(), shortToState(virtShort));
+                                m_sel.flashComp = fc; m_sel.flashTimer = 0.5f;
+                                m_sel.flashVirtShort = shortToState(virtShort);
+                            } else {
+                                m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+                            }
+                        }
+                        m_sel.flashPhysArrowComp = m_sel.physComp;
+                        m_sel.flashPhysArrowDir  = m_sel.stickDir;
+                        if (m_sel.flashTimer < 1.0f) m_sel.flashTimer = 1.0f;
+                        m_sel.physComp = -1; m_sel.stickDir.clear();
+                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
+                    } else {
+                        m_sel.h9ErrorTimer = 2.0f;
+                    }
+                    break;
+                } else if (!m_sel.stickDir.empty()) {
                     auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
                     std::string axisKey;
                     if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
@@ -647,6 +781,30 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             {
                 constexpr float kTrigThresh = 0.5f;
                 auto doAxisTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
+                    if (isGyroSource) {
+                        HalfAxisAction ha;
+                        ha.type = HalfAxisActionType::Trigger; ha.target = trigTarget;
+                        std::string key;
+                        auto& map = resolveImuTargetMap(m_sel.stickDir, ha.type, key);
+                        auto it = map.find(key);
+                        bool already = (it != map.end() && it->second.type == ha.type &&
+                                        it->second.target == ha.target);
+                        if (already) {
+                            map.erase(key);
+                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+                        } else {
+                            clearImuOtherMap(m_sel.stickDir, &map == &m_model.accelActionEdits);
+                            map[key] = ha;
+                            m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
+                            m_sel.flashTimer     = 1.0f;
+                            m_sel.flashVirtShort = trigState;
+                            m_sel.flashPhysArrowComp = m_sel.physComp;
+                            m_sel.flashPhysArrowDir  = m_sel.stickDir;
+                        }
+                        m_sel.physComp = -1; m_sel.stickDir.clear();
+                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
+                        return;
+                    }
                     auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
                     std::string axisKey;
                     if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
@@ -733,7 +891,28 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     else if (slotDir == "right") slotKey = vxId + "_pos";
                     else if (slotDir == "left")  slotKey = vxId + "_neg";
 
-                    if (!m_sel.stickDir.empty()) {
+                    if (!m_sel.stickDir.empty() && isGyroSource) {
+                        // Gyro/accel source: assign StickSlot target via resolveImuTargetMap.
+                        HalfAxisAction ha;
+                        ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
+                        std::string key;
+                        auto& map = resolveImuTargetMap(m_sel.stickDir, ha.type, key);
+                        auto it = map.find(key);
+                        bool alreadyAssigned = (it != map.end() && it->second.type == ha.type &&
+                                                 it->second.target == ha.target);
+                        if (alreadyAssigned) {
+                            map.erase(key);
+                            m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f; m_sel.flashComp = -1;
+                        } else {
+                            clearImuOtherMap(m_sel.stickDir, &map == &m_model.accelActionEdits);
+                            map[key] = ha;
+                            m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
+                            m_sel.flashPhysArrowComp = m_sel.physComp;
+                            m_sel.flashPhysArrowDir  = m_sel.stickDir;
+                        }
+                        m_sel.physComp = -1; m_sel.stickDir.clear();
+                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
+                    } else if (!m_sel.stickDir.empty()) {
                         // Axis-action source: assign StickSlot target.
                         auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
                         std::string axisKey;
@@ -896,6 +1075,14 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
     GamepadState physDisplay{};
     GamepadState virtDisplay{};
+    // Gyro/accel widget reads its ball position straight off physDisplay (via resolveFloat in
+    // PadView.cpp) — without this it never receives the live physNow reading and stays frozen at
+    // center regardless of real controller motion, even while H9's hold-to-arm logic below (which
+    // reads physNow directly) works fine.
+    physDisplay.gyroActive  = physNow.gyroActive;
+    physDisplay.accelActive = physNow.accelActive;
+    physDisplay.gyroX  = physNow.gyroX;  physDisplay.gyroY  = physNow.gyroY;  physDisplay.gyroZ  = physNow.gyroZ;
+    physDisplay.accelX = physNow.accelX; physDisplay.accelY = physNow.accelY; physDisplay.accelZ = physNow.accelZ;
     if (m_sel.physComp < 0 && m_sel.h9HoldComp >= 0) {
         const auto& physComps = phys.getLayout().components;
         if (m_sel.h9HoldComp < (int)physComps.size()) {
@@ -1039,7 +1226,6 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         }
         phys.renderStickArrows(m_physOrigin, physArrowComp, physArrowDir);
         phys.renderGyroArrows(m_physOrigin, physArrowComp, physArrowDir);
-        phys.renderGyroHitZonesDebug(m_physOrigin);  // TEMP — remove once CW/CCW zones are confirmed
     }
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
@@ -1172,8 +1358,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             col = { 1.0f, 0.3f, 0.3f, 1.0f };
         } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && !m_sel.h9HoldTriggerSrc.empty()) {
             msg = tr("mapper.hint_hold_trigger");
-        } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && m_sel.h9HoldComp >= 0 &&
-                   !m_sel.h9HoldGyroDir.empty()) {
+        } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && !m_sel.h9HoldGyroDir.empty()) {
             msg = tr("mapper.hint_hold_gyro");
         } else if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() && m_sel.h9HoldComp >= 0) {
             msg = m_sel.h9HoldStickDir.empty()
@@ -1226,9 +1411,15 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             constexpr float kBarW = 160.0f;
             float barOffX = (availW - kBarW) * 0.5f;
             if (barOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + barOffX);
-            float holdSec = (!m_sel.h9HoldStickDir.empty() || !m_sel.h9HoldGyroDir.empty())
-                ? (m_stickHoldMs / 1000.0f) : 1.0f;
+            float holdSec = !m_sel.h9HoldStickDir.empty() ? (m_stickHoldMs / 1000.0f) : 1.0f;
             ImGui::ProgressBar(m_sel.h9HoldTimer / holdSec, { kBarW, 6.0f }, "");
+        }
+        if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() &&
+            !m_sel.h9HoldGyroDir.empty() && m_sel.h9HoldGyroTimer > 0.0f) {
+            constexpr float kBarW = 160.0f;
+            float barOffX = (availW - kBarW) * 0.5f;
+            if (barOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + barOffX);
+            ImGui::ProgressBar(m_sel.h9HoldGyroTimer / kImuConfirmSec, { kBarW, 6.0f }, "");
         }
         if (m_sel.physComp < 0 && m_sel.triggerSrc.empty() &&
             !m_sel.h9HoldTriggerSrc.empty() && m_sel.h9HoldTriggerTimer > 0.0f) {
@@ -1719,6 +1910,11 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                                                   tr("btn.edit_macro"), &editInlineMacro)) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::Macro; ha.target = m_sel.macroSel;
+                    // Below the 0.5 (50% of the calibrated comfortable-max) struct default — a
+                    // relaxed gesture should fire a digital action without reaching that ceiling,
+                    // which analog output still uses in full. No UI control on purpose (2026/08/10
+                    // discussion): revisit this number by hand if it still feels excessive.
+                    ha.threshold = 0.4f;
                     assignImuAction(dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
@@ -1743,6 +1939,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::Keyboard;
                     for (const auto& p : m_sel.captureKeys) ha.keys.push_back(p.first);
+                    ha.threshold = 0.4f;  // see Macro assign above
                     assignImuAction(dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
@@ -1752,12 +1949,13 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (ActionPanel::renderMouseButtons("mbGyro", mbResult, availW)) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::MouseClick; ha.mouseButton = mbResult;
+                    ha.threshold = 0.4f;  // see Macro assign above
                     assignImuAction(dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox;
                 }
             } else if (m_sel.actionType == ActionType::MouseMove) {
-                float panelW = 280.0f;
+                float panelW = 360.0f;
                 float offX2 = (availW - panelW) * 0.5f;
                 if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
                 ImGui::TextDisabled("%s", tr("mapper.axis_hint"));
@@ -1768,13 +1966,19 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 const char* mouseAxes[] = { "X", "Y" };
                 int axIdx = (m_sel.axisMouseAxis == "mouse_y") ? 1 : 0;
                 ImGui::SetNextItemWidth(60.0f);
-                if (ImGui::Combo(trid("mapper.mouse_axis", "gyroMouseAxis").c_str(), &axIdx, mouseAxes, 2))
+                if (ImGui::Combo(trid("mapper.mouse_axis", "gyroMouseAxis").c_str(), &axIdx, mouseAxes, 2)) {
                     m_sel.axisMouseAxis = (axIdx == 1) ? "mouse_y" : "mouse_x";
+                    // Default suggestion: Y is the known pitch case that needs the "pointer"
+                    // convention (aim down = cursor down); X has no known bug, starts unchecked.
+                    m_sel.axisMouseInvert = (axIdx == 1);
+                }
+                ImGui::SameLine();
+                ImGui::Checkbox(trid("mapper.mouse_invert", "gyroMouseInvert").c_str(), &m_sel.axisMouseInvert);
                 ImGui::SameLine();
                 if (ImGui::Button(trid("btn.assign", "gyroMouseAssign").c_str())) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::MouseMove;
-                    ha.target = m_sel.axisMouseAxis; ha.speed = m_sel.axisMouseSpeed;
+                    ha.target = m_sel.axisMouseAxis; ha.speed = m_sel.axisMouseSpeed; ha.invert = m_sel.axisMouseInvert;
                     assignImuAction(dir, ha);
                     // Auto-assign the opposite logical direction too, so the whole axis controls
                     // the mouse bidirectionally (same sensor, resolved independently but
@@ -1796,6 +2000,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 if (ActionPanel::renderBotCombo("botGyro", m_sel.botSel, availableBots, availW)) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::Bot; ha.target = m_sel.botSel;
+                    ha.threshold = 0.4f;  // see Macro assign above
                     assignImuAction(dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox; m_sel.botSel.clear();

@@ -50,7 +50,7 @@ struct VirtualStickSlot  { StickSlotId slot;               };  // → StickAccum
 struct VirtualKeyboard   { std::vector<uint8_t> keys;      };
 struct VirtualMacro      { std::string name;               };
 struct VirtualMouseClick { MouseButton button;             };
-struct VirtualMouseMove  { MouseAxis axis; float speed;    };  // proportional
+struct VirtualMouseMove  { MouseAxis axis; float speed; bool invert = false; };  // proportional
 struct VirtualBot        { std::string name;               };
 struct VirtualPassthrough{                                 };  // routes to natural equivalent
 

@@ -78,6 +78,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;CATCH_CONFIG_NO_WINDOWS_SEH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -93,6 +94,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;CATCH_CONFIG_NO_WINDOWS_SEH;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -107,6 +109,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>  $(SolutionDir)PadsWay;$(SolutionDir)PadsWay\macros;$(ProjectDir)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -123,6 +126,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>  $(SolutionDir)PadsWay;$(SolutionDir)PadsWay\macros;$(ProjectDir)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -131,15 +135,19 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\PadsWay\config\ConfigLoader.cpp" />
+    <ClCompile Include="..\PadsWay\input\ComponentTypes.cpp" />
     <ClCompile Include="..\PadsWay\macros\Macro.cpp" />
     <ClCompile Include="..\PadsWay\macros\MacroParser.cpp" />
     <ClCompile Include="..\PadsWay\ui\MacroStep.cpp" />
     <ClCompile Include="..\PadsWay\ui\MappingModel.cpp" />
     <ClCompile Include="catch2\catch_amalgamated.cpp" />
+    <ClCompile Include="tests\test_ComponentTypes.cpp" />
     <ClCompile Include="tests\test_ConfigLoader.cpp" />
+    <ClCompile Include="tests\test_Macro.cpp" />
     <ClCompile Include="tests\test_MacroParser.cpp" />
     <ClCompile Include="tests\test_MacroStep.cpp" />
     <ClCompile Include="tests\test_MappingModel.cpp" />
+    <ClCompile Include="tests\test_MappingSelection.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />

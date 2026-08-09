@@ -103,6 +103,7 @@ static std::unordered_map<std::string, HalfAxisAction> parseAxisActionsJson(cons
             a.type   = HalfAxisActionType::MouseMove;
             a.target = val["target"].get<std::string>();
             a.speed  = val.value("speed", 15.0f);
+            a.invert = val.value("invert", false);
         } else if (val.contains("type")) {
             std::string type = val["type"].get<std::string>();
             if (type == "keyboard") {
@@ -911,7 +912,7 @@ static std::optional<VirtualTarget> halfAxisActionToVT(const HalfAxisAction& act
         case HalfAxisActionType::MouseClick:
             return VirtualMouseClick{stringToMouseButton2(action.mouseButton)};
         case HalfAxisActionType::MouseMove:
-            return VirtualMouseMove{stringToMouseAxis(action.target), action.speed};
+            return VirtualMouseMove{stringToMouseAxis(action.target), action.speed, action.invert};
         case HalfAxisActionType::Analog:
         case HalfAxisActionType::Ranges:
             return std::nullopt;  // handled by caller

@@ -60,6 +60,9 @@ struct HalfAxisAction {
     float                threshold = 0.5f;   // digital: activation threshold
     float                scale     = 1.0f;   // Analog: output multiplier
     float                speed     = 15.0f;  // MouseMove: pixels per tick at full deflection
+    bool                 invert    = false;  // MouseMove: flip this mapping's own sign — independent
+                                              // of axis calibration, so it doesn't affect anything
+                                              // else that reads the same physical sensor axis
     std::vector<std::string> keys;           // Keyboard
     std::string          mouseButton;        // MouseClick: "left"|"right"|"middle"
     std::string          execution;          // Macro: compact execution string

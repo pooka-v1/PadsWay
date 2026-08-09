@@ -61,12 +61,12 @@ public:
     // re-scan the profile list and update the engine combo.
     bool pollProfileListChanged() { bool r = m_profileListChanged; m_profileListChanged = false; return r; }
 
-    // Update the profile list shown in the profile selector (call after re-scan).
+    // Update the profile list shown in the profile selector (call after re-scan). Re-anchors
+    // m_profIdx to wherever the currently-open profile ended up in the new list — the rescan
+    // order (filesystem enumeration) doesn't match insertion order, so the old index can now
+    // point at an unrelated profile (or nothing) once the vectors are replaced.
     void updateProfileList(const std::vector<std::string>& paths,
-                           const std::vector<std::string>& names) {
-        m_profilePaths = paths;
-        m_profileNames = names;
-    }
+                           const std::vector<std::string>& names);
 
     // Release D3D11 texture.
     void unload();
@@ -84,6 +84,9 @@ private:
     bool m_profToast          = false;
     ULONGLONG m_profToastTime = 0;
     bool m_profileListChanged = false;
+    // Set when saveProfile() fails (e.g. data/profiles/ missing) — save() must check its
+    // return value instead of assuming success, since it never throws on this failure.
+    std::string m_profSaveError;
 
     ID3D11Device*               m_device     = nullptr;
     PadEngine*                  m_engine     = nullptr;
@@ -92,7 +95,7 @@ private:
     std::vector<std::string>    m_acceptedXbox;
     float                       m_stickSelectThreshold = 0.85f;
     int                         m_stickHoldMs          = 2000;
-    float                       m_gyroSelectThreshold  = 0.6f;
+    float                       m_gyroSelectThreshold  = 0.24f;
     float                       m_accelSelectThreshold = 0.5f;
 
     MappingModel     m_model;

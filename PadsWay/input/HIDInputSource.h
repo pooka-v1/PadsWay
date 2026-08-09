@@ -27,6 +27,10 @@ public:
     GamepadState getPhysicalState()   const override { return m_physicalState; }
     std::vector<std::string> getActiveAxisActions() const override { return m_activeAxisActions; }
     const std::unordered_map<std::string, ButtonAction>& getActiveAxisRangeActions() const override { return m_activeAxisRangeActions; }
+    std::vector<std::string> getActiveGyroActions() const override { return m_activeGyroActions; }
+    const std::unordered_map<std::string, ButtonAction>& getActiveGyroRangeActions() const override { return m_activeGyroRangeActions; }
+    std::vector<std::string> getActiveAccelActions() const override { return m_activeAccelActions; }
+    const std::unordered_map<std::string, ButtonAction>& getActiveAccelRangeActions() const override { return m_activeAccelRangeActions; }
     void        setPhysicalController(const PhysicalController& ctrl) override {
         m_physicalController    = ctrl;
         m_hasPhysicalController = true;
@@ -46,6 +50,10 @@ private:
     GamepadState             m_physicalState;
     std::vector<std::string> m_activeAxisActions;
     std::unordered_map<std::string, ButtonAction> m_activeAxisRangeActions;
+    std::vector<std::string> m_activeGyroActions;
+    std::unordered_map<std::string, ButtonAction> m_activeGyroRangeActions;
+    std::vector<std::string> m_activeAccelActions;
+    std::unordered_map<std::string, ButtonAction> m_activeAccelRangeActions;
     PhysicalController       m_physicalController;
     bool                     m_hasPhysicalController = false;
 
@@ -56,6 +64,7 @@ private:
     void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);
     void          applyIMU     (PCHAR buf, ULONG bytesRead, GamepadState& state);
+    void          applyImuActions();
     void          buildPhysicalButtons (PCHAR buf, ULONG bufLen);
     void          buildPhysicalAxes    (PCHAR buf, ULONG bufLen);
     void          applyAxesResidual    (PCHAR buf, ULONG bufLen, GamepadState& state);

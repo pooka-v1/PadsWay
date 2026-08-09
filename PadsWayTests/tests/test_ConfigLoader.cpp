@@ -570,6 +570,271 @@ TEST_CASE("rebuildPhysicalControllerFromConfig syncs analog dirs from axis_actio
     REQUIRE_FALSE(pc.baseLayer[static_cast<size_t>(ComponentId::LeftXPos)].has_value());
 }
 
+// ── gyro_actions / accel_actions — profile parsing and apply ───────────────────
+
+TEST_CASE("loadGameProfile leaves gyro/accel flags false when sections absent", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_noimu.json";
+    { std::ofstream f(path); f << R"({"profile_name": "G"})"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE_FALSE(p.hasGyroActions);
+    REQUIRE_FALSE(p.hasAccelActions);
+}
+
+TEST_CASE("loadGameProfile parses gyro_actions section", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_gyro.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "G",
+        "gyro_actions": {
+            "y_pos": { "virtual": "right_x_pos" },
+            "y_neg": { "virtual": "right_x_neg" }
+        }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE(p.hasGyroActions);
+    REQUIRE(p.gyro_actions.size() == 2);
+    REQUIRE(p.gyro_actions.at("y_pos").type == HalfAxisActionType::StickSlot);
+    REQUIRE(p.gyro_actions.at("y_pos").target == "right_x_pos");
+}
+
+TEST_CASE("loadGameProfile parses accel_actions section independently of gyro_actions", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_accel.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "G",
+        "accel_actions": {
+            "x_pos": { "virtual": "a" }
+        }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE_FALSE(p.hasGyroActions);
+    REQUIRE(p.hasAccelActions);
+    REQUIRE(p.accel_actions.at("x_pos").target == "a");
+}
+
+TEST_CASE("applyProfile replaces gyro_actions section entirely", "[ConfigLoader]") {
+    ControllerConfig base;
+    HalfAxisAction baseAct; baseAct.type = HalfAxisActionType::VirtualButton; baseAct.target = "a";
+    base.gyro_actions["y_pos"] = baseAct;
+
+    GameProfile p;
+    p.hasGyroActions = true;
+    HalfAxisAction overrideAct; overrideAct.type = HalfAxisActionType::StickSlot; overrideAct.target = "right_x_pos";
+    p.gyro_actions["y_pos"] = overrideAct;
+
+    auto result = applyProfile(base, p);
+    REQUIRE(result.gyro_actions.size() == 1);
+    REQUIRE(result.gyro_actions.at("y_pos").type == HalfAxisActionType::StickSlot);
+}
+
+TEST_CASE("applyProfile keeps base gyro_actions when profile declares none", "[ConfigLoader]") {
+    ControllerConfig base;
+    HalfAxisAction baseAct; baseAct.type = HalfAxisActionType::VirtualButton; baseAct.target = "a";
+    base.gyro_actions["y_pos"] = baseAct;
+
+    GameProfile p;  // hasGyroActions = false
+    auto result = applyProfile(base, p);
+    REQUIRE(result.gyro_actions.size() == 1);
+    REQUIRE(result.gyro_actions.at("y_pos").target == "a");
+}
+
+TEST_CASE("applyProfile gyro_actions and accel_actions are independent sections", "[ConfigLoader]") {
+    ControllerConfig base;
+    base.accel_actions["z_pos"] = HalfAxisAction{};
+
+    GameProfile p;
+    p.hasGyroActions = true;
+    p.gyro_actions["x_pos"] = HalfAxisAction{};
+    // hasAccelActions left false
+
+    auto result = applyProfile(base, p);
+    REQUIRE(result.gyro_actions.count("x_pos") == 1);
+    REQUIRE(result.accel_actions.count("z_pos") == 1);  // untouched, still base's
+}
+
+// ── rebuildPhysicalControllerFromConfig — gyro/accel wiring + calibration ──────
+
+TEST_CASE("rebuildPhysicalControllerFromConfig builds Gyro/Accel components when imu is enabled", "[ConfigLoader]") {
+    ControllerConfig cfg;
+    cfg.imu.enabled = true;
+
+    PhysicalController pc;
+    rebuildPhysicalControllerFromConfig(pc, cfg);
+
+    REQUIRE(pc.baseLayer[static_cast<size_t>(ComponentId::Gyro)].has_value());
+    REQUIRE(pc.baseLayer[static_cast<size_t>(ComponentId::Accel)].has_value());
+}
+
+TEST_CASE("rebuildPhysicalControllerFromConfig clears Gyro/Accel when imu is disabled", "[ConfigLoader]") {
+    ControllerConfig cfg;
+    cfg.imu.enabled = false;
+
+    PhysicalController pc;
+    // Stale components from a previously loaded IMU-equipped controller.
+    pc.baseLayer[static_cast<size_t>(ComponentId::Gyro)]  = PhysicalGyro{};
+    pc.baseLayer[static_cast<size_t>(ComponentId::Accel)] = PhysicalAccel{};
+
+    rebuildPhysicalControllerFromConfig(pc, cfg);
+
+    REQUIRE_FALSE(pc.baseLayer[static_cast<size_t>(ComponentId::Gyro)].has_value());
+    REQUIRE_FALSE(pc.baseLayer[static_cast<size_t>(ComponentId::Accel)].has_value());
+}
+
+TEST_CASE("rebuildPhysicalControllerFromConfig copies gyro/accel deadzone+max calibration", "[ConfigLoader]") {
+    ControllerConfig cfg;
+    cfg.imu.enabled = true;
+    cfg.imu.gyroXDeadzone = 0.15f;
+    cfg.imu.gyroXMax      = 0.85f;
+    cfg.imu.accelZDeadzone = 0.05f;
+    cfg.imu.accelZMax      = 0.95f;
+
+    PhysicalController pc;
+    rebuildPhysicalControllerFromConfig(pc, cfg);
+
+    REQUIRE(pc.gyroXCalib.deadzone  == Catch::Approx(0.15f));
+    REQUIRE(pc.gyroXCalib.max       == Catch::Approx(0.85f));
+    REQUIRE(pc.accelZCalib.deadzone == Catch::Approx(0.05f));
+    REQUIRE(pc.accelZCalib.max      == Catch::Approx(0.95f));
+}
+
+TEST_CASE("rebuildPhysicalControllerFromConfig copies stick/trigger calibration", "[ConfigLoader]") {
+    ControllerConfig cfg;
+    cfg.leftStickCalib = {0.1f, 0.9f};
+    cfg.triggerRCalib  = {0.2f, 0.8f};
+
+    PhysicalController pc;
+    rebuildPhysicalControllerFromConfig(pc, cfg);
+
+    REQUIRE(pc.leftStickCalib.deadzone == Catch::Approx(0.1f));
+    REQUIRE(pc.leftStickCalib.max      == Catch::Approx(0.9f));
+    REQUIRE(pc.triggerRCalib.deadzone  == Catch::Approx(0.2f));
+    REQUIRE(pc.triggerRCalib.max       == Catch::Approx(0.8f));
+}
+
+// ── saveCalibration ─────────────────────────────────────────────────────────────
+
+static void writeBaseControllerFile(const std::string& path) {
+    std::ofstream f(path);
+    f << R"({
+        "controllers": [{
+            "vid": "0x1234",
+            "pid": "0x5678",
+            "source_name": "TestController",
+            "mode": "gamepad",
+            "buttons": {},
+            "axes": { "hid_x": { "target": "left_x" } },
+            "axis_actions": {},
+            "dpad_remap": {},
+            "dpad_actions": {},
+            "stick_slots": {},
+            "imu": { "enabled": true }
+        }]
+    })";
+}
+
+TEST_CASE("saveCalibration round-trips stick, trigger and imu deadzone/max", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_roundtrip.json";
+    writeBaseControllerFile(path);
+
+    StickCalibration   left{0.11f, 0.88f}, right{0.05f, 0.95f};
+    TriggerCalibration trigL{0.2f, 0.8f}, trigR{0.3f, 0.7f};
+    ImuConfig          imu;
+    imu.gyroXDeadzone = 0.12f; imu.gyroXMax = 0.9f;
+    imu.accelZDeadzone = 0.02f; imu.accelZMax = 0.98f;
+
+    saveCalibration(path, "TestController", left, right, trigL, trigR, imu, {});
+
+    auto configs = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(configs.size() == 1);
+    const auto& cfg = configs[0];
+    REQUIRE(cfg.leftStickCalib.deadzone  == Catch::Approx(0.11f));
+    REQUIRE(cfg.leftStickCalib.max       == Catch::Approx(0.88f));
+    REQUIRE(cfg.rightStickCalib.deadzone == Catch::Approx(0.05f));
+    REQUIRE(cfg.triggerLCalib.max        == Catch::Approx(0.8f));
+    REQUIRE(cfg.triggerRCalib.deadzone   == Catch::Approx(0.3f));
+    REQUIRE(cfg.imu.gyroXDeadzone        == Catch::Approx(0.12f));
+    REQUIRE(cfg.imu.gyroXMax             == Catch::Approx(0.9f));
+    REQUIRE(cfg.imu.accelZDeadzone       == Catch::Approx(0.02f));
+    REQUIRE(cfg.imu.accelZMax            == Catch::Approx(0.98f));
+}
+
+TEST_CASE("saveCalibration writes per-axis invert flags", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_invert.json";
+    writeBaseControllerFile(path);
+
+    ImuConfig imu;
+    imu.gyroYInvert  = true;
+    imu.accelXInvert = true;
+
+    saveCalibration(path, "TestController", {}, {}, {}, {}, imu, {});
+
+    auto configs = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(configs[0].imu.gyroYInvert  == true);
+    REQUIRE(configs[0].imu.gyroXInvert  == false);
+    REQUIRE(configs[0].imu.accelXInvert == true);
+}
+
+TEST_CASE("saveCalibration merges axis invert only for HID keys present in the file", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_axisinvert.json";
+    writeBaseControllerFile(path);
+
+    std::vector<std::pair<std::string, bool>> inverts = {
+        {"hid_x", true},          // present in the file
+        {"hid_nonexistent", true} // absent — must be silently skipped, not throw
+    };
+    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, inverts);
+
+    auto configs = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(configs[0].axes.at("hid_x").invert == true);
+}
+
+TEST_CASE("saveCalibration preserves other controllers' entries in the same file", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_multi.json";
+    { std::ofstream f(path); f << R"({
+        "controllers": [
+            { "vid": "0x1234", "pid": "0x5678", "source_name": "TestController", "mode": "gamepad",
+              "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
+              "dpad_actions": {}, "stick_slots": {} },
+            { "vid": "0xAAAA", "pid": "0xBBBB", "source_name": "OtherController", "mode": "gamepad",
+              "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
+              "dpad_actions": {}, "stick_slots": {} }
+        ]
+    })"; }
+
+    saveCalibration(path, "TestController", {0.3f, 1.0f}, {}, {}, {}, ImuConfig{}, {});
+
+    auto configs = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(configs.size() == 2);
+    const auto* other = findConfig(configs, 0xAAAA, 0xBBBB);
+    REQUIRE(other != nullptr);
+    REQUIRE(other->source_name == "OtherController");
+}
+
+TEST_CASE("saveCalibration throws when the file has no controllers array", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_nocontrollers.json";
+    { std::ofstream f(path); f << R"({"not_controllers": []})"; }
+
+    REQUIRE_THROWS_AS(
+        saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, {}),
+        std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("saveCalibration throws when sourceName is not found", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_notfound.json";
+    writeBaseControllerFile(path);
+
+    REQUIRE_THROWS_AS(
+        saveCalibration(path, "NoSuchController", {}, {}, {}, {}, ImuConfig{}, {}),
+        std::runtime_error);
+    std::remove(path.c_str());
+}
+
 TEST_CASE("rebuildPhysicalControllerFromConfig resets cleared trigger to passthrough", "[ConfigLoader]") {
     ControllerConfig cfg;
     AxisMapping tl; tl.target = "trigger_l";

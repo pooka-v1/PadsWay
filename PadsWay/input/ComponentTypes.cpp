@@ -59,6 +59,7 @@ static void applyVirtualTarget(const VirtualTarget& vt, float value,
             }
         } else if constexpr (std::is_same_v<T, VirtualMouseMove>) {
             float mv = value * dirSign * v.speed;
+            if (v.invert) mv = -mv;
             if (v.axis == MouseAxis::X) out.mouseX += mv;
             else                        out.mouseY += mv;
         }
@@ -235,23 +236,27 @@ void PhysicalGyro::process(const GamepadState& physical, GamepadState& out,
     out.gyroActive = physical.gyroActive;
     if (!physical.gyroActive) return;
 
-    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned,
+    // dirSign: which way VirtualMouseMove should push the cursor for this half-axis. Neg
+    // half-axes carry the magnitude of the negative reading (always >=0, see rawSigned below),
+    // so without this the sign information is lost and MouseMove would push the same direction
+    // for both halves of the axis — see PhysicalAnalogDir::process()'s identical reasoning.
+    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned, float dirSign,
                           std::function<void(float)> passthroughFn) {
         float halfVal = rawSigned > 0.0f ? rawSigned : 0.0f;
-        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, gyro);
+        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, gyro, dirSign);
     };
 
-    applyHalf(xPos, physical.gyroX,
+    applyHalf(xPos, physical.gyroX, 1.0f,
               [&](float v) { gyro.xPos = std::max(gyro.xPos, v); });
-    applyHalf(xNeg, -physical.gyroX,
+    applyHalf(xNeg, -physical.gyroX, -1.0f,
               [&](float v) { gyro.xNeg = std::max(gyro.xNeg, v); });
-    applyHalf(yPos, physical.gyroY,
+    applyHalf(yPos, physical.gyroY, 1.0f,
               [&](float v) { gyro.yPos = std::max(gyro.yPos, v); });
-    applyHalf(yNeg, -physical.gyroY,
+    applyHalf(yNeg, -physical.gyroY, -1.0f,
               [&](float v) { gyro.yNeg = std::max(gyro.yNeg, v); });
-    applyHalf(zPos, physical.gyroZ,
+    applyHalf(zPos, physical.gyroZ, 1.0f,
               [&](float v) { gyro.zPos = std::max(gyro.zPos, v); });
-    applyHalf(zNeg, -physical.gyroZ,
+    applyHalf(zNeg, -physical.gyroZ, -1.0f,
               [&](float v) { gyro.zNeg = std::max(gyro.zNeg, v); });
 }
 
@@ -265,23 +270,24 @@ void PhysicalAccel::process(const GamepadState& physical, GamepadState& out,
     out.accelActive = physical.accelActive;
     if (!physical.accelActive) return;
 
-    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned,
+    // dirSign — see the identical comment in PhysicalGyro::process().
+    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned, float dirSign,
                           std::function<void(float)> passthroughFn) {
         float halfVal = rawSigned > 0.0f ? rawSigned : 0.0f;
-        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, accel);
+        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, accel, dirSign);
     };
 
-    applyHalf(xPos, physical.accelX,
+    applyHalf(xPos, physical.accelX, 1.0f,
               [&](float v) { accel.xPos = std::max(accel.xPos, v); });
-    applyHalf(xNeg, -physical.accelX,
+    applyHalf(xNeg, -physical.accelX, -1.0f,
               [&](float v) { accel.xNeg = std::max(accel.xNeg, v); });
-    applyHalf(yPos, physical.accelY,
+    applyHalf(yPos, physical.accelY, 1.0f,
               [&](float v) { accel.yPos = std::max(accel.yPos, v); });
-    applyHalf(yNeg, -physical.accelY,
+    applyHalf(yNeg, -physical.accelY, -1.0f,
               [&](float v) { accel.yNeg = std::max(accel.yNeg, v); });
-    applyHalf(zPos, physical.accelZ,
+    applyHalf(zPos, physical.accelZ, 1.0f,
               [&](float v) { accel.zPos = std::max(accel.zPos, v); });
-    applyHalf(zNeg, -physical.accelZ,
+    applyHalf(zNeg, -physical.accelZ, -1.0f,
               [&](float v) { accel.zNeg = std::max(accel.zNeg, v); });
 }
 

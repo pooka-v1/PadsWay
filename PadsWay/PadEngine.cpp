@@ -702,6 +702,222 @@ void PadEngine::threadFunc() {
         std::vector<uint8_t> trigLRangeMacroOk;
         std::vector<uint8_t> trigRRangeMacroOk;
 
+        // Gyro/accel-as-source Macro/Keyboard/Mouse/Bot state — same shape as the axis-direction
+        // maps above (keyed by "x_pos".."z_neg"), but driven by cfg->gyro_actions/accel_actions
+        // and HIDInputSource::getActiveGyroActions()/getActiveAccelActions() instead of the
+        // stick/trigger axis_actions. See ImuActionState comment below.
+        struct ImuActionState {
+            std::unordered_map<std::string, Macro>       macros;
+            std::unordered_map<std::string, bool>        macroPrev;
+            std::unordered_map<std::string, std::string> macroNames;
+            std::unordered_map<std::string, bool>        kbPrev;
+            std::unordered_map<std::string, bool>        mousePrev;
+            std::unordered_map<std::string, std::string> botNames;
+            std::unordered_map<std::string, bool>        botPrev;
+            std::unordered_map<std::string, std::optional<ButtonAction>> rangePrev;
+            std::unordered_map<std::string, Macro>        rangeMacros;
+            std::unordered_map<std::string, bool>         rangeMacroOk;
+        };
+        ImuActionState gyroActionState;
+        ImuActionState accelActionState;
+
+        // (Re)builds an ImuActionState from a gyro_actions/accel_actions map. Mirrors the
+        // axis_actions init blocks above (kb/mouse/bot/ranges-macro-parse + simple macros).
+        auto initImuActionState = [&](ImuActionState& st,
+                                       const std::unordered_map<std::string, HalfAxisAction>& actions) {
+            st.macros.clear();    st.macroPrev.clear(); st.macroNames.clear();
+            st.kbPrev.clear();    st.mousePrev.clear();
+            st.botNames.clear();  st.botPrev.clear();
+            st.rangePrev.clear(); st.rangeMacros.clear(); st.rangeMacroOk.clear();
+            for (const auto& [key, action] : actions) {
+                if (action.type == HalfAxisActionType::Keyboard)   st.kbPrev[key]    = false;
+                if (action.type == HalfAxisActionType::MouseClick) st.mousePrev[key] = false;
+                if (action.type == HalfAxisActionType::Bot) {
+                    st.botNames[key] = action.target;
+                    st.botPrev[key]  = false;
+                    spdlog::info("Bot '{}' assigned to IMU axis direction {}.", action.target, key);
+                }
+                if (action.type == HalfAxisActionType::Macro) {
+                    std::string execution = action.execution;
+                    if (execution.empty()) {
+                        auto it = macroLibrary.find(action.target);
+                        if (it == macroLibrary.end()) {
+                            spdlog::warn("Macro '{}' (IMU axis {}) not found in library.", action.target, key);
+                            continue;
+                        }
+                        execution = it->second;
+                    }
+                    try {
+                        Macro m;
+                        MacroParser::parse(execution, m);
+                        st.macros[key]     = std::move(m);
+                        st.macroPrev[key]  = false;
+                        st.macroNames[key] = action.target;
+                        spdlog::info("Macro '{}' assigned to IMU axis direction {}.", action.target, key);
+                    } catch (const std::exception& ex) {
+                        spdlog::error("Error parsing macro '{}': {}", action.target, ex.what());
+                    }
+                }
+                if (action.type == HalfAxisActionType::Ranges) {
+                    st.rangePrev[key] = std::nullopt;
+                    for (const auto& r : action.ranges) {
+                        if (!r.hasAction || r.action.type != ButtonActionType::Macro) continue;
+                        std::string mkey = key + "|" + r.action.name;
+                        auto it = macroLibrary.find(r.action.name);
+                        if (it == macroLibrary.end()) {
+                            spdlog::warn("Macro '{}' (IMU range {}) not found.", r.action.name, key);
+                            st.rangeMacroOk[mkey] = false;
+                            continue;
+                        }
+                        try {
+                            Macro m;
+                            MacroParser::parse(it->second, m);
+                            st.rangeMacros[mkey]  = std::move(m);
+                            st.rangeMacroOk[mkey] = true;
+                        } catch (...) {
+                            spdlog::warn("Failed to parse macro '{}' (IMU range {}).", r.action.name, key);
+                            st.rangeMacroOk[mkey] = false;
+                        }
+                    }
+                }
+            }
+        };
+
+        // Ticks one ImuActionState for the current frame: edge-detects activeKeys/activeRangeActions
+        // (as reported by HIDInputSource::getActive{Gyro,Accel}[Range]Actions()) and fires
+        // Macro/Keyboard/MouseClick/Bot exactly like the axis-direction block below does for
+        // axis_actions. `actions` is the source map (cfg->gyro_actions/accel_actions), needed to
+        // look up .keys/.mouseButton for the simple (non-Ranges) Keyboard/MouseClick case.
+        // `state`/`botLoader` are taken by reference (not captured) because both are declared
+        // further down this function, after this lambda — see their declarations below.
+        auto tickImuActionState = [&](ImuActionState& st,
+                                       const std::unordered_map<std::string, HalfAxisAction>& actions,
+                                       const std::vector<std::string>& activeKeys,
+                                       const std::unordered_map<std::string, ButtonAction>& activeRangeActions,
+                                       GamepadState& state, BotLoader& botLoader) {
+            std::unordered_set<std::string> activeSet(activeKeys.begin(), activeKeys.end());
+
+            for (auto& [key, macro] : st.macros) {
+                bool active = activeSet.count(key) > 0;
+                bool& prev  = st.macroPrev[key];
+                if (active && !prev) {
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                        macro.start();
+                    else
+                        macro.toggle();
+                    if (macro.isActive())
+                        spdlog::info("[MACRO][IMU] '{}' ON", st.macroNames[key]);
+                    pushEvent({ PadEventType::MacroToggle, st.macroNames[key], macro.isActive() });
+                }
+                if (!active && prev)
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
+                        macro.stop();
+                prev = active;
+                macro.tick(state);
+            }
+
+            for (auto& [key, prev] : st.kbPrev) {
+                bool active = activeSet.count(key) > 0;
+                const HalfAxisAction& action = actions.at(key);
+                if (active && !prev) {
+                    sendKeyCombo(action.keys, true);
+                    std::string combo;
+                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                }
+                if (!active && prev) sendKeyCombo(action.keys, false);
+                prev = active;
+            }
+
+            for (auto& [key, prev] : st.mousePrev) {
+                bool active = activeSet.count(key) > 0;
+                if (active != prev) {
+                    const std::string& btn = actions.at(key).mouseButton;
+                    sendMouseButton(btn, active);
+                    if (active)
+                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
+                }
+                prev = active;
+            }
+
+            for (auto& [key, prev] : st.botPrev) {
+                bool active = activeSet.count(key) > 0;
+                if (active && !prev) {
+                    const std::string& botName = st.botNames[key];
+                    if (auto* b = botLoader.find(botName)) {
+                        b->toggle();
+                        spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
+                        pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
+                    } else {
+                        spdlog::warn("[BOT] '{}' not loaded.", botName);
+                    }
+                }
+                prev = active;
+            }
+
+            for (auto& [key, prev] : st.rangePrev) {
+                auto it = activeRangeActions.find(key);
+                bool isActive = (it != activeRangeActions.end());
+                bool changed  = isActive
+                    ? (!prev.has_value() ||
+                       prev->type        != it->second.type        ||
+                       prev->name        != it->second.name        ||
+                       prev->mouseButton != it->second.mouseButton ||
+                       prev->keys        != it->second.keys)
+                    : prev.has_value();
+
+                if (!changed) continue;
+
+                if (prev.has_value()) {
+                    if (prev->type == ButtonActionType::Keyboard)
+                        sendKeyCombo(prev->keys, false);
+                    else if (prev->type == ButtonActionType::MouseClick)
+                        sendMouseButton(prev->mouseButton, false);
+                    else if (prev->type == ButtonActionType::Macro) {
+                        auto mit = st.rangeMacros.find(key + "|" + prev->name);
+                        if (mit != st.rangeMacros.end() && st.rangeMacroOk[key + "|" + prev->name])
+                            if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
+                                mit->second.stop();
+                    }
+                }
+                if (isActive) {
+                    const ButtonAction& cur = it->second;
+                    if (cur.type == ButtonActionType::Keyboard) {
+                        sendKeyCombo(cur.keys, true);
+                        std::string combo;
+                        for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                        pushEvent({ PadEventType::KeyboardAction, combo, true });
+                    } else if (cur.type == ButtonActionType::MouseClick) {
+                        sendMouseButton(cur.mouseButton, true);
+                        pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
+                    } else if (cur.type == ButtonActionType::Macro) {
+                        std::string mkey = key + "|" + cur.name;
+                        auto mit = st.rangeMacros.find(mkey);
+                        if (mit != st.rangeMacros.end() && st.rangeMacroOk[mkey]) {
+                            if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
+                                mit->second.start();
+                            else
+                                mit->second.toggle();
+                            pushEvent({ PadEventType::MacroToggle, cur.name, mit->second.isActive() });
+                        }
+                    } else if (cur.type == ButtonActionType::Bot) {
+                        if (auto* b = botLoader.find(cur.name)) {
+                            b->toggle();
+                            spdlog::info("[BOT] '{}' {}", cur.name, b->isActive() ? "ON" : "OFF");
+                            pushEvent({ PadEventType::BotToggle, cur.name, b->isActive() });
+                        } else {
+                            spdlog::warn("[BOT] '{}' not loaded.", cur.name);
+                        }
+                    }
+                    prev = cur;
+                } else {
+                    prev = std::nullopt;
+                }
+            }
+            for (auto& [mkey, macro] : st.rangeMacros)
+                macro.tick(state);
+        };
+
         auto initMacros = [&]() {
             macros.clear();      macroPrevBtn.clear(); macroNames.clear();
             macroRotCount.clear(); macroLastRX.clear(); macroLastRY.clear();
@@ -894,6 +1110,9 @@ void PadEngine::threadFunc() {
             };
             initRangeMacros(cfg->triggerLRanges, trigLRangeMacros, trigLRangeMacroOk, trigLRangePrev);
             initRangeMacros(cfg->triggerRRanges, trigRRangeMacros, trigRRangeMacroOk, trigRRangePrev);
+
+            initImuActionState(gyroActionState, cfg->gyro_actions);
+            initImuActionState(accelActionState, cfg->accel_actions);
         };
         initMacros();
 
@@ -1296,6 +1515,18 @@ void PadEngine::threadFunc() {
                         macro.tick(state);
                 }
             }
+
+            // --- Gyro/Accel-as-source Macro / Keyboard / Mouse / Bot (edge-triggered) ---
+            // Same shape as the axis-direction block above, but for gyro/accel used as the
+            // *source* of a Keyboard/Macro/MouseClick/Bot assignment. PhysicalGyro/PhysicalAccel
+            // (Component System) only resolve VirtualButton/Dpad/Trigger/StickSlot/MouseMove
+            // targets into GamepadState directly; these marker targets need picking up here.
+            tickImuActionState(gyroActionState, cfg->gyro_actions,
+                                input->getActiveGyroActions(), input->getActiveGyroRangeActions(),
+                                state, botLoader);
+            tickImuActionState(accelActionState, cfg->accel_actions,
+                                input->getActiveAccelActions(), input->getActiveAccelRangeActions(),
+                                state, botLoader);
 
             // --- Dpad H5 actions (Macro / Keyboard / Mouse, edge-triggered) ---
             // Helper: get dpad active state by direction string.

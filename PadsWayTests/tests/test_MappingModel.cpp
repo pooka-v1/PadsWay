@@ -615,3 +615,87 @@ TEST_CASE("saveProfile saves keyboard override differing only in keys", "[Mappin
     REQUIRE(p.buttons.at("home").type == ButtonActionType::Keyboard);
     REQUIRE(p.buttons.at("home").keys == std::vector<std::string>{"ctrl", "c"});
 }
+
+// ---------------------------------------------------------------------------
+// saveProfile — bool return value (callers must check instead of assuming success,
+// see MappingModel.h/.cpp: fixes a bug where a profile silently vanished when
+// data/profiles/ was missing on a fresh portable install).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("saveProfile returns true when the write succeeds", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    const std::string path = "test_tmp_profile_save_ok.json";
+    bool ok = model.saveProfile(path, "G", base);
+    std::remove(path.c_str());
+
+    REQUIRE(ok);
+}
+
+TEST_CASE("saveProfile returns false when the target directory does not exist", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    // No such directory in the test working dir — the .tmp ofstream can't open.
+    const std::string path = "no_such_dir_xyz123/profile.json";
+    bool ok = model.saveProfile(path, "G", base);
+
+    REQUIRE_FALSE(ok);
+}
+
+// ---------------------------------------------------------------------------
+// saveProfile — gyro_actions / accel_actions round-trips (Mapper's gyro/accel
+// half-axis reassignment feature — see BITACORA.md 2026/07/28-29)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("saveProfile round-trips gyro half-axis reassigned to a stick slot", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    base.imu.enabled = true;
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    HalfAxisAction slot;
+    slot.type = HalfAxisActionType::StickSlot;
+    slot.target = "right_x_pos";
+    model.gyroActionEdits["y_pos"] = slot;
+
+    const std::string path = "test_tmp_profile_save_gyro.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.hasGyroActions);
+    REQUIRE(p.gyro_actions.at("y_pos").type   == HalfAxisActionType::StickSlot);
+    REQUIRE(p.gyro_actions.at("y_pos").target == "right_x_pos");
+
+    auto eff = applyProfile(base, p);
+    REQUIRE(eff.gyro_actions.at("y_pos").type == HalfAxisActionType::StickSlot);
+}
+
+TEST_CASE("saveProfile round-trips accel half-axis reassigned to a virtual button", "[MappingModel]") {
+    ControllerConfig base = makeProfileBase();
+    base.imu.enabled = true;
+    MappingModel model;
+    model.loadProfile(base, GameProfile{});
+
+    HalfAxisAction btn;
+    btn.type = HalfAxisActionType::VirtualButton;
+    btn.target = "b";
+    model.accelActionEdits["x_pos"] = btn;
+
+    const std::string path = "test_tmp_profile_save_accel.json";
+    model.saveProfile(path, "G", base);
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+
+    REQUIRE(p.hasAccelActions);
+    REQUIRE(p.accel_actions.at("x_pos").type   == HalfAxisActionType::VirtualButton);
+    REQUIRE(p.accel_actions.at("x_pos").target == "b");
+    REQUIRE_FALSE(p.hasGyroActions);  // independent sections — gyro untouched
+
+    auto eff = applyProfile(base, p);
+    REQUIRE(eff.accel_actions.at("x_pos").target == "b");
+}

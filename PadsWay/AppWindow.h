@@ -81,7 +81,7 @@ private:
     std::vector<std::string> m_acceptedXboxButtons;
     float                    m_stickSelectThreshold = 0.85f;
     int                      m_stickHoldMs          = 2000;
-    float                    m_gyroSelectThreshold  = 0.6f;
+    float                    m_gyroSelectThreshold  = 0.24f;
     float                    m_accelSelectThreshold = 0.5f;
 
     // --- Game profiles ---

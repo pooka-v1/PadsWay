@@ -79,7 +79,9 @@ public:
 
     // Write only the delta (buttons that differ from base) to a profile JSON file.
     // Preserves existing overrides for other controllers in the file.
-    void saveProfile(const std::string& path, const std::string& profileName,
+    // Returns false if the file couldn't be written (e.g. missing directory) —
+    // callers must check this instead of assuming success, since this never throws.
+    bool saveProfile(const std::string& path, const std::string& profileName,
                      const ControllerConfig& base);
 
     // Clear all edit maps (does not reset vid/pid).

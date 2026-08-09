@@ -1,986 +1,990 @@
 {
-    "controllers": [
-        {
-            "axes": {
-                "hid_rx": {
-                    "invert": false,
-                    "target": "right_x"
-                },
-                "hid_ry": {
-                    "invert": true,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "trigger_combined"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "10": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "3": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "4": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "6": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                },
-                "7": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "8": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "9": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                }
-            },
-            "dpad": "hid_hat",
-            "layout_id": "8BitDo-Pro3",
-            "mode": "hid",
-            "pid": "310B",
-            "source_name": "8BitDo Pro 3 (X-mode)",
-            "vid": "2DC8"
+  "controllers": [
+    {
+      "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "right_x"
         },
-        {
-            "axes": {
-                "hid_accel": {
-                    "invert": false,
-                    "target": "trigger_l"
-                },
-                "hid_brake": {
-                    "invert": false,
-                    "target": "trigger_r"
-                },
-                "hid_rz": {
-                    "invert": true,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "right_x"
-                }
-            },
-            "axis_actions": {
-                "left_x_neg": {
-                    "virtual": "left_x_neg"
-                },
-                "left_x_pos": {
-                    "virtual": "left_x_pos"
-                },
-                "left_y_neg": {
-                    "ranges": [
-                        {
-                            "action": {
-                                "virtual": "left_y_neg"
-                            },
-                            "from": 0.10000000149011612,
-                            "to": 1.0
-                        }
-                    ]
-                },
-                "left_y_pos": {
-                    "virtual": "left_y_pos"
-                },
-                "right_x_neg": {
-                    "virtual": "right_x_neg"
-                },
-                "right_x_pos": {
-                    "virtual": "right_x_pos"
-                },
-                "right_y_neg": {
-                    "virtual": "right_y_neg"
-                },
-                "right_y_pos": {
-                    "virtual": "right_y_pos"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "b"
-                },
-                "11": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "12": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "13": {
-                    "physical": "home",
-                    "virtual": "home"
-                },
-                "14": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                },
-                "15": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "a"
-                },
-                "3": {
-                    "physical": "rp"
-                },
-                "4": {
-                    "physical": "x",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "y",
-                    "virtual": "x"
-                },
-                "6": {
-                    "physical": "lp"
-                },
-                "7": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "8": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                }
-            },
-            "dpad": "hid_hat",
-            "layout_id": "8BitDo-Pro2",
-            "mode": "hid",
-            "pid": "6006",
-            "source_name": "8BitDo Pro 2 (D-mode)",
-            "trigger_actions": {
-                "l2": {
-                    "target": "l2",
-                    "type": "trigger_passthrough"
-                },
-                "r2": {
-                    "target": "r2",
-                    "type": "trigger_passthrough"
-                }
-            },
-            "vid": "2DC8"
+        "hid_ry": {
+          "invert": true,
+          "target": "right_y"
         },
-        {
-            "axes": {
-                "hid_rx": {
-                    "invert": false,
-                    "target": "right_x"
-                },
-                "hid_ry": {
-                    "invert": true,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "trigger_combined"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "10": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "3": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "4": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "6": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                },
-                "7": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "8": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "9": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                }
-            },
-            "dpad": "hid_hat",
-            "layout_id": "8BitDo-Pro2",
-            "mode": "hid",
-            "pid": "02E0",
-            "source_name": "8BitDo Pro 2 (X-mode)",
-            "vid": "045E"
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
         },
-        {
-            "axes": {
-                "hid_rz": {
-                    "invert": true,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "right_x"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "10": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "11": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                },
-                "12": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "2": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "3": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "4": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "6": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                },
-                "7": {
-                    "physical": "lp"
-                },
-                "8": {
-                    "physical": "rp"
-                },
-                "9": {
-                    "physical": "select",
-                    "virtual": "select"
-                }
-            },
-            "dpad": "hid_hat",
-            "layout_id": "Logitech-F310-Dmode",
-            "mode": "hid",
-            "pid": "C216",
-            "source_name": "Logitech F310 (D-mode)",
-            "vid": "046D"
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
         },
-        {
-            "axes": {
-                "hid_rx": {
-                    "invert": false,
-                    "target": "right_x"
-                },
-                "hid_ry": {
-                    "invert": true,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "trigger_combined"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "10": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "3": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "4": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "6": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                },
-                "7": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "8": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "9": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                }
-            },
-            "dpad": "hid_hat",
-            "layout_id": "Logitech-F310-Xmode",
-            "mode": "hid",
-            "pid": "C21D",
-            "source_name": "Logitech F310 (x-mode)",
-            "vid": "046D"
-        },
-        {
-            "axes": {
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                }
-            },
-            "axis_actions": {
-                "left_x_neg": {
-                    "virtual": "dpad_left"
-                },
-                "left_x_pos": {
-                    "virtual": "dpad_right"
-                },
-                "left_y_neg": {
-                    "virtual": "dpad_down"
-                },
-                "left_y_pos": {
-                    "virtual": "dpad_up"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "11": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "12": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "4": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "5": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "7": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "8": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                }
-            },
-            "dpad_remap": {
-                "down": "left_y_neg",
-                "left": "left_x_neg",
-                "right": "left_x_pos",
-                "up": "left_y_pos"
-            },
-            "layout_id": "8BitDo-Zero2",
-            "mode": "hid",
-            "pid": "3230",
-            "source_name": "Bluetooth Wireless Controller   ",
-            "vid": "2DC8"
-        },
-        {
-            "axes": {
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                }
-            },
-            "axis_actions": {
-                "left_x_neg": {
-                    "virtual": "dpad_left"
-                },
-                "left_x_pos": {
-                    "virtual": "dpad_right"
-                },
-                "left_y_neg": {
-                    "virtual": "dpad_down"
-                },
-                "left_y_pos": {
-                    "virtual": "dpad_up"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "2": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "3": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "4": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "5": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "6": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                },
-                "7": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "8": {
-                    "physical": "start",
-                    "virtual": "start"
-                }
-            },
-            "layout_id": "8BitDo-Zero2",
-            "mode": "hid",
-            "pid": "02E0",
-            "product_name": "8BitDo Zero 2 gamepad",
-            "source_name": "8BitDo Zero 2 (X-mode)",
-            "vid": "045E"
-        },
-        {
-            "axes": {
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                }
-            },
-            "axis_actions": {
-                "left_x_neg": {
-                    "virtual": "dpad_left"
-                },
-                "left_x_pos": {
-                    "virtual": "dpad_right"
-                },
-                "left_y_neg": {
-                    "virtual": "dpad_down"
-                },
-                "left_y_pos": {
-                    "virtual": "dpad_up"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "11": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "12": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "4": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "5": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "7": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "8": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                }
-            },
-            "layout_id": "8BitDo-Zero2",
-            "mode": "hid",
-            "pid": "3230",
-            "product_name": "8BitDo Zero 2 gamepad",
-            "source_name": "8BitDo Zero 2 gamepad",
-            "vid": "2DC8"
-        },
-        {
-            "axes": {
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                }
-            },
-            "axis_actions": {
-                "left_x_neg": {
-                    "virtual": "dpad_left"
-                },
-                "left_x_pos": {
-                    "virtual": "dpad_right"
-                },
-                "left_y_neg": {
-                    "virtual": "dpad_down"
-                },
-                "left_y_pos": {
-                    "virtual": "dpad_up"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "11": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "12": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "2": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "4": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "5": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "7": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "8": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                }
-            },
-            "connection": "usb",
-            "layout_id": "8BitDo-Zero2",
-            "mode": "hid",
-            "pid": "9018",
-            "product_name": "8BitDo Zero 2 gamepad",
-            "source_name": "8BitDo Zero 2 gamepad",
-            "vid": "2DC8"
-        },
-        {
-            "axes": {
-                "hid_rx": {
-                    "invert": false,
-                    "target": "trigger_l"
-                },
-                "hid_ry": {
-                    "invert": false,
-                    "target": "trigger_r"
-                },
-                "hid_rz": {
-                    "invert": false,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "right_x"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "10": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "11": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                },
-                "12": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "13": {
-                    "physical": "home",
-                    "virtual": "home"
-                },
-                "14": {
-                    "physical": "touch_btn"
-                },
-                "2": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "3": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "4": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "6": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                },
-                "9": {
-                    "physical": "select",
-                    "virtual": "select"
-                }
-            },
-            "connection": "usb",
-            "dpad": "hid_hat",
-            "imu": {
-                "accel_scale": 3.0517578125e-05,
-                "accel_x_invert": true,
-                "accel_x_offset": 19,
-                "accel_y_invert": false,
-                "accel_y_offset": 23,
-                "accel_z_invert": false,
-                "accel_z_offset": 21,
-                "enabled": true,
-                "gyro_scale": 3.0517578125e-05,
-                "gyro_x_invert": true,
-                "gyro_x_offset": 13,
-                "gyro_y_invert": true,
-                "gyro_y_offset": 15,
-                "gyro_z_invert": true,
-                "gyro_z_offset": 17,
-                "gyro_x_deadzone": 0.0,
-                "gyro_y_deadzone": 0.0,
-                "gyro_z_deadzone": 0.0,
-                "gyro_x_max": 0.44999998807907104,
-                "gyro_y_max": 0.41999998688697815,
-                "gyro_z_max": 0.41999998688697815,
-                "accel_x_deadzone": 0.0,
-                "accel_y_deadzone": 0.0,
-                "accel_z_deadzone": 0.0,
-                "accel_x_max": 0.25,
-                "accel_y_max": 0.25,
-                "accel_z_max": 0.25
-            },
-            "layout_id": "dualshock4",
-            "mode": "hid",
-            "pid": "09CC",
-            "product_name": "Wireless Controller",
-            "source_name": "Wireless Controller",
-            "vid": "054C",
-            "stick_calibration": {
-                "left": {
-                    "deadzone": 0.03999999910593033,
-                    "max": 1.0
-                },
-                "right": {
-                    "deadzone": 0.03999999910593033,
-                    "max": 1.0
-                }
-            },
-            "trigger_calibration": {
-                "l2": {
-                    "deadzone": 0.0,
-                    "max": 1.0
-                },
-                "r2": {
-                    "deadzone": 0.0,
-                    "max": 1.0
-                }
-            }
-        },
-        {
-            "accel_actions": {
-                "x_neg": {
-                    "virtual": "dpad_left"
-                },
-                "y_neg": {
-                    "virtual": "right_y_neg"
-                },
-                "y_pos": {
-                    "virtual": "l2"
-                }
-            },
-            "axes": {
-                "hid_accel": {
-                    "invert": false,
-                    "target": "trigger_l"
-                },
-                "hid_brake": {
-                    "invert": false,
-                    "target": "trigger_r"
-                },
-                "hid_rz": {
-                    "invert": true,
-                    "target": "right_y"
-                },
-                "hid_x": {
-                    "invert": false,
-                    "target": "left_x"
-                },
-                "hid_y": {
-                    "invert": true,
-                    "target": "left_y"
-                },
-                "hid_z": {
-                    "invert": false,
-                    "target": "right_x"
-                }
-            },
-            "buttons": {
-                "1": {
-                    "physical": "b",
-                    "virtual": "b"
-                },
-                "11": {
-                    "physical": "select",
-                    "virtual": "select"
-                },
-                "12": {
-                    "physical": "start",
-                    "virtual": "start"
-                },
-                "13": {
-                    "physical": "home",
-                    "virtual": "home"
-                },
-                "14": {
-                    "physical": "l3",
-                    "virtual": "l3"
-                },
-                "15": {
-                    "physical": "r3",
-                    "virtual": "r3"
-                },
-                "17": {
-                    "physical": "l4"
-                },
-                "18": {
-                    "physical": "r4"
-                },
-                "2": {
-                    "physical": "a",
-                    "virtual": "a"
-                },
-                "3": {
-                    "physical": "rp"
-                },
-                "4": {
-                    "physical": "y",
-                    "virtual": "y"
-                },
-                "5": {
-                    "physical": "x",
-                    "virtual": "x"
-                },
-                "6": {
-                    "physical": "lp"
-                },
-                "7": {
-                    "physical": "l1",
-                    "virtual": "l1"
-                },
-                "8": {
-                    "physical": "r1",
-                    "virtual": "r1"
-                }
-            },
-            "dpad": "hid_hat",
-            "gyro_actions": {
-                "y_pos": {
-                    "virtual": "y"
-                }
-            },
-            "imu": {
-                "accel_scale": 3.0517578125e-05,
-                "accel_x_invert": false,
-                "accel_x_offset": 17,
-                "accel_y_invert": true,
-                "accel_y_offset": 15,
-                "accel_z_invert": false,
-                "accel_z_offset": 19,
-                "enabled": true,
-                "gyro_scale": 3.0517578125e-05,
-                "gyro_x_invert": false,
-                "gyro_x_offset": 23,
-                "gyro_y_invert": true,
-                "gyro_y_offset": 25,
-                "gyro_z_invert": false,
-                "gyro_z_offset": 21,
-                "gyro_x_deadzone": 0.0,
-                "gyro_y_deadzone": 0.0,
-                "gyro_z_deadzone": 0.0,
-                "gyro_x_max": 0.5,
-                "gyro_y_max": 0.5,
-                "gyro_z_max": 0.5,
-                "accel_x_deadzone": 0.0,
-                "accel_y_deadzone": 0.0,
-                "accel_z_deadzone": 0.0,
-                "accel_x_max": 0.11999999731779099,
-                "accel_y_max": 0.11999999731779099,
-                "accel_z_max": 0.12999999523162842
-            },
-            "layout_id": "8BitDo-Pro3",
-            "mode": "hid",
-            "pid": "6009",
-            "product_name": "8BitDo Pro 3",
-            "source_name": "8BitDo Pro 3 (D-mode)",
-            "stick_calibration": {
-                "left": {
-                    "deadzone": 0.0,
-                    "max": 1.0
-                },
-                "right": {
-                    "deadzone": 0.0,
-                    "max": 1.0
-                }
-            },
-            "vid": "2DC8",
-            "trigger_calibration": {
-                "l2": {
-                    "deadzone": 0.0,
-                    "max": 1.0
-                },
-                "r2": {
-                    "deadzone": 0.0,
-                    "max": 1.0
-                }
-            }
+        "hid_z": {
+          "invert": false,
+          "target": "trigger_combined"
         }
-    ]
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "10": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "3": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "9": {
+          "physical": "l3",
+          "virtual": "l3"
+        }
+      },
+      "dpad": "hid_hat",
+      "layout_id": "8BitDo-Pro3",
+      "mode": "hid",
+      "pid": "310B",
+      "source_name": "8BitDo Pro 3 (X-mode)",
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_accel": {
+          "invert": false,
+          "target": "trigger_l"
+        },
+        "hid_brake": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_rz": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "right_x"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "left_x_neg"
+        },
+        "left_x_pos": {
+          "virtual": "left_x_pos"
+        },
+        "left_y_neg": {
+          "ranges": [
+            {
+              "action": {
+                "virtual": "left_y_neg"
+              },
+              "from": 0.10000000149011612,
+              "to": 1.0
+            }
+          ]
+        },
+        "left_y_pos": {
+          "virtual": "left_y_pos"
+        },
+        "right_x_neg": {
+          "virtual": "right_x_neg"
+        },
+        "right_x_pos": {
+          "virtual": "right_x_pos"
+        },
+        "right_y_neg": {
+          "virtual": "right_y_neg"
+        },
+        "right_y_pos": {
+          "virtual": "right_y_pos"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "b"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "13": {
+          "physical": "home",
+          "virtual": "home"
+        },
+        "14": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "15": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "rp"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "x"
+        },
+        "6": {
+          "physical": "lp"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "dpad": "hid_hat",
+      "layout_id": "8BitDo-Pro2",
+      "mode": "hid",
+      "pid": "6006",
+      "source_name": "8BitDo Pro 2 (D-mode)",
+      "trigger_actions": {
+        "l2": {
+          "target": "l2",
+          "type": "trigger_passthrough"
+        },
+        "r2": {
+          "target": "r2",
+          "type": "trigger_passthrough"
+        }
+      },
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "right_x"
+        },
+        "hid_ry": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "trigger_combined"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "10": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "3": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "9": {
+          "physical": "l3",
+          "virtual": "l3"
+        }
+      },
+      "dpad": "hid_hat",
+      "layout_id": "8BitDo-Pro2",
+      "mode": "hid",
+      "pid": "02E0",
+      "source_name": "8BitDo Pro 2 (X-mode)",
+      "vid": "045E"
+    },
+    {
+      "axes": {
+        "hid_rz": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "right_x"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "10": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "11": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "12": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "lp"
+        },
+        "8": {
+          "physical": "rp"
+        },
+        "9": {
+          "physical": "select",
+          "virtual": "select"
+        }
+      },
+      "dpad": "hid_hat",
+      "layout_id": "Logitech-F310-Dmode",
+      "mode": "hid",
+      "pid": "C216",
+      "source_name": "Logitech F310 (D-mode)",
+      "vid": "046D"
+    },
+    {
+      "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "right_x"
+        },
+        "hid_ry": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "trigger_combined"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "10": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "3": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "9": {
+          "physical": "l3",
+          "virtual": "l3"
+        }
+      },
+      "dpad": "hid_hat",
+      "layout_id": "Logitech-F310-Xmode",
+      "mode": "hid",
+      "pid": "C21D",
+      "source_name": "Logitech F310 (x-mode)",
+      "vid": "046D"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "dpad_remap": {
+        "down": "left_y_neg",
+        "left": "left_x_neg",
+        "right": "left_x_pos",
+        "up": "left_y_pos"
+      },
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "3230",
+      "source_name": "Bluetooth Wireless Controller   ",
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        }
+      },
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "02E0",
+      "product_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 (X-mode)",
+      "vid": "045E"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "3230",
+      "product_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 gamepad",
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        }
+      },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "dpad_left"
+        },
+        "left_x_pos": {
+          "virtual": "dpad_right"
+        },
+        "left_y_neg": {
+          "virtual": "dpad_down"
+        },
+        "left_y_pos": {
+          "virtual": "dpad_up"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "2": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "5": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "connection": "usb",
+      "layout_id": "8BitDo-Zero2",
+      "mode": "hid",
+      "pid": "9018",
+      "product_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 gamepad",
+      "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "trigger_l"
+        },
+        "hid_ry": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_rz": {
+          "invert": false,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "right_x"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "10": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "11": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "12": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "13": {
+          "physical": "home",
+          "virtual": "home"
+        },
+        "14": {
+          "physical": "touch_btn"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "9": {
+          "physical": "select",
+          "virtual": "select"
+        }
+      },
+      "connection": "usb",
+      "dpad": "hid_hat",
+      "imu": {
+        "accel_scale": 3.0517578125e-05,
+        "accel_x_deadzone": 0.0,
+        "accel_x_invert": true,
+        "accel_x_max": 0.25,
+        "accel_x_offset": 19,
+        "accel_y_deadzone": 0.0,
+        "accel_y_invert": false,
+        "accel_y_max": 0.25,
+        "accel_y_offset": 23,
+        "accel_z_deadzone": 0.0,
+        "accel_z_invert": false,
+        "accel_z_max": 0.25,
+        "accel_z_offset": 21,
+        "enabled": true,
+        "gyro_scale": 3.0517578125e-05,
+        "gyro_x_deadzone": 0.0,
+        "gyro_x_invert": true,
+        "gyro_x_max": 0.44999998807907104,
+        "gyro_x_offset": 13,
+        "gyro_y_deadzone": 0.0,
+        "gyro_y_invert": true,
+        "gyro_y_max": 0.41999998688697815,
+        "gyro_y_offset": 15,
+        "gyro_z_deadzone": 0.0,
+        "gyro_z_invert": true,
+        "gyro_z_max": 0.41999998688697815,
+        "gyro_z_offset": 17
+      },
+      "layout_id": "dualshock4",
+      "mode": "hid",
+      "pid": "09CC",
+      "product_name": "Wireless Controller",
+      "source_name": "Wireless Controller",
+      "stick_calibration": {
+        "left": {
+          "deadzone": 0.03999999910593033,
+          "max": 1.0
+        },
+        "right": {
+          "deadzone": 0.03999999910593033,
+          "max": 1.0
+        }
+      },
+      "trigger_calibration": {
+        "l2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "r2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
+      "vid": "054C"
+    },
+    {
+      "axes": {
+        "hid_accel": {
+          "invert": false,
+          "target": "trigger_l"
+        },
+        "hid_brake": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_rz": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "right_x"
+        }
+      },
+      "buttons": {
+        "1": {
+          "keys": [
+            "w"
+          ],
+          "physical": "b",
+          "type": "keyboard"
+        },
+        "11": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "12": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "13": {
+          "physical": "home",
+          "virtual": "home"
+        },
+        "14": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "15": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "17": {
+          "physical": "l4"
+        },
+        "18": {
+          "physical": "r4"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "rp"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "6": {
+          "physical": "lp"
+        },
+        "7": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "8": {
+          "physical": "r1",
+          "virtual": "r1"
+        }
+      },
+      "dpad": "hid_hat",
+      "dpad_remap": {
+        "left": "l1"
+      },
+      "gyro_actions": {
+        "x_neg": {
+          "virtual": "a"
+        },
+        "x_pos": {
+          "virtual": "y"
+        },
+        "z_neg": {
+          "virtual": "x"
+        },
+        "z_pos": {
+          "virtual": "b"
+        }
+      },
+      "imu": {
+        "accel_scale": 3.0517578125e-05,
+        "accel_x_deadzone": 0.0,
+        "accel_x_invert": false,
+        "accel_x_max": 0.11999999731779099,
+        "accel_x_offset": 17,
+        "accel_y_deadzone": 0.0,
+        "accel_y_invert": true,
+        "accel_y_max": 0.11999999731779099,
+        "accel_y_offset": 15,
+        "accel_z_deadzone": 0.0,
+        "accel_z_invert": false,
+        "accel_z_max": 0.12999999523162842,
+        "accel_z_offset": 19,
+        "enabled": true,
+        "gyro_scale": 3.0517578125e-05,
+        "gyro_x_deadzone": 0.0,
+        "gyro_x_invert": false,
+        "gyro_x_max": 0.5,
+        "gyro_x_offset": 23,
+        "gyro_y_deadzone": 0.0,
+        "gyro_y_invert": true,
+        "gyro_y_max": 0.5,
+        "gyro_y_offset": 25,
+        "gyro_z_deadzone": 0.0,
+        "gyro_z_invert": false,
+        "gyro_z_max": 0.5,
+        "gyro_z_offset": 21
+      },
+      "layout_id": "8BitDo-Pro3",
+      "mode": "hid",
+      "pid": "6009",
+      "product_name": "8BitDo Pro 3",
+      "source_name": "8BitDo Pro 3 (D-mode)",
+      "stick_calibration": {
+        "left": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "right": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
+      "trigger_calibration": {
+        "l2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "r2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
+      "vid": "2DC8"
+    }
+  ]
 }
