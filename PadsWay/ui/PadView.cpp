@@ -627,34 +627,41 @@ int PadView::hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string
 // renderGyroArrows / hitTestGyroArrow
 // ---------------------------------------------------------------------------
 // The gyro widget's own N/S/E/W/CW/CCW arrows (drawn natively, see render()'s "gyro" branch) sit
-// near the rim of the sphere, all stacked at the same center as the widget. Cardinal zones
-// (up/down/left/right = pitch/roll) reuse the same radial layout as renderStickArrows/
-// hitTestStickArrow above — a single square, since the straight arrows sit right at the rim tip.
-// CW/CCW are curved glyphs sweeping from the side (E/W) down to the bottom (S) — confirmed against
-// a real screenshot — so a single point undershoots them; hitTestGyroArrow instead checks several
-// squares sampled along that sweep. Mirrored: the "turn right" (cw) curve sits on the LEFT of the
-// widget, "turn left" (ccw) on the RIGHT.
-static constexpr float kGyroCardinalGapFactor = 0.0f;   // gyro arrows sit ON the rim, no outward push
-static constexpr float kGyroRotAngleMinDeg    = 20.0f;  // sweep start, degrees off straight-down (S)
-static constexpr float kGyroRotAngleMaxDeg    = 80.0f;  // sweep end, degrees off straight-down (S)
-static constexpr int   kGyroRotSamples        = 4;      // hit squares spread across the sweep
+// near the rim of the sphere, all stacked at the same center as the widget. Confirmed against two
+// real screenshots (the second with the debug zone colors on): the straight N/S/E/W arrows sit
+// well INSIDE the rim (not at it), while the curved CW/CCW arrows sweep the TOP arc, right at the
+// rim, further out than the straight ones. Mirrored: the "turn right" (cw) curve sits on the LEFT
+// of the widget, "turn left" (ccw) on the RIGHT.
+static constexpr float kGyroCardinalRadiusFactor = 0.55f; // straight arrows: well inside the rim
+static constexpr float kGyroCardinalExtraPx      = 9.0f;  // + nudge further out, per user feedback
+static constexpr float kGyroRotRadiusFactor      = 1.0f;  // curved arrows: at the rim
+static constexpr float kGyroRotAngleMinDeg       = 15.0f; // sweep start, degrees off straight-up (N)
+static constexpr float kGyroRotAngleMaxDeg       = 75.0f; // sweep end, degrees off straight-up (N)
+static constexpr int   kGyroRotSamples           = 4;     // hit squares per half (top/bottom mirror)
+static constexpr float kGyroCwOffsetPx           = -18.0f; // cw (left curve) nudged further left
+static constexpr float kGyroCcwOffsetPx          =  19.0f; // ccw (right curve) nudged further right
 
 static ImVec2 gyroCardinalCenter(float cx, float cy, float r, const char* dir) {
-    float dist = r + kGyroCardinalGapFactor;
+    float dist = r * kGyroCardinalRadiusFactor + kGyroCardinalExtraPx;
     if      (dir[0] == 'u') return { cx,        cy - dist };  // up (pitch+)
     else if (dir[0] == 'd') return { cx,        cy + dist };  // down (pitch-)
     else if (dir[0] == 'l') return { cx - dist, cy        };  // left (roll-)
     else                    return { cx + dist, cy        };  // right (roll+)
 }
 
-// One point on the cw/ccw arc, t in [0,1] sweeping from straight-down (S, t=0) toward the side
-// (E for ccw / W for cw, t=1). cw -> left half, ccw -> right half (mirrored glyph convention).
-static ImVec2 gyroRotCenterAt(float cx, float cy, float r, bool cw, float t) {
+// One point on the cw/ccw arc. t in [0,1] sweeps from straight-up (N, t=0) toward the side
+// (E for ccw / W for cw, t=1); mirrorBottom reflects that same sweep onto the bottom half, to
+// cover the rest of the curve as it wraps down the side. cw -> left half (+ a fixed leftward
+// px nudge), ccw -> right half (+ a fixed rightward px nudge) — mirrored glyph convention.
+static ImVec2 gyroRotCenterAt(float cx, float cy, float r, bool cw, float t, bool mirrorBottom) {
     float angleDeg = kGyroRotAngleMinDeg + t * (kGyroRotAngleMaxDeg - kGyroRotAngleMinDeg);
-    float rad = angleDeg * 3.14159265f / 180.0f;
-    float sx  = cw ? -sinf(rad) : sinf(rad);
-    float sy  = cosf(rad);
-    return { cx + sx * r, cy + sy * r };
+    float rad  = angleDeg * 3.14159265f / 180.0f;
+    float dist = r * kGyroRotRadiusFactor;
+    float sx   = cw ? -sinf(rad) : sinf(rad);
+    float sy   = -cosf(rad);
+    if (mirrorBottom) sy = -sy;
+    float offsetPx = cw ? kGyroCwOffsetPx : kGyroCcwOffsetPx;
+    return { cx + sx * dist + offsetPx, cy + sy * dist };
 }
 
 void PadView::renderGyroArrows(ImVec2 canvasOrigin, int selectedComp, const std::string& selDir) {
@@ -708,16 +715,55 @@ int PadView::hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string&
 
         const char* rotDirs[2] = { "cw", "ccw" };
         for (int d = 0; d < 2; ++d) {
-            for (int s = 0; s < kGyroRotSamples; ++s) {
-                float t  = (kGyroRotSamples > 1) ? (float)s / (float)(kGyroRotSamples - 1) : 0.0f;
-                ImVec2 rc = gyroRotCenterAt(cx, cy, r, d == 0, t);
-                if (mousePos.x >= rc.x - kArrowHitSz && mousePos.x <= rc.x + kArrowHitSz &&
-                    mousePos.y >= rc.y - kArrowHitSz && mousePos.y <= rc.y + kArrowHitSz) {
-                    outDir = rotDirs[d];
-                    return i;
+            for (int mirror = 0; mirror < 2; ++mirror) {
+                for (int s = 0; s < kGyroRotSamples; ++s) {
+                    float t  = (kGyroRotSamples > 1) ? (float)s / (float)(kGyroRotSamples - 1) : 0.0f;
+                    ImVec2 rc = gyroRotCenterAt(cx, cy, r, d == 0, t, mirror == 1);
+                    if (mousePos.x >= rc.x - kArrowHitSz && mousePos.x <= rc.x + kArrowHitSz &&
+                        mousePos.y >= rc.y - kArrowHitSz && mousePos.y <= rc.y + kArrowHitSz) {
+                        outDir = rotDirs[d];
+                        return i;
+                    }
                 }
             }
         }
     }
     return -1;
+}
+
+// ---------------------------------------------------------------------------
+// DEBUG ONLY — see PadView.h. Draws the exact same squares hitTestGyroArrow checks against.
+// ---------------------------------------------------------------------------
+void PadView::renderGyroHitZonesDebug(ImVec2 canvasOrigin) const {
+    if (!m_loaded) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const char* dirs[4] = { "up", "down", "left", "right" };
+
+    auto drawZone = [&](ImVec2 c, ImU32 fill, ImU32 outline) {
+        ImVec2 p0 = { c.x - kArrowHitSz, c.y - kArrowHitSz };
+        ImVec2 p1 = { c.x + kArrowHitSz, c.y + kArrowHitSz };
+        dl->AddRectFilled(p0, p1, fill);
+        dl->AddRect(p0, p1, outline, 0.0f, 0, 1.5f);
+    };
+
+    for (const auto& c : m_layout.components) {
+        if (c.type != "gyro") continue;
+        float r  = c.size > 0.0f ? c.size * 0.5f : 35.0f;
+        float cx = canvasOrigin.x + c.cx;
+        float cy = canvasOrigin.y + c.cy;
+
+        for (int d = 0; d < 4; ++d)
+            drawZone(gyroCardinalCenter(cx, cy, r, dirs[d]),
+                     IM_COL32(0, 220, 255, 90), IM_COL32(0, 220, 255, 220));
+
+        for (int mirror = 0; mirror < 2; ++mirror) {
+            for (int s = 0; s < kGyroRotSamples; ++s) {
+                float t = (kGyroRotSamples > 1) ? (float)s / (float)(kGyroRotSamples - 1) : 0.0f;
+                drawZone(gyroRotCenterAt(cx, cy, r, true,  t, mirror == 1),
+                         IM_COL32(255, 60, 60, 90),  IM_COL32(255, 60, 60, 220));   // cw = red
+                drawZone(gyroRotCenterAt(cx, cy, r, false, t, mirror == 1),
+                         IM_COL32(60, 255, 100, 90), IM_COL32(60, 255, 100, 220));  // ccw = green
+            }
+        }
+    }
 }

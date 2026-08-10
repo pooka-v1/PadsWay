@@ -80,6 +80,11 @@ public:
     // and sets outDir accordingly. Returns -1 if none was hit.
     int hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const;
 
+    // DEBUG ONLY — draws every gyro click zone as a colored translucent square (cyan = cardinal,
+    // red = cw sweep, green = ccw sweep) so the geometry can be checked against the real widget
+    // art. Remove the call site (and this method) once the zones are confirmed correct.
+    void renderGyroHitZonesDebug(ImVec2 canvasOrigin) const;
+
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
 
 private:

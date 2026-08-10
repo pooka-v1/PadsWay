@@ -1039,6 +1039,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         }
         phys.renderStickArrows(m_physOrigin, physArrowComp, physArrowDir);
         phys.renderGyroArrows(m_physOrigin, physArrowComp, physArrowDir);
+        phys.renderGyroHitZonesDebug(m_physOrigin);  // TEMP — remove once CW/CCW zones are confirmed
     }
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
