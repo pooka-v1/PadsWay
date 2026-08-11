@@ -104,6 +104,11 @@ static void applyVirtualBtnByName(GamepadState& state, const std::string& name, 
 
 // press=true  → press all keys in order
 // press=false → release all keys in reverse order
+//
+// Fills both wVk and wScan (+ KEYEVENTF_SCANCODE). Message-based consumers (WM_KEYDOWN, e.g. menu
+// navigation) only ever needed wVk and keep working; games that read hardware scan codes via
+// DirectInput/Raw Input (e.g. No Man's Sky movement) were getting a wScan of 0 and never saw the
+// keypress at all — see [BUG-KEYBOARD-WASD-SCANCODE], SESSION_CONTEXT.md.
 static void sendKeyCombo(const std::vector<std::string>& keys, bool press) {
     if (keys.empty()) return;
     std::vector<INPUT> inputs;
@@ -111,10 +116,14 @@ static void sendKeyCombo(const std::vector<std::string>& keys, bool press) {
     auto addKey = [&](const std::string& k, bool up) {
         WORD vk = keyNameToVK(k);
         if (vk == 0) return;
+        UINT scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC_EX, GetKeyboardLayout(0));
         INPUT inp = {};
         inp.type       = INPUT_KEYBOARD;
         inp.ki.wVk     = vk;
-        inp.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+        inp.ki.wScan   = static_cast<WORD>(scan & 0xFF);
+        inp.ki.dwFlags = KEYEVENTF_SCANCODE | (up ? KEYEVENTF_KEYUP : 0);
+        if ((scan >> 8) == 0xE0 || (scan >> 8) == 0xE1)
+            inp.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
         inputs.push_back(inp);
     };
     if (press) {
