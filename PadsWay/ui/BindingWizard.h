@@ -44,10 +44,14 @@ private:
     };
 
     // Sub-phases of the "gyro" component's calibration step (BindStep.mapping.type == "gyro").
-    // One phase per axis after Baseline — see REFERENCE.md, "Wizard de calibracion IMU - 4 diseno
-    // de classifyGyro(): parar-y-contar + voto". Treated as a plain sequential index elsewhere
-    // (+-1 to advance/step back), so the declaration order here IS the wizard order.
-    enum class GyroPhase { Baseline, Roll, Pitch, Yaw };
+    // Roll/Pitch/Yaw: one phase per axis — see REFERENCE.md, "Wizard de calibracion IMU - 4
+    // diseno de classifyGyro(): parar-y-contar + voto". Flip: a one-shot "turn the controller
+    // upside down" hold right after Baseline that confirms/corrects the normal (accelZ) offset
+    // by sign flip before Roll/Pitch/Yaw run, so that offset is claimed and out of the candidate
+    // pool instead of relying only on which baseline reading happened to be the biggest — see
+    // confirmNormalOffsetFromFlip(). Treated as a plain sequential index elsewhere (+-1 to
+    // advance/step back), so the declaration order here IS the wizard order.
+    enum class GyroPhase { Baseline, Flip, Roll, Pitch, Yaw };
 
     // Sub-state within a Roll/Pitch/Yaw phase: move to one extreme of the axis, hold still
     // (auto-detected rest), move to the opposite extreme, hold still again. One round = one full
@@ -164,8 +168,17 @@ private:
     // Runs Step 1-3 of the old classifyGyro() (find the longest run of alive offsets, trim to
     // 6/3, pick the gravity/"normal" axis) once, right when Baseline commits. Fills
     // m_gyroCandidates/m_gyroHasAccel/m_gyroNormalOffset. Leaves m_gyroCandidates empty if no
-    // usable run was found.
+    // usable run was found. The normal-axis pick made here is only a first guess (largest
+    // Baseline magnitude) — confirmNormalOffsetFromFlip() gets the final say once Flip commits.
     void computeGyroCandidatePool();
+    // Confirms or corrects computeGyroCandidatePool()'s normal-offset guess using the Flip
+    // phase: a gyro axis reads ~0 in both rest orientations, and the other two accel axes read
+    // ~0 in both too (a clean flip doesn't tilt them) — only the true normal axis swings hard
+    // and flips sign (+g -> -g) between Baseline and Flip. Falls back to the existing guess,
+    // unchanged, if no candidate shows a swing past kGyroMinSignalAmp (e.g. the user didn't
+    // actually flip the controller). Rebuilds m_gyroCandidates around whichever offset wins so
+    // it is claimed and excluded before Roll/Pitch/Yaw start.
+    void confirmNormalOffsetFromFlip();
     // Commits the gyro BindStep and advances to the next component, same bookkeeping the other
     // commit* methods do (overlay label, cooldown, ++m_currentStep, beginStep()). Shared by the
     // success path (all 3 axes converged) and the 2 failure paths (no usable candidate pool,
@@ -245,9 +258,15 @@ private:
     // Current phase of the "gyro" step's sub-machine, reset in beginStep() when that step starts.
     GyroPhase m_gyroPhase = GyroPhase::Baseline;
     bool      m_hasGyroStep = false; // true if the layout has a "gyro" component (set by buildSteps())
+    // True when computeGyroCandidatePool() found no usable block of alive offsets right after
+    // Baseline — holds the step on an explicit failure message (wizard.gyro_pool_failed) instead
+    // of silently auto-advancing to the next component, so the user actually sees why the gyro
+    // step got skipped. Cleared by its own "Continuar" (-> finishGyroStep()) or by any of the
+    // normal gyro-state resets (beginStep(), goBack()'s gyro branch).
+    bool      m_gyroPoolFailed = false;
 
     // ── Gyro/IMU calibration capture ────────────────────────────────────────
-    static constexpr int kGyroPhaseCount = 4; // Baseline + Roll + Pitch + Yaw
+    static constexpr int kGyroPhaseCount = 5; // Baseline + Flip + Roll + Pitch + Yaw
     // Outer index = raw report byte offset (0..rawLen-2), inner index = GyroPhase. Accumulated
     // unconditionally every frame regardless of round sub-stage — used both by
     // computeAliveOffsets()/computeGyroCandidatePool() (Baseline slot) and by classifyGyro()'s
@@ -326,6 +345,9 @@ private:
     bool m_gyroAxisAccelInvert[3] = { false, false, false };
 
     static constexpr int   kGyroMinCaptureFrames  = 270;   // ~4.5s @60fps — min frames before "continue" enables (Baseline only)
+    // Flip only needs a stable mean for the 6 offsets Baseline already found (no exploration
+    // needed, unlike Baseline itself), so it gets a much shorter timer.
+    static constexpr int   kGyroFlipMinCaptureFrames = 90; // ~1.5s @60fps — min frames before "continue" enables (Flip only)
     static constexpr float kGyroAxisContamination = 0.15f; // declared-axis drift beyond this discards the frame
     // Raw int16 peak-to-peak allowed while quiet. Three uses: Baseline's own quiet check, the
     // rest-streak break check (m_gyroRestStreak), and the hold-delta typing threshold in

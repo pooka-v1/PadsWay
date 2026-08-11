@@ -65,6 +65,9 @@ bool HIDInputSource::read(GamepadState& state) {
     ULONG bufLen   = m_hid.reportLen();
     ULONG bytesRead = m_hid.lastBytesRead();
 
+    // Generic decode (buttons/axes/hat/raw bytes), independent of m_config — see getLastRawSnapshot().
+    decodeRawHIDReport(m_hid, m_lastRawSnapshot);
+
     // Diagnostic: log raw bytes every ~250ms (30 reads * 8ms) — full report, no offset cap
     if (++m_readCount % 30 == 0) {
         ULONG dumpLen = bufLen;

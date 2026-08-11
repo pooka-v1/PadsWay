@@ -851,21 +851,51 @@
           "target": "right_x"
         }
       },
-      "buttons": {
-        "1": {
+      "axis_actions": {
+        "left_x_neg": {
+          "keys": [
+            "a"
+          ],
+          "type": "keyboard"
+        },
+        "left_x_pos": {
+          "keys": [
+            "d"
+          ],
+          "type": "keyboard"
+        },
+        "left_y_neg": {
+          "keys": [
+            "s"
+          ],
+          "type": "keyboard"
+        },
+        "left_y_pos": {
           "keys": [
             "w"
           ],
-          "physical": "b",
           "type": "keyboard"
+        }
+      },
+      "buttons": {
+        "1": {
+          "button": "right",
+          "physical": "b",
+          "type": "mouse_click"
         },
         "11": {
+          "keys": [
+            "tab"
+          ],
           "physical": "select",
-          "virtual": "select"
+          "type": "keyboard"
         },
         "12": {
+          "keys": [
+            "esc"
+          ],
           "physical": "start",
-          "virtual": "start"
+          "type": "keyboard"
         },
         "13": {
           "physical": "home",
@@ -886,8 +916,9 @@
           "physical": "r4"
         },
         "2": {
+          "button": "left",
           "physical": "a",
-          "virtual": "a"
+          "type": "mouse_click"
         },
         "3": {
           "physical": "rp"
@@ -897,37 +928,49 @@
           "virtual": "y"
         },
         "5": {
+          "keys": [
+            "e"
+          ],
           "physical": "x",
-          "virtual": "x"
+          "type": "keyboard"
         },
         "6": {
           "physical": "lp"
         },
         "7": {
+          "keys": [
+            "a"
+          ],
           "physical": "l1",
-          "virtual": "l1"
+          "type": "keyboard"
         },
         "8": {
+          "keys": [
+            "d"
+          ],
           "physical": "r1",
-          "virtual": "r1"
+          "type": "keyboard"
         }
       },
       "dpad": "hid_hat",
-      "dpad_remap": {
-        "left": "l1"
-      },
       "gyro_actions": {
         "x_neg": {
-          "virtual": "a"
+          "invert": true,
+          "speed": 15.0,
+          "target": "mouse_y"
         },
         "x_pos": {
-          "virtual": "y"
+          "invert": true,
+          "speed": 15.0,
+          "target": "mouse_y"
         },
-        "z_neg": {
-          "virtual": "x"
+        "y_neg": {
+          "speed": 15.0,
+          "target": "mouse_x"
         },
-        "z_pos": {
-          "virtual": "b"
+        "y_pos": {
+          "speed": 15.0,
+          "target": "mouse_x"
         }
       },
       "imu": {
@@ -942,7 +985,7 @@
         "accel_y_offset": 15,
         "accel_z_deadzone": 0.0,
         "accel_z_invert": false,
-        "accel_z_max": 0.12999999523162842,
+        "accel_z_max": 0.11999999731779099,
         "accel_z_offset": 19,
         "enabled": true,
         "gyro_scale": 3.0517578125e-05,
@@ -972,6 +1015,20 @@
         "right": {
           "deadzone": 0.0,
           "max": 1.0
+        }
+      },
+      "trigger_actions": {
+        "l2": {
+          "keys": [
+            "w"
+          ],
+          "type": "keyboard"
+        },
+        "r2": {
+          "keys": [
+            "s"
+          ],
+          "type": "keyboard"
         }
       },
       "trigger_calibration": {

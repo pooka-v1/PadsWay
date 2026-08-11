@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include "PadEngine.h"
 #include "input/HIDScanner.h"
-#include "input/RawHIDReader.h"
+#include "input/DeviceHub.h"
 #include <memory>
 #include "config/ConfigLoader.h"
 #include "GamepadState.h"
@@ -24,7 +24,8 @@
 // Call run() from the main thread — it blocks until the window is closed.
 class AppWindow {
 public:
-    explicit AppWindow(PadEngine& engine);
+    // deviceHub outlives AppWindow — owned by main() (PadsWay.cpp), passed by reference.
+    AppWindow(PadEngine& engine, DeviceHub& deviceHub);
     ~AppWindow();
 
     // Creates the window, initialises D3D11 + ImGui, starts the engine,
@@ -53,8 +54,9 @@ private:
     // --- Win32 window procedure ---
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-    // --- Engine ---
+    // --- Engine / device ownership ---
     PadEngine& m_engine;
+    DeviceHub& m_deviceHub;
 
     // --- D3D11 / Win32 ---
     HWND                    m_hwnd              = nullptr;
@@ -94,19 +96,23 @@ private:
     bool                     m_outputConfirmOpen = false;  // inline confirm row is visible
 
     // --- HID live monitor (scanner right panel) ---
-    // m_scanDevice holds its own handle — independent of the Engine.
-    // For event-driven devices (BT X-mode) a background thread does blocking reads
-    // so the render thread never misses a single-shot report.
-    std::unique_ptr<RawHIDReader> m_scanDevice;
-    RawHIDState  m_scanRawState  = {};
-    std::mutex   m_scanRawMutex;
-    int          m_scanDeviceIdx = -1;  // index of the device currently open in m_scanDevice
-    std::thread           m_scanReaderThread;
-    std::atomic<bool>     m_scanReaderStop        { false };
-    std::atomic<bool>     m_scanDataFromEngine    { false }; // true = engine owns state, bg thread must not write
+    // The connection itself lives in DeviceHub (shared with the Engine) — this only tracks which
+    // path the panel currently shows and whether we opened a watch() for it ourselves, as opposed
+    // to the Engine already owning it (see AppWindow::renderScannerTab, ARCHITECTURE.md "DeviceHub").
+    int         m_scanDeviceIdx  = -1;    // index into m_hidDevices currently shown (-1 = none)
+    std::string m_scanWatchedPath;        // path passed to the last deviceHub.watch()/unwatch()
+    bool        m_scanWatchOwned = false; // true if m_scanWatchedPath was opened by us, not the Engine
 
-    void startScanReaderThread();
-    void stopScanReaderThread();
+    // --- Scanner: live gyro/accel block auto-detection (see BITACORA 2026/08/11) ---
+    // Locates the contiguous run of raw report bytes that behaves like sensor data instead of
+    // relying on RawHIDReader's old hardcoded offset 13 (DS4 USB only). Re-armed whenever the
+    // selected device changes (see m_scanDeviceIdx). Runs off DeviceHub's shared raw snapshot for
+    // the selected path, populated whether the Engine or our own watch() thread drives the reads.
+    static constexpr int kScanImuDetectFrames = 100; // ~1.5-2s @ 60fps
+    bool                          m_scanImuDetecting    = false;
+    int                           m_scanImuDetectFrames = 0;
+    std::vector<std::pair<float,float>> m_scanImuMinMax; // per raw byte offset, min/max seen this window
+    std::vector<int>             m_scanImuOffsets;       // up to 6 offsets found; empty = not (yet) detected
 
     // --- Pad layouts ---
     std::vector<PadLayout> m_padLayouts;

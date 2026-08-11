@@ -55,7 +55,10 @@
         "buttons":      "Buttons",
         "axes":         "Axes",
         "hat":          "Hat",
-        "default_name": "HID Device"
+        "default_name": "HID Device",
+        "imu_title":       "Gyro/Accel (IMU)",
+        "imu_detecting":   "Detecting... %d%%",
+        "imu_not_found":   "No gyro/accel block detected on this device."
     },
     "mapper": {
         "title":       "Mapper",
@@ -129,6 +132,8 @@
         "gyro_phase":        "Gyro calibration - Axis %d / 3",
         "gyro_round":        "Round %d",
         "gyro_baseline":     "Hold the controller with the top face horizontal (D-pad and buttons facing up), still, without touching anything.",
+        "gyro_pool_failed":  "Could not detect the gyroscope/accelerometer on this reading. Press Continue to skip this component, or Back to try again.",
+        "gyro_flip":         "Now turn the controller upside down and hold it still in that position.",
         "gyro_roll_a":       "Tilt the controller to the right and hold it there.",
         "gyro_roll_b":       "Now tilt it to the left and hold it there.",
         "gyro_pitch_a":      "Tilt the controller forward and hold it there.",

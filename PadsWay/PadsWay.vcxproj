@@ -151,6 +151,7 @@
     <ClCompile Include="input\HIDInputSource.cpp" />
     <ClCompile Include="bots\BotLoader.cpp" />
     <ClCompile Include="input\RawHIDReader.cpp" />
+    <ClCompile Include="input\DeviceHub.cpp" />
     <ClCompile Include="macros\Macro.cpp" />
     <ClCompile Include="macros\MacroParser.cpp" />
     <ClCompile Include="output\ViGEmOutputBase.cpp" />
@@ -192,6 +193,7 @@
     <ClInclude Include="bots\bot_api.h" />
     <ClInclude Include="bots\BotLoader.h" />
     <ClInclude Include="input\RawHIDReader.h" />
+    <ClInclude Include="input\DeviceHub.h" />
     <ClInclude Include="macros\Macro.h" />
     <ClInclude Include="macros\MacroParser.h" />
     <ClInclude Include="output\IOutputSink.h" />

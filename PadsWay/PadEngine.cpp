@@ -15,6 +15,7 @@
 
 #include "input/HIDScanner.h"
 #include "input/HIDInputSource.h"
+#include "input/DeviceHub.h"
 #include "output/IOutputSink.h"
 #include "output/ViGEmX360OutputAdapter.h"
 #include "output/ViGEmDs4OutputAdapter.h"
@@ -167,7 +168,7 @@ static void applyBotOutput(const BotOutput& out, GamepadState& state) {
 // PadEngine
 // ---------------------------------------------------------------------------
 
-PadEngine::PadEngine()  = default;
+PadEngine::PadEngine(DeviceHub& deviceHub) : m_deviceHub(deviceHub) {}
 PadEngine::~PadEngine() { stop(); }
 
 void PadEngine::start() {
@@ -615,7 +616,11 @@ void PadEngine::threadFunc() {
         }
         const ControllerConfig* cfg = &effectiveCfg;
 
-        auto input = std::make_unique<HIDInputSource>(selected.hidPath, *cfg);
+        // The Hub owns the actual HID connection (indexed by path) — the engine just drives its
+        // reads. Lets the Scanner inspect this same device without opening a second, conflicting
+        // handle to it (see ARCHITECTURE.md, "DeviceHub").
+        m_deviceHub.openDriven(selected.hidPath, *cfg);
+        HIDInputSource* input = m_deviceHub.get(selected.hidPath);
 
         // Inject PhysicalController for component-system processing (P4).
         // Rebuild button layer from effectiveCfg so profile overrides are reflected.
@@ -635,6 +640,7 @@ void PadEngine::threadFunc() {
         if (!input->isConnected()) {
             spdlog::error("Failed to open input device — rescanning.");
             setStatus("Failed to open input device — rescanning");
+            m_deviceHub.close(selected.hidPath);
             preSelected = {};
             m_phase.store(EnginePhase::Scanning);
             Sleep(1000);
@@ -1276,7 +1282,7 @@ void PadEngine::threadFunc() {
             setStatus("Running");
         }
 
-        if (input->read(state)) {
+        if (m_deviceHub.read(selected.hidPath, state)) {
             DWORD btns = input->getLastButtonMask();
             m_lastRawButtonMask.store(btns);
             m_lastRawHat.store(input->getLastRawHat());
@@ -1882,6 +1888,7 @@ void PadEngine::threadFunc() {
 
         // ── End of run loop ───────────────────────────────────────────────────
         m_connected = false;
+        m_deviceHub.close(selected.hidPath);  // done with this device — reconnect/switch opens fresh
 
         if (!m_running) break;  // normal stop — exit outer loop
 

@@ -86,6 +86,9 @@
     <ClCompile Include="input\RawHIDReader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="input\DeviceHub.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="ui\BindingWizard.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -200,6 +203,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="input\RawHIDReader.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="input\DeviceHub.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ui\BindingWizard.h">

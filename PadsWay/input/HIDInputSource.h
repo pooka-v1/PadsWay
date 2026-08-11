@@ -3,6 +3,7 @@
 #include "HIDDevice.h"
 #include "ControllerConfig.h"
 #include "ComponentTypes.h"
+#include "RawHIDReader.h"
 #include <string>
 #include <unordered_map>
 #include <atomic>
@@ -25,6 +26,10 @@ public:
     DWORD       getLastRawHat()       const override { return m_lastRawHat.load(); }
     void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
     GamepadState getPhysicalState()   const override { return m_physicalState; }
+    // Generic HID decode (buttons/axes/hat/raw bytes), independent of controllers.json mapping.
+    // Populated every read() alongside the mapped GamepadState above. Used by DeviceHub to serve
+    // the Scanner tab, which needs to inspect a device whether or not it has a config entry yet.
+    const RawHIDState& getLastRawSnapshot() const { return m_lastRawSnapshot; }
     std::vector<std::string> getActiveAxisActions() const override { return m_activeAxisActions; }
     const std::unordered_map<std::string, ButtonAction>& getActiveAxisRangeActions() const override { return m_activeAxisRangeActions; }
     std::vector<std::string> getActiveGyroActions() const override { return m_activeGyroActions; }
@@ -48,6 +53,7 @@ private:
     float            m_lastTouchY      = 0.0f;
     bool             m_lastTouchActive = false;
     GamepadState             m_physicalState;
+    RawHIDState              m_lastRawSnapshot;
     std::vector<std::string> m_activeAxisActions;
     std::unordered_map<std::string, ButtonAction> m_activeAxisRangeActions;
     std::vector<std::string> m_activeGyroActions;

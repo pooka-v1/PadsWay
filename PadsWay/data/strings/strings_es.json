@@ -55,7 +55,10 @@
         "buttons":      "Botones",
         "axes":         "Ejes",
         "hat":          "Hat",
-        "default_name": "Dispositivo HID"
+        "default_name": "Dispositivo HID",
+        "imu_title":       "Gyro/Accel (IMU)",
+        "imu_detecting":   "Detectando... %d%%",
+        "imu_not_found":   "No se ha detectado ningun bloque de gyro/accel en este dispositivo."
     },
     "mapper": {
         "title":       "Mapeador",
@@ -129,6 +132,8 @@
         "gyro_phase":        "Calibracion de giro - Eje %d / 3",
         "gyro_round":        "Ronda %d",
         "gyro_baseline":     "Sujeta el mando dejando la parte superior horizontal (cruceta y botones mirando al techo), quieto, sin tocar nada.",
+        "gyro_pool_failed":  "No se ha podido detectar el giroscopio/acelerometro en esta lectura. Pulsa Continuar para saltar este componente, o Atras para repetirlo.",
+        "gyro_flip":         "Ahora dale la vuelta al mando (boca abajo) y mantenlo quieto en esa posicion.",
         "gyro_roll_a":       "Inclina el mando hacia la derecha y mantenlo ahi.",
         "gyro_roll_b":       "Ahora inclinalo hacia la izquierda y mantenlo ahi.",
         "gyro_pitch_a":      "Inclina el mando hacia adelante y mantenlo ahi.",
