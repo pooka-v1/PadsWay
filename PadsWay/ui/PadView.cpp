@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <vector>
 #include <cstdio>
+#include <algorithm>
 
 #include "../imgui/imgui.h"
 
@@ -89,6 +90,14 @@ bool PadView::load(ID3D11Device* device) {
     loadPng(device, "images/decorations/ArrowDown.png",  m_arrowDown);
     loadPng(device, "images/decorations/ArrowLeft.png",  m_arrowLeft);
     loadPng(device, "images/decorations/ArrowRight.png", m_arrowRight);
+    loadPng(device, "images/gyroscope/gyrosspera.png",           m_gyroSphere);
+    loadPng(device, "images/gyroscope/ArrowNort.png",            m_gyroArrowN);
+    loadPng(device, "images/gyroscope/ArrowSouth.png",           m_gyroArrowS);
+    loadPng(device, "images/gyroscope/ArrowEst.png",             m_gyroArrowE);
+    loadPng(device, "images/gyroscope/ArrowWest.png",            m_gyroArrowW);
+    loadPng(device, "images/gyroscope/ArrowClockwise.png",       m_gyroArrowCW);
+    loadPng(device, "images/gyroscope/ArrowCounterclockwise.png",m_gyroArrowCCW);
+    loadPng(device, "images/gyroscope/LevelBar.png",             m_gyroLevelBar);
     return true;
 }
 
@@ -155,6 +164,14 @@ void PadView::unload() {
     m_arrowDown.release();
     m_arrowLeft.release();
     m_arrowRight.release();
+    m_gyroSphere.release();
+    m_gyroArrowN.release();
+    m_gyroArrowS.release();
+    m_gyroArrowE.release();
+    m_gyroArrowW.release();
+    m_gyroArrowCW.release();
+    m_gyroArrowCCW.release();
+    m_gyroLevelBar.release();
     m_device = nullptr;
     m_loaded = false;
 }
@@ -275,6 +292,26 @@ void PadView::render(const GamepadState& state, int selectedComp) {
                      { 0, 0 }, { 1, 1 }, ImGui::ColorConvertFloat4ToU32(tint));
     };
 
+    // Draw a texture centered at (cx, cy) rotated by angleRad (clockwise, 0 = unrotated) —
+    // used by the gyro widget's yaw hand, the only element that needs to orbit rather than
+    // sit axis-aligned. ImGui has no rotated AddImage, so this rotates the 4 destination
+    // corners manually and submits them as a quad.
+    auto imgRotated = [&](const PadTexture& t,
+                          float cx, float cy, float w, float h,
+                          float angleRad, ImVec4 tint) {
+        if (!t.valid()) return;
+        float hw = w * 0.5f, hh = h * 0.5f;
+        float s = sinf(angleRad), c = cosf(angleRad);
+        ImVec2 center = { origin.x + cx, origin.y + cy };
+        auto rot = [&](float lx, float ly) {
+            return ImVec2{ center.x + lx * c - ly * s, center.y + lx * s + ly * c };
+        };
+        ImVec2 p0 = rot(-hw, -hh), p1 = rot(hw, -hh), p2 = rot(hw, hh), p3 = rot(-hw, hh);
+        ImU32 col32 = ImGui::ColorConvertFloat4ToU32(tint);
+        dl->AddImageQuad((ImTextureID)(intptr_t)t.srv, p0, p1, p2, p3,
+                          { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, col32);
+    };
+
     for (const auto& c : L.components) {
         const ImVec4 col         = { c.colorR,         c.colorG,         c.colorB,         c.colorA         };
         const ImVec4 activeCol   = { c.activeColorR,   c.activeColorG,   c.activeColorB,   c.activeColorA   };
@@ -341,27 +378,67 @@ void PadView::render(const GamepadState& state, int selectedComp) {
                 drawFinger(state.touch2X, state.touch2Y, IM_COL32(255, 140, 60, 220));  // naranja
         }
         else if (c.type == "gyro") {
-            // Gyroscope visualisation: bubble-level ball inside a circular cage.
-            // stateX maps to horizontal axis (gyroZ = roll), stateY to vertical (gyroX = pitch).
+            // Gyroscope widget: sphere background + tilt ball (roll/pitch) + yaw clock-hand bar
+            // + 6 direction arrows (4 cardinal for roll/pitch, 2 rotational for yaw). See
+            // REFERENCE.md, "Widget visual del giroscopio - spec UI completa".
+            // stateX/stateY/stateZ map to roll/pitch/yaw (gyroZ/gyroX/gyroY by default).
             float dx = resolveFloat(state, c.stateX);
             float dy = resolveFloat(state, c.stateY);
+            float dz = resolveFloat(state, c.stateZ);
             float r   = c.size > 0.0f ? c.size * 0.5f : 35.0f;
             float off = c.maxOffset > 0.0f ? c.maxOffset : r * 0.65f;
 
             ImVec2 center = { origin.x + c.cx, origin.y + c.cy };
 
-            // Cage background
-            ImU32 bgCol  = state.gyroActive ? IM_COL32(30, 30, 40, 210) : IM_COL32(20, 20, 25, 130);
-            ImU32 rimCol = state.gyroActive ? IM_COL32(110, 130, 160, 200) : IM_COL32(70, 70, 80, 140);
-            dl->AddCircleFilled(center, r, bgCol, 48);
-            dl->AddCircle(center, r, rimCol, 48, 2.0f);
+            // Fixed tints, independent of the component's configured color — the gyro widget
+            // renders with fixed colors by design (see LayoutEditor.cpp, "gyro renders with
+            // fixed colors, nothing to edit"). Alpha (not color) carries "dim vs lit".
+            const ImVec4 gyroDim    = { 1.0f, 1.0f, 1.0f, 0.65f };
+            const ImVec4 gyroLit    = { 1.0f, 0.95f, 0.65f, 1.0f };
+            // Sphere drawn first (furthest back) already — light blue (brighter than the small
+            // ball's dark rest color) so it stands out without competing with the arrows on top.
+            const ImVec4 gyroSphere = { 0.55f, 0.75f, 1.0f, 0.55f };
+            constexpr float kGyroDeadzone = 0.12f;
 
-            // Reference cross and inner ring
-            ImU32 crossCol = IM_COL32(60, 70, 90, 160);
-            dl->AddLine({ center.x - r * 0.88f, center.y }, { center.x + r * 0.88f, center.y }, crossCol, 1.0f);
-            dl->AddLine({ center.x, center.y - r * 0.88f }, { center.x, center.y + r * 0.88f }, crossCol, 1.0f);
-            dl->AddCircle(center, r * 0.45f, IM_COL32(55, 65, 85, 120), 32, 1.0f);
+            // "Calm blue -> alert red" ramp shared by the tilt ball and the yaw bar, driven by
+            // movement magnitude (0 = at rest, 1 = full deflection).
+            auto gyroIntensityColor = [](float intensity) {
+                float blend = intensity * 1.4f < 1.0f ? intensity * 1.4f : 1.0f;
+                return ImVec4{
+                    (50.0f  + blend * 100.0f) / 255.0f,
+                    (95.0f  - blend * 55.0f)  / 255.0f,
+                    (150.0f - blend * 105.0f) / 255.0f,
+                    1.0f
+                };
+            };
 
+            // The sphere and the 6 arrows are all authored on the same canvas — each arrow PNG
+            // already has its own arrow positioned pointing outward relative to that shared
+            // frame — so they draw correctly by stacking at native pixel size, all centered on
+            // the component's position. Only the yaw bar is meant to move (see below).
+            auto drawGyroNative = [&](const PadTexture& t, ImVec4 tint) {
+                img(t, c.cx, c.cy, (float)t.w, (float)t.h, tint);
+            };
+
+            drawGyroNative(m_gyroSphere, gyroSphere);
+            drawGyroNative(m_gyroArrowN,   dy >  kGyroDeadzone ? gyroLit : gyroDim);
+            drawGyroNative(m_gyroArrowS,   dy < -kGyroDeadzone ? gyroLit : gyroDim);
+            drawGyroNative(m_gyroArrowE,   dx >  kGyroDeadzone ? gyroLit : gyroDim);
+            drawGyroNative(m_gyroArrowW,   dx < -kGyroDeadzone ? gyroLit : gyroDim);
+            drawGyroNative(m_gyroArrowCW,  dz >  kGyroDeadzone ? gyroLit : gyroDim);
+            drawGyroNative(m_gyroArrowCCW, dz < -kGyroDeadzone ? gyroLit : gyroDim);
+
+            // Yaw bar: same center as everything else, but rotates in place (clock-hand style)
+            // instead of staying static — angle mapped from dz (-1..1), 0 = "12 o'clock" / no
+            // rotation, clockwise = positive per the wizard's invert convention.
+            constexpr float kYawBarMaxAngle = 1.4f; // ~80 deg, radians
+            float barAngle = std::clamp(dz, -1.0f, 1.0f) * kYawBarMaxAngle;
+            ImVec4 gyroBarTint = gyroIntensityColor(fabsf(dz));
+            gyroBarTint.w = 0.90f;
+            imgRotated(m_gyroLevelBar, c.cx, c.cy,
+                       (float)m_gyroLevelBar.w, (float)m_gyroLevelBar.h, barAngle, gyroBarTint);
+
+            // Tilt ball — drawn last so it sits above the sphere/arrows.
             if (state.gyroActive) {
                 float bx = center.x + dx * off;
                 float by = center.y - dy * off;  // screen Y is down; positive pitch moves ball up
@@ -375,14 +452,10 @@ void PadView::render(const GamepadState& state, int selectedComp) {
                     by = center.y + (by - center.y) / dist * maxR;
                 }
 
-                // Ball color: blue at rest, orange at strong tilt
-                float intensity = sqrtf(dx * dx + dy * dy);
-                float blend = intensity * 1.4f < 1.0f ? intensity * 1.4f : 1.0f;
-                ImU32 ballFill = IM_COL32(
-                    (uint8_t)(80  + (int)(blend * 175)),
-                    (uint8_t)(160 - (int)(blend * 100)),
-                    (uint8_t)(255 - (int)(blend * 175)),
-                    230);
+                // Ball color: dark blue at rest, dark red at strong tilt
+                ImVec4 ballColor = gyroIntensityColor(sqrtf(dx * dx + dy * dy));
+                ImU32  ballFill  = ImGui::ColorConvertFloat4ToU32(
+                    { ballColor.x, ballColor.y, ballColor.z, 230.0f / 255.0f });
 
                 dl->AddCircleFilled({ bx + 1.5f, by + 2.5f }, 9.0f, IM_COL32(0, 0, 0, 90));   // shadow
                 dl->AddCircleFilled({ bx, by }, 9.0f, ballFill, 24);                            // ball
@@ -544,6 +617,114 @@ int PadView::hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string
                 mousePos.y >= ac.y - kArrowHitSz && mousePos.y <= ac.y + kArrowHitSz) {
                 outDir = dirs[d];
                 return i;
+            }
+        }
+    }
+    return -1;
+}
+
+// ---------------------------------------------------------------------------
+// renderGyroArrows / hitTestGyroArrow
+// ---------------------------------------------------------------------------
+// The gyro widget's own N/S/E/W/CW/CCW arrows (drawn natively, see render()'s "gyro" branch) sit
+// near the rim of the sphere, all stacked at the same center as the widget. Confirmed against two
+// real screenshots (the second with the debug zone colors on): the straight N/S/E/W arrows sit
+// well INSIDE the rim (not at it), while the curved CW/CCW arrows sweep the TOP arc, right at the
+// rim, further out than the straight ones. Mirrored: the "turn right" (cw) curve sits on the LEFT
+// of the widget, "turn left" (ccw) on the RIGHT.
+static constexpr float kGyroCardinalRadiusFactor = 0.55f; // straight arrows: well inside the rim
+static constexpr float kGyroCardinalExtraPx      = 9.0f;  // + nudge further out, per user feedback
+static constexpr float kGyroRotRadiusFactor      = 1.0f;  // curved arrows: at the rim
+static constexpr float kGyroRotAngleMinDeg       = 15.0f; // sweep start, degrees off straight-up (N)
+static constexpr float kGyroRotAngleMaxDeg       = 75.0f; // sweep end, degrees off straight-up (N)
+static constexpr int   kGyroRotSamples           = 4;     // hit squares per half (top/bottom mirror)
+static constexpr float kGyroCwOffsetPx           = -18.0f; // cw (left curve) nudged further left
+static constexpr float kGyroCcwOffsetPx          =  19.0f; // ccw (right curve) nudged further right
+
+static ImVec2 gyroCardinalCenter(float cx, float cy, float r, const char* dir) {
+    float dist = r * kGyroCardinalRadiusFactor + kGyroCardinalExtraPx;
+    if      (dir[0] == 'u') return { cx,        cy - dist };  // up (pitch+)
+    else if (dir[0] == 'd') return { cx,        cy + dist };  // down (pitch-)
+    else if (dir[0] == 'l') return { cx - dist, cy        };  // left (roll-)
+    else                    return { cx + dist, cy        };  // right (roll+)
+}
+
+// One point on the cw/ccw arc. t in [0,1] sweeps from straight-up (N, t=0) toward the side
+// (E for ccw / W for cw, t=1); mirrorBottom reflects that same sweep onto the bottom half, to
+// cover the rest of the curve as it wraps down the side. cw -> left half (+ a fixed leftward
+// px nudge), ccw -> right half (+ a fixed rightward px nudge) — mirrored glyph convention.
+static ImVec2 gyroRotCenterAt(float cx, float cy, float r, bool cw, float t, bool mirrorBottom) {
+    float angleDeg = kGyroRotAngleMinDeg + t * (kGyroRotAngleMaxDeg - kGyroRotAngleMinDeg);
+    float rad  = angleDeg * 3.14159265f / 180.0f;
+    float dist = r * kGyroRotRadiusFactor;
+    float sx   = cw ? -sinf(rad) : sinf(rad);
+    float sy   = -cosf(rad);
+    if (mirrorBottom) sy = -sy;
+    float offsetPx = cw ? kGyroCwOffsetPx : kGyroCcwOffsetPx;
+    return { cx + sx * dist + offsetPx, cy + sy * dist };
+}
+
+void PadView::renderGyroArrows(ImVec2 canvasOrigin, int selectedComp, const std::string& selDir) {
+    if (!m_loaded || selectedComp < 0 || selDir.empty()) return;
+    if (selectedComp >= (int)m_layout.components.size()) return;
+    const PadComponent& c = m_layout.components[selectedComp];
+    if (c.type != "gyro") return;
+
+    // Redraw the same native arrow texture the gyro widget itself draws for this direction, on
+    // top, with an "active" (selected) tint — same idea as a stick component turning active-color
+    // when clicked, not a separate marker shape. Native size/position matches render()'s "gyro"
+    // branch exactly, so this lines up with the visible arrowhead regardless of where within the
+    // texture it's drawn.
+    const PadTexture* tex = nullptr;
+    if      (selDir == "up")    tex = &m_gyroArrowN;
+    else if (selDir == "down")  tex = &m_gyroArrowS;
+    else if (selDir == "right") tex = &m_gyroArrowE;
+    else if (selDir == "left")  tex = &m_gyroArrowW;
+    else if (selDir == "cw")    tex = &m_gyroArrowCW;
+    else if (selDir == "ccw")   tex = &m_gyroArrowCCW;
+    if (!tex || !tex->valid()) return;
+
+    float cx = canvasOrigin.x + c.cx;
+    float cy = canvasOrigin.y + c.cy;
+    ImVec2 p0 = { cx - tex->w * 0.5f, cy - tex->h * 0.5f };
+    ImVec2 p1 = { p0.x + tex->w, p0.y + tex->h };
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddImage((ImTextureID)(intptr_t)tex->srv, p0, p1, { 0, 0 }, { 1, 1 },
+                 ImGui::ColorConvertFloat4ToU32({ 1.0f, 0.88f, 0.15f, 1.0f }));
+}
+
+int PadView::hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const {
+    const char* dirs[4] = { "up", "down", "left", "right" };
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "gyro") continue;
+
+        float r  = c.size > 0.0f ? c.size * 0.5f : 35.0f;
+        float cx = canvasOrigin.x + c.cx;
+        float cy = canvasOrigin.y + c.cy;
+
+        for (int d = 0; d < 4; ++d) {
+            ImVec2 ac = gyroCardinalCenter(cx, cy, r, dirs[d]);
+            if (mousePos.x >= ac.x - kArrowHitSz && mousePos.x <= ac.x + kArrowHitSz &&
+                mousePos.y >= ac.y - kArrowHitSz && mousePos.y <= ac.y + kArrowHitSz) {
+                outDir = dirs[d];
+                return i;
+            }
+        }
+
+        const char* rotDirs[2] = { "cw", "ccw" };
+        for (int d = 0; d < 2; ++d) {
+            for (int mirror = 0; mirror < 2; ++mirror) {
+                for (int s = 0; s < kGyroRotSamples; ++s) {
+                    float t  = (kGyroRotSamples > 1) ? (float)s / (float)(kGyroRotSamples - 1) : 0.0f;
+                    ImVec2 rc = gyroRotCenterAt(cx, cy, r, d == 0, t, mirror == 1);
+                    if (mousePos.x >= rc.x - kArrowHitSz && mousePos.x <= rc.x + kArrowHitSz &&
+                        mousePos.y >= rc.y - kArrowHitSz && mousePos.y <= rc.y + kArrowHitSz) {
+                        outDir = rotDirs[d];
+                        return i;
+                    }
+                }
             }
         }
     }

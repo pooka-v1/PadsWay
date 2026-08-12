@@ -103,6 +103,7 @@ static std::unordered_map<std::string, HalfAxisAction> parseAxisActionsJson(cons
             a.type   = HalfAxisActionType::MouseMove;
             a.target = val["target"].get<std::string>();
             a.speed  = val.value("speed", 15.0f);
+            a.invert = val.value("invert", false);
         } else if (val.contains("type")) {
             std::string type = val["type"].get<std::string>();
             if (type == "keyboard") {
@@ -247,6 +248,11 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         if (c.contains("axis_actions"))
             cfg.axis_actions = parseAxisActionsJson(c.at("axis_actions"));
 
+        if (c.contains("gyro_actions"))
+            cfg.gyro_actions = parseAxisActionsJson(c.at("gyro_actions"));
+        if (c.contains("accel_actions"))
+            cfg.accel_actions = parseAxisActionsJson(c.at("accel_actions"));
+
         if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
             std::unordered_map<std::string, std::string> dpadSlots;
             parseDpadRemapJson(c["dpad_remap"], cfg.dpadRemap, cfg.dpadActions, dpadSlots);
@@ -286,6 +292,30 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             }
         }
 
+        if (c.contains("stick_calibration")) {
+            const auto& sc = c["stick_calibration"];
+            if (sc.contains("left")) {
+                cfg.leftStickCalib.deadzone = sc["left"].value("deadzone", 0.0f);
+                cfg.leftStickCalib.max      = sc["left"].value("max",      1.0f);
+            }
+            if (sc.contains("right")) {
+                cfg.rightStickCalib.deadzone = sc["right"].value("deadzone", 0.0f);
+                cfg.rightStickCalib.max      = sc["right"].value("max",      1.0f);
+            }
+        }
+
+        if (c.contains("trigger_calibration")) {
+            const auto& tc = c["trigger_calibration"];
+            if (tc.contains("l2")) {
+                cfg.triggerLCalib.deadzone = tc["l2"].value("deadzone", 0.0f);
+                cfg.triggerLCalib.max      = tc["l2"].value("max",      1.0f);
+            }
+            if (tc.contains("r2")) {
+                cfg.triggerRCalib.deadzone = tc["r2"].value("deadzone", 0.0f);
+                cfg.triggerRCalib.max      = tc["r2"].value("max",      1.0f);
+            }
+        }
+
         if (c.contains("touchpad")) {
             const auto& tp        = c["touchpad"];
             cfg.touchpad.enabled      = tp.value("enabled",       false);
@@ -296,10 +326,38 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         }
 
         if (c.contains("imu")) {
-            const auto& im     = c["imu"];
-            cfg.imu.enabled    = im.value("enabled",     false);
-            cfg.imu.gyroOffset = im.value("gyro_offset", 13);
-            cfg.imu.gyroScale  = im.value("gyro_scale",  1.0f / 32768.0f);
+            const auto& im  = c["imu"];
+            cfg.imu.enabled = im.value("enabled", false);
+
+            cfg.imu.gyroXOffset = im.value("gyro_x_offset", 13);
+            cfg.imu.gyroYOffset = im.value("gyro_y_offset", 15);
+            cfg.imu.gyroZOffset = im.value("gyro_z_offset", 17);
+            cfg.imu.gyroScale   = im.value("gyro_scale", 1.0f / 32768.0f);
+            cfg.imu.gyroXInvert = im.value("gyro_x_invert", false);
+            cfg.imu.gyroYInvert = im.value("gyro_y_invert", false);
+            cfg.imu.gyroZInvert = im.value("gyro_z_invert", false);
+
+            cfg.imu.gyroXDeadzone = im.value("gyro_x_deadzone", 0.0f);
+            cfg.imu.gyroYDeadzone = im.value("gyro_y_deadzone", 0.0f);
+            cfg.imu.gyroZDeadzone = im.value("gyro_z_deadzone", 0.0f);
+            cfg.imu.gyroXMax      = im.value("gyro_x_max", 1.0f);
+            cfg.imu.gyroYMax      = im.value("gyro_y_max", 1.0f);
+            cfg.imu.gyroZMax      = im.value("gyro_z_max", 1.0f);
+
+            cfg.imu.accelXOffset = im.value("accel_x_offset", -1);
+            cfg.imu.accelYOffset = im.value("accel_y_offset", -1);
+            cfg.imu.accelZOffset = im.value("accel_z_offset", -1);
+            cfg.imu.accelScale   = im.value("accel_scale", 1.0f / 32768.0f);
+            cfg.imu.accelXInvert = im.value("accel_x_invert", false);
+            cfg.imu.accelYInvert = im.value("accel_y_invert", false);
+            cfg.imu.accelZInvert = im.value("accel_z_invert", false);
+
+            cfg.imu.accelXDeadzone = im.value("accel_x_deadzone", 0.0f);
+            cfg.imu.accelYDeadzone = im.value("accel_y_deadzone", 0.0f);
+            cfg.imu.accelZDeadzone = im.value("accel_z_deadzone", 0.0f);
+            cfg.imu.accelXMax      = im.value("accel_x_max", 1.0f);
+            cfg.imu.accelYMax      = im.value("accel_y_max", 1.0f);
+            cfg.imu.accelZMax      = im.value("accel_z_max", 1.0f);
         }
 
         result.push_back(std::move(cfg));
@@ -357,6 +415,79 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
         }
     }
     return best;
+}
+
+void saveCalibration(const std::string& path, const std::string& sourceName,
+                     const StickCalibration& leftStick, const StickCalibration& rightStick,
+                     const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
+                     const ImuConfig& imu,
+                     const std::vector<std::pair<std::string, bool>>& axisInverts) {
+    nlohmann::ordered_json root;
+    {
+        std::ifstream in(path);
+        if (in.is_open()) root = nlohmann::ordered_json::parse(in);
+    }
+    if (!root.contains("controllers") || !root["controllers"].is_array())
+        throw std::runtime_error("No 'controllers' array in " + path);
+
+    for (auto& ctrl : root["controllers"]) {
+        if (ctrl.value("source_name", "") != sourceName) continue;
+
+        auto& sc = ctrl["stick_calibration"];
+        sc["left"]["deadzone"]  = leftStick.deadzone;
+        sc["left"]["max"]       = leftStick.max;
+        sc["right"]["deadzone"] = rightStick.deadzone;
+        sc["right"]["max"]      = rightStick.max;
+
+        auto& tc = ctrl["trigger_calibration"];
+        tc["l2"]["deadzone"] = triggerL.deadzone;
+        tc["l2"]["max"]      = triggerL.max;
+        tc["r2"]["deadzone"] = triggerR.deadzone;
+        tc["r2"]["max"]      = triggerR.max;
+
+        // Merge into the existing "imu" object — offset/scale fields are the wizard's, left
+        // untouched. Invert fields ARE written here now: CalibrationPanel lets the user flip a
+        // wrongly-detected axis without re-running the wizard. Missing "imu" (no-IMU controller)
+        // just creates a minimal object; callers are expected not to reach here for those (see
+        // CalibrationPanel's imu.enabled guard).
+        auto& im = ctrl["imu"];
+        im["gyro_x_deadzone"]  = imu.gyroXDeadzone;
+        im["gyro_y_deadzone"]  = imu.gyroYDeadzone;
+        im["gyro_z_deadzone"]  = imu.gyroZDeadzone;
+        im["gyro_x_max"]       = imu.gyroXMax;
+        im["gyro_y_max"]       = imu.gyroYMax;
+        im["gyro_z_max"]       = imu.gyroZMax;
+        im["gyro_x_invert"]    = imu.gyroXInvert;
+        im["gyro_y_invert"]    = imu.gyroYInvert;
+        im["gyro_z_invert"]    = imu.gyroZInvert;
+        im["accel_x_deadzone"] = imu.accelXDeadzone;
+        im["accel_y_deadzone"] = imu.accelYDeadzone;
+        im["accel_z_deadzone"] = imu.accelZDeadzone;
+        im["accel_x_max"]      = imu.accelXMax;
+        im["accel_y_max"]      = imu.accelYMax;
+        im["accel_z_max"]      = imu.accelZMax;
+        im["accel_x_invert"]   = imu.accelXInvert;
+        im["accel_y_invert"]   = imu.accelYInvert;
+        im["accel_z_invert"]   = imu.accelZInvert;
+
+        // Stick axis invert lives on the whole-axis `axes` map (keyed by HID source name), not
+        // on StickCalibration — see this function's declaration comment. Skip any HID key this
+        // file doesn't have (shouldn't happen: CalibrationPanel only builds this list from keys
+        // it already found in the loaded config, but a stale/hand-edited file is possible).
+        if (ctrl.contains("axes") && ctrl["axes"].is_object()) {
+            for (const auto& [hidKey, invert] : axisInverts) {
+                if (ctrl["axes"].contains(hidKey))
+                    ctrl["axes"][hidKey]["invert"] = invert;
+            }
+        }
+
+        std::ofstream f(path);
+        if (!f.is_open())
+            throw std::runtime_error("Cannot write " + path);
+        f << root.dump(4);
+        return;
+    }
+    throw std::runtime_error("source_name not found in " + path + ": " + sourceName);
 }
 
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path) {
@@ -445,6 +576,10 @@ VirtualPadConfig loadVirtualPadConfig(const std::string& path) {
             cfg.stickSelectThreshold = pc["stick_select_threshold"].get<float>();
         if (pc.contains("stick_hold_ms") && pc["stick_hold_ms"].is_number_integer())
             cfg.stickHoldMs = pc["stick_hold_ms"].get<int>();
+        if (pc.contains("gyro_select_threshold") && pc["gyro_select_threshold"].is_number())
+            cfg.gyroSelectThreshold = pc["gyro_select_threshold"].get<float>();
+        if (pc.contains("accel_select_threshold") && pc["accel_select_threshold"].is_number())
+            cfg.accelSelectThreshold = pc["accel_select_threshold"].get<float>();
     }
     return cfg;
 }
@@ -480,6 +615,14 @@ GameProfile loadGameProfile(const std::string& path) {
     if (root.contains("axis_actions") && root["axis_actions"].is_object()) {
         profile.hasAxisActions = true;
         profile.axis_actions   = parseAxisActionsJson(root["axis_actions"]);
+    }
+    if (root.contains("gyro_actions") && root["gyro_actions"].is_object()) {
+        profile.hasGyroActions = true;
+        profile.gyro_actions   = parseAxisActionsJson(root["gyro_actions"]);
+    }
+    if (root.contains("accel_actions") && root["accel_actions"].is_object()) {
+        profile.hasAccelActions = true;
+        profile.accel_actions   = parseAxisActionsJson(root["accel_actions"]);
     }
     if (root.contains("dpad_remap") && root["dpad_remap"].is_object()) {
         profile.hasDpadRemap = true;
@@ -578,6 +721,12 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
     // ── Axis actions (whole-section replace) ─────────────────────────────────
     if (profile.hasAxisActions)
         result.axis_actions = profile.axis_actions;
+
+    // ── Gyro / accel actions (whole-section replace) ─────────────────────────
+    if (profile.hasGyroActions)
+        result.gyro_actions = profile.gyro_actions;
+    if (profile.hasAccelActions)
+        result.accel_actions = profile.accel_actions;
 
     // ── Dpad (whole-section replace) ─────────────────────────────────────────
     if (profile.hasDpadRemap) {
@@ -763,7 +912,7 @@ static std::optional<VirtualTarget> halfAxisActionToVT(const HalfAxisAction& act
         case HalfAxisActionType::MouseClick:
             return VirtualMouseClick{stringToMouseButton2(action.mouseButton)};
         case HalfAxisActionType::MouseMove:
-            return VirtualMouseMove{stringToMouseAxis(action.target), action.speed};
+            return VirtualMouseMove{stringToMouseAxis(action.target), action.speed, action.invert};
         case HalfAxisActionType::Analog:
         case HalfAxisActionType::Ranges:
             return std::nullopt;  // handled by caller
@@ -817,6 +966,22 @@ static RangedHalfAxis buildRangedHalfAxisFromHalf(const HalfAxisAction& action) 
         }
     }
     return rha;
+}
+
+// Builds a PhysicalGyro/PhysicalAccel (same 6-field shape) from a HalfAxisAction map keyed by
+// "x_pos"/"x_neg"/"y_pos"/"y_neg"/"z_pos"/"z_neg". Missing keys stay as an empty RangedHalfAxis
+// (implicit passthrough), same convention as every other half-axis in this file.
+template <typename ImuComponent>
+static ImuComponent buildImuComponent(const std::unordered_map<std::string, HalfAxisAction>& actions) {
+    ImuComponent comp;
+    auto get = [&](const char* key) -> RangedHalfAxis {
+        auto it = actions.find(key);
+        return it != actions.end() ? buildRangedHalfAxisFromHalf(it->second) : RangedHalfAxis{};
+    };
+    comp.xPos = get("x_pos"); comp.xNeg = get("x_neg");
+    comp.yPos = get("y_pos"); comp.yNeg = get("y_neg");
+    comp.zPos = get("z_pos"); comp.zNeg = get("z_neg");
+    return comp;
 }
 
 static PhysicalController parsePhysicalController(const json& c) {
@@ -982,14 +1147,35 @@ static PhysicalController parsePhysicalController(const json& c) {
         setBase(ComponentId::Touchpad, PhysicalTouchpad{tpc});
     }
 
-    // ── Gyro ─────────────────────────────────────────────────────────────────
-    if (c.contains("imu") && c["imu"].value("enabled", false))
-        setBase(ComponentId::Gyro, PhysicalGyro{});
+    // ── Gyro / Accel ─────────────────────────────────────────────────────────
+    if (c.contains("imu") && c["imu"].value("enabled", false)) {
+        std::unordered_map<std::string, HalfAxisAction> gyroActions;
+        if (c.contains("gyro_actions"))
+            gyroActions = parseAxisActionsJson(c.at("gyro_actions"));
+        setBase(ComponentId::Gyro, buildImuComponent<PhysicalGyro>(gyroActions));
+
+        std::unordered_map<std::string, HalfAxisAction> accelActions;
+        if (c.contains("accel_actions"))
+            accelActions = parseAxisActionsJson(c.at("accel_actions"));
+        setBase(ComponentId::Accel, buildImuComponent<PhysicalAccel>(accelActions));
+    }
 
     return ctrl;
 }
 
 void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg) {
+    pc.leftStickCalib  = cfg.leftStickCalib;
+    pc.rightStickCalib = cfg.rightStickCalib;
+    pc.triggerLCalib   = cfg.triggerLCalib;
+    pc.triggerRCalib   = cfg.triggerRCalib;
+
+    pc.gyroXCalib  = { cfg.imu.gyroXDeadzone,  cfg.imu.gyroXMax };
+    pc.gyroYCalib  = { cfg.imu.gyroYDeadzone,  cfg.imu.gyroYMax };
+    pc.gyroZCalib  = { cfg.imu.gyroZDeadzone,  cfg.imu.gyroZMax };
+    pc.accelXCalib = { cfg.imu.accelXDeadzone, cfg.imu.accelXMax };
+    pc.accelYCalib = { cfg.imu.accelYDeadzone, cfg.imu.accelYMax };
+    pc.accelZCalib = { cfg.imu.accelZDeadzone, cfg.imu.accelZMax };
+
     auto setBase = [&](ComponentId id, std::optional<PhysicalComponent> comp) {
         pc.baseLayer[static_cast<size_t>(id)] = std::move(comp);
     };
@@ -1084,6 +1270,15 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
         else
             setBase(h.cid, std::nullopt);
     }
+
+    // ── Gyro / Accel ─────────────────────────────────────────────────────────
+    if (cfg.imu.enabled) {
+        setBase(ComponentId::Gyro,  buildImuComponent<PhysicalGyro>(cfg.gyro_actions));
+        setBase(ComponentId::Accel, buildImuComponent<PhysicalAccel>(cfg.accel_actions));
+    } else {
+        setBase(ComponentId::Gyro,  std::nullopt);
+        setBase(ComponentId::Accel, std::nullopt);
+    }
 }
 
 std::vector<PhysicalController> loadPhysicalControllers(const std::string& path) {
@@ -1164,6 +1359,7 @@ std::vector<PadLayout> loadPadLayouts(const std::string& path) {
             c.state      = cj.value("state",        "");
             c.stateX     = cj.value("state_x",      "");
             c.stateY     = cj.value("state_y",      "");
+            c.stateZ     = cj.value("state_z",      "");
             c.stateClick = cj.value("state_click",  "");
             c.stateUp    = cj.value("state_up",     "");
             c.stateDown  = cj.value("state_down",   "");
@@ -1234,6 +1430,7 @@ void savePadLayouts(const std::string& path, const std::vector<PadLayout>& layou
             if (!c.state.empty())      jc["state"]       = c.state;
             if (!c.stateX.empty())     jc["state_x"]     = c.stateX;
             if (!c.stateY.empty())     jc["state_y"]     = c.stateY;
+            if (!c.stateZ.empty())     jc["state_z"]     = c.stateZ;
             if (!c.stateClick.empty()) jc["state_click"]  = c.stateClick;
             if (!c.stateUp.empty())    jc["state_up"]    = c.stateUp;
             if (!c.stateDown.empty())  jc["state_down"]  = c.stateDown;

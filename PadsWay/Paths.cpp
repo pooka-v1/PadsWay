@@ -50,7 +50,17 @@ bool isPortable() {
 
 const std::string& userDataDir() {
     static const std::string dir = []() -> std::string {
-        if (isPortable()) return std::string();          // "" -> relative to cwd
+        if (isPortable()) {
+            // Portable installs ship without data/profiles/ (it's user content, not
+            // factory data — see IDEAS.md "Distribución/Release"), and nothing else
+            // creates it before first use: MappingModel::saveProfile() just opens an
+            // ofstream and silently no-ops if the directory is missing, so a brand
+            // new profile would vanish with no error shown. Mirror the non-portable
+            // branch below and create it up front.
+            std::error_code ec;
+            std::filesystem::create_directories("data\\profiles", ec);
+            return std::string();          // "" -> relative to cwd
+        }
         std::string root = localAppDataRoot();
         if (root.empty()) return std::string();          // can't resolve: act portable
         std::string base = root + "\\PadsWay\\";

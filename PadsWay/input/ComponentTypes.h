@@ -21,7 +21,7 @@ enum class ComponentId : uint8_t {
     TriggerL, TriggerR,
     LeftXPos,  LeftXNeg,  LeftYPos,  LeftYNeg,
     RightXPos, RightXNeg, RightYPos, RightYNeg,
-    Touchpad, Gyro,
+    Touchpad, Gyro, Accel,
     // 8BitDo extra paddles (not present on standard XInput controllers)
     BtnL4, BtnR4,     // short paddles (L4 / R4)
     BtnLP, BtnRP,     // long  paddles (L5 / R5)
@@ -50,7 +50,7 @@ struct VirtualStickSlot  { StickSlotId slot;               };  // → StickAccum
 struct VirtualKeyboard   { std::vector<uint8_t> keys;      };
 struct VirtualMacro      { std::string name;               };
 struct VirtualMouseClick { MouseButton button;             };
-struct VirtualMouseMove  { MouseAxis axis; float speed;    };  // proportional
+struct VirtualMouseMove  { MouseAxis axis; float speed; bool invert = false; };  // proportional
 struct VirtualBot        { std::string name;               };
 struct VirtualPassthrough{                                 };  // routes to natural equivalent
 
@@ -80,17 +80,51 @@ struct RangedHalfAxis {
     // empty = implicit VirtualPassthrough
 };
 
+// Remaps a magnitude in [0, 1] through a deadzone/max pair, see ARCHITECTURE.md "Calibracion
+// de entrada": below deadzone reads 0, at/above max reads 1, linear in between. Shared by
+// StickAccumulator::flush() (applied to the combined vector's magnitude) and physical triggers
+// (applied directly, they're already a scalar). deadzone=0/max=1 is a no-op.
+inline float applyDeadzoneMax(float mag, float deadzone, float max) {
+    float range = max - deadzone;
+    if (range > 1e-6f) return std::clamp((mag - deadzone) / range, 0.0f, 1.0f);
+    return mag >= max ? 1.0f : 0.0f;
+}
+
+// Signed version of applyDeadzoneMax() for one gyro/accel axis reading in [-1, 1] — takes the
+// magnitude through the same deadzone/max remap and restores the sign. Unlike sticks/triggers,
+// `max` isn't a physical ceiling here (the sensor has no mechanical stop): max<1 boosts
+// sensitivity (full output before the raw signal saturates), max>1 softens it (the raw signal
+// alone never quite reaches full output) — see ARCHITECTURE.md "Calibracion de entrada".
+inline float applyDeadzoneMaxSigned(float value, float deadzone, float max) {
+    float sign = value < 0.0f ? -1.0f : 1.0f;
+    return sign * applyDeadzoneMax(std::fabs(value), deadzone, max);
+}
+
+// Deadzone/max pair for one gyro or accel axis — see applyDeadzoneMaxSigned(). Mirrors
+// ImuConfig's per-axis calibration fields (ControllerConfig.h) without duplicating its
+// offset/scale/invert fields, which HIDInputSource owns.
+struct ImuAxisCalibration {
+    float deadzone = 0.0f;
+    float max      = 1.0f;
+};
+
 // ─── Accumulators ─────────────────────────────────────────────────────────────
 
 struct StickAccumulator {
     float xPos = 0, xNeg = 0, yPos = 0, yNeg = 0;
 
-    void flush(float& outX, float& outY) const {
+    // calib: radial deadzone/max applied to the combined vector — a single pair for both axes
+    // so a stick feels the same in every direction. Default {0, 1} is a no-op, so existing
+    // callers are unaffected.
+    void flush(float& outX, float& outY, const StickCalibration& calib = {}) const {
         float vx = xPos - xNeg, vy = yPos - yNeg;
         float mag = std::sqrt(vx * vx + vy * vy);
-        if (mag > 1.0f) { vx /= mag; vy /= mag; }
-        outX = vx;
-        outY = vy;
+        if (mag > 1.0f) { vx /= mag; vy /= mag; mag = 1.0f; }
+
+        float shaped = applyDeadzoneMax(mag, calib.deadzone, calib.max);
+        float scale  = mag > 1e-6f ? shaped / mag : 0.0f;
+        outX = vx * scale;
+        outY = vy * scale;
     }
 };
 
@@ -164,13 +198,29 @@ struct PhysicalGyro {
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;
 };
 
+// Accelerometer (gravity/orientation) — same shape as PhysicalGyro, but the letter of each axis
+// does NOT share gyro's pitch/yaw/roll semantics: accelX = lateral tilt (roll-equivalent),
+// accelY = frontal tilt (pitch-equivalent), accelZ = normal/gravity (face up/down at rest, no
+// rotational gesture of its own). See BindingWizard.cpp classifyGyro()/finishGyroRound() and
+// REFERENCE.md. GyroAccumulator is reused here too — it accumulates any 3-axis half-axis
+// passthrough, not something gyro-specific.
+struct PhysicalAccel {
+    RangedHalfAxis xPos, xNeg;
+    RangedHalfAxis yPos, yNeg;
+    RangedHalfAxis zPos, zNeg;
+
+    void process(const GamepadState& physical, GamepadState& out,
+                 StickAccumulator& left, StickAccumulator& right, GyroAccumulator& accel) const;
+};
+
 using PhysicalComponent = std::variant<
     PhysicalButton,
     PhysicalDpadDir,
     PhysicalTrigger,
     PhysicalAnalogDir,
     PhysicalTouchpad,
-    PhysicalGyro
+    PhysicalGyro,
+    PhysicalAccel
 >;
 
 // ─── Modifier mask ────────────────────────────────────────────────────────────
@@ -188,6 +238,22 @@ struct PhysicalController {
     std::string name;
     uint16_t    vid = 0;
     uint16_t    pid = 0;
+
+    // Radial deadzone/max applied to the combined virtual stick output in process() — see
+    // ARCHITECTURE.md "Calibracion de entrada". Set from ControllerConfig::leftStickCalib/
+    // rightStickCalib by rebuildPhysicalControllerFromConfig().
+    StickCalibration leftStickCalib;
+    StickCalibration rightStickCalib;
+
+    // Deadzone/max applied to the physical trigger's own [0,1] reading in process() — set from
+    // ControllerConfig::triggerLCalib/triggerRCalib by rebuildPhysicalControllerFromConfig().
+    TriggerCalibration triggerLCalib;
+    TriggerCalibration triggerRCalib;
+
+    // Deadzone/gain applied to each gyro/accel axis before PhysicalGyro/PhysicalAccel see it —
+    // set from ControllerConfig::imu by rebuildPhysicalControllerFromConfig().
+    ImuAxisCalibration gyroXCalib, gyroYCalib, gyroZCalib;
+    ImuAxisCalibration accelXCalib, accelYCalib, accelZCalib;
 
     // Which ComponentIds act as modifiers (order defines the bit in ModifierMask).
     // Any component type is valid: button, dpad direction, trigger, analog dir, touchpad, gyro.

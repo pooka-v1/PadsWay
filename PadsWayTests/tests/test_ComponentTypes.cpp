@@ -331,3 +331,324 @@ TEST_CASE("PhysicalButton::process does not modify unrelated GamepadState fields
     CHECK(out.triggerL == Catch::Approx(0.0f));
     CHECK(left.xPos    == Catch::Approx(0.0f));
 }
+
+// ─── applyDeadzoneMax() / applyDeadzoneMaxSigned() ───────────────────────────
+// Calibration remap shared by StickAccumulator::flush(), physical triggers, and
+// gyro/accel axes — see ARCHITECTURE.md "Calibracion de entrada".
+
+TEST_CASE("applyDeadzoneMax default {0,1} is a no-op passthrough", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyDeadzoneMax(0.3f, 0.0f, 1.0f) == Catch::Approx(0.3f));
+    REQUIRE(applyDeadzoneMax(0.0f, 0.0f, 1.0f) == Catch::Approx(0.0f));
+    REQUIRE(applyDeadzoneMax(1.0f, 0.0f, 1.0f) == Catch::Approx(1.0f));
+}
+
+TEST_CASE("applyDeadzoneMax below deadzone reads 0", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyDeadzoneMax(0.05f, 0.1f, 1.0f) == Catch::Approx(0.0f));
+}
+
+TEST_CASE("applyDeadzoneMax exactly at deadzone reads 0", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyDeadzoneMax(0.1f, 0.1f, 1.0f) == Catch::Approx(0.0f));
+}
+
+TEST_CASE("applyDeadzoneMax at/above max saturates to 1", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyDeadzoneMax(0.8f, 0.1f, 0.8f) == Catch::Approx(1.0f));
+    REQUIRE(applyDeadzoneMax(1.0f, 0.1f, 0.8f) == Catch::Approx(1.0f));  // overflow clamps
+}
+
+TEST_CASE("applyDeadzoneMax is linear between deadzone and max", "[ComponentTypes][Calibration]") {
+    // deadzone=0.2, max=0.8 -> range 0.6; midpoint 0.5 -> (0.5-0.2)/0.6
+    REQUIRE(applyDeadzoneMax(0.5f, 0.2f, 0.8f) == Catch::Approx(0.5f).epsilon(0.001f));
+}
+
+TEST_CASE("applyDeadzoneMax degenerate deadzone==max acts as a hard threshold", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyDeadzoneMax(0.4f, 0.5f, 0.5f) == Catch::Approx(0.0f));
+    REQUIRE(applyDeadzoneMax(0.5f, 0.5f, 0.5f) == Catch::Approx(1.0f));
+    REQUIRE(applyDeadzoneMax(0.6f, 0.5f, 0.5f) == Catch::Approx(1.0f));
+}
+
+TEST_CASE("applyDeadzoneMaxSigned preserves the sign of the input", "[ComponentTypes][Calibration]") {
+    float pos = applyDeadzoneMaxSigned(0.9f, 0.1f, 1.0f);
+    float neg = applyDeadzoneMaxSigned(-0.9f, 0.1f, 1.0f);
+    REQUIRE(pos == Catch::Approx(-neg));
+    REQUIRE(pos > 0.0f);
+    REQUIRE(neg < 0.0f);
+}
+
+TEST_CASE("applyDeadzoneMaxSigned negative value inside deadzone reads 0", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyDeadzoneMaxSigned(-0.05f, 0.1f, 1.0f) == Catch::Approx(0.0f));
+}
+
+TEST_CASE("applyDeadzoneMaxSigned max<1 boosts sensitivity past the raw ceiling", "[ComponentTypes][Calibration]") {
+    // Gyro/accel have no mechanical stop, so max<1 is a valid "reach full output early" gain.
+    REQUIRE(applyDeadzoneMaxSigned(0.5f, 0.0f, 0.5f) == Catch::Approx(1.0f));
+}
+
+// ─── StickAccumulator::flush() with calibration ──────────────────────────────
+
+TEST_CASE("StickAccumulator::flush default calib matches the no-calib overload", "[ComponentTypes][Calibration]") {
+    StickAccumulator acc;
+    acc.xPos = 0.5f;
+    float x = 0.f, y = 0.f;
+    acc.flush(x, y, StickCalibration{});
+    REQUIRE(x == Catch::Approx(0.5f));
+    REQUIRE(y == Catch::Approx(0.0f));
+}
+
+TEST_CASE("StickAccumulator::flush magnitude inside deadzone reads (0,0)", "[ComponentTypes][Calibration]") {
+    StickAccumulator acc;
+    acc.xPos = 0.1f;  // mag 0.1
+    float x = 99.f, y = 99.f;
+    acc.flush(x, y, StickCalibration{0.15f, 1.0f});
+    REQUIRE(x == Catch::Approx(0.0f));
+    REQUIRE(y == Catch::Approx(0.0f));
+}
+
+TEST_CASE("StickAccumulator::flush remaps magnitude while preserving direction", "[ComponentTypes][Calibration]") {
+    StickAccumulator acc;
+    acc.xPos = 0.6f;  // single axis: mag == vx, so outX should equal the shaped magnitude exactly
+    float x = 0.f, y = 0.f;
+    acc.flush(x, y, StickCalibration{0.2f, 0.8f});
+    REQUIRE(x == Catch::Approx(applyDeadzoneMax(0.6f, 0.2f, 0.8f)).epsilon(0.001f));
+    REQUIRE(y == Catch::Approx(0.0f));
+}
+
+TEST_CASE("StickAccumulator::flush calibration keeps the diagonal angle unchanged", "[ComponentTypes][Calibration]") {
+    StickAccumulator acc;
+    acc.xPos = 0.5f;
+    acc.yPos = 0.5f;  // 45 degrees
+    float x = 0.f, y = 0.f;
+    acc.flush(x, y, StickCalibration{0.1f, 0.9f});
+    REQUIRE(x == Catch::Approx(y).epsilon(0.001f));  // still 45 degrees after remap
+    REQUIRE(x > 0.5f);  // deadzone/max remap boosted the magnitude past the raw 0.5
+}
+
+// ─── PhysicalTrigger::process ─────────────────────────────────────────────────
+
+TEST_CASE("PhysicalTrigger::process passthrough writes the raw value to triggerL", "[ComponentTypes]") {
+    PhysicalTrigger trig{TriggerSide::L, {}};
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyro;
+
+    trig.process(0.7f, out, left, right, gyro);
+
+    REQUIRE(out.triggerL == Catch::Approx(0.7f));
+    REQUIRE(out.triggerR == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalTrigger::process below a range's threshold fires nothing", "[ComponentTypes]") {
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.5f, 1.0f, VirtualButton{ButtonId::A}});
+    PhysicalTrigger trig{TriggerSide::L, axis};
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyro;
+
+    trig.process(0.3f, out, left, right, gyro);
+
+    REQUIRE(out.btnA == false);
+    REQUIRE(out.triggerL == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalTrigger::process at/above a range's threshold fires the mapped button", "[ComponentTypes]") {
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.5f, 1.0f, VirtualButton{ButtonId::A}});
+    PhysicalTrigger trig{TriggerSide::L, axis};
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyro;
+
+    trig.process(0.8f, out, left, right, gyro);
+
+    REQUIRE(out.btnA == true);
+    REQUIRE(out.triggerL == Catch::Approx(0.0f));  // range consumed the value, no passthrough
+}
+
+// ─── PhysicalAnalogDir::process — dirSign for VirtualMouseMove ────────────────
+
+TEST_CASE("PhysicalAnalogDir::process pos slot moves the mouse in the positive direction", "[ComponentTypes]") {
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.0f, 1.0f, VirtualMouseMove{MouseAxis::X, 20.0f}});
+    PhysicalAnalogDir ad{StickSlotId::LeftXPos, axis};
+    GamepadState       out;
+    StickAccumulator   left, right;
+    GyroAccumulator    gyro;
+
+    ad.process(0.5f, out, left, right, gyro);
+
+    REQUIRE(out.mouseX == Catch::Approx(10.0f));
+}
+
+TEST_CASE("PhysicalAnalogDir::process neg slot moves the mouse in the negative direction", "[ComponentTypes]") {
+    // Neg slots carry the unsigned magnitude of the negative direction — dirSign restores
+    // the sign for proportional targets like VirtualMouseMove.
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.0f, 1.0f, VirtualMouseMove{MouseAxis::X, 20.0f}});
+    PhysicalAnalogDir ad{StickSlotId::LeftXNeg, axis};
+    GamepadState       out;
+    StickAccumulator   left, right;
+    GyroAccumulator    gyro;
+
+    ad.process(0.5f, out, left, right, gyro);
+
+    REQUIRE(out.mouseX == Catch::Approx(-10.0f));
+}
+
+// ─── PhysicalGyro::process ────────────────────────────────────────────────────
+
+TEST_CASE("PhysicalGyro::process inactive frame leaves the accumulator untouched", "[ComponentTypes]") {
+    PhysicalGyro     comp;  // all halves default to empty ranges (passthrough)
+    GamepadState     physical;
+    physical.gyroActive = false;
+    physical.gyroX = 0.9f;
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyroAcc;
+
+    comp.process(physical, out, left, right, gyroAcc);
+
+    REQUIRE(out.gyroActive == false);
+    REQUIRE(gyroAcc.xPos == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalGyro::process positive reading routes to the Pos half only", "[ComponentTypes]") {
+    PhysicalGyro     comp;
+    GamepadState     physical;
+    physical.gyroActive = true;
+    physical.gyroX = 0.7f;
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyroAcc;
+
+    comp.process(physical, out, left, right, gyroAcc);
+
+    REQUIRE(out.gyroActive == true);
+    REQUIRE(gyroAcc.xPos == Catch::Approx(0.7f));
+    REQUIRE(gyroAcc.xNeg == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalGyro::process negative reading routes to the Neg half only", "[ComponentTypes]") {
+    PhysicalGyro     comp;
+    GamepadState     physical;
+    physical.gyroActive = true;
+    physical.gyroX = -0.6f;
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyroAcc;
+
+    comp.process(physical, out, left, right, gyroAcc);
+
+    REQUIRE(gyroAcc.xPos == Catch::Approx(0.0f));
+    REQUIRE(gyroAcc.xNeg == Catch::Approx(0.6f));
+}
+
+// ─── PhysicalAccel::process ───────────────────────────────────────────────────
+// Same shape as PhysicalGyro — see the struct comment in ComponentTypes.h for the
+// axis-letter caveat (accelX/Y/Z do not share gyro's pitch/yaw/roll semantics).
+
+TEST_CASE("PhysicalAccel::process inactive frame leaves the accumulator untouched", "[ComponentTypes]") {
+    PhysicalAccel    comp;
+    GamepadState     physical;
+    physical.accelActive = false;
+    physical.accelY = 0.8f;
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  accelAcc;
+
+    comp.process(physical, out, left, right, accelAcc);
+
+    REQUIRE(out.accelActive == false);
+    REQUIRE(accelAcc.yPos == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalAccel::process routes Y axis reading to the accumulator", "[ComponentTypes]") {
+    PhysicalAccel    comp;
+    GamepadState     physical;
+    physical.accelActive = true;
+    physical.accelY = 0.4f;
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  accelAcc;
+
+    comp.process(physical, out, left, right, accelAcc);
+
+    REQUIRE(out.accelActive == true);
+    REQUIRE(accelAcc.yPos == Catch::Approx(0.4f));
+    REQUIRE(accelAcc.yNeg == Catch::Approx(0.0f));
+}
+
+// ─── PhysicalController::process() — end-to-end calibration pipeline ─────────
+// See ARCHITECTURE.md "Calibracion de entrada" — this is the integration point
+// added by the calibration commit: deadzone/max applied to sticks, triggers and
+// gyro/accel axes before/after the Component System's normal dispatch.
+
+TEST_CASE("PhysicalController::process applies trigger calibration to a passthrough trigger", "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.triggerLCalib = {0.2f, 0.8f};
+    pc[ComponentId::TriggerL] = PhysicalTrigger{TriggerSide::L, {}};
+
+    GamepadState physical;
+    physical.triggerL = 0.3f;
+    GamepadState output;
+    pc.process(physical, output);
+
+    REQUIRE(output.triggerL == Catch::Approx(applyDeadzoneMax(0.3f, 0.2f, 0.8f)).epsilon(0.001f));
+}
+
+TEST_CASE("PhysicalController::process applies left stick radial calibration", "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.leftStickCalib = {0.1f, 0.9f};
+    pc[ComponentId::LeftXPos] = PhysicalAnalogDir{StickSlotId::LeftXPos, {}};
+    pc[ComponentId::LeftXNeg] = PhysicalAnalogDir{StickSlotId::LeftXNeg, {}};
+
+    GamepadState physical;
+    physical.leftX = 0.6f;
+    GamepadState output;
+    pc.process(physical, output);
+
+    REQUIRE(output.leftX == Catch::Approx(applyDeadzoneMax(0.6f, 0.1f, 0.9f)).epsilon(0.001f));
+    REQUIRE(output.leftY == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalController::process applies per-axis gyro calibration before PhysicalGyro sees it", "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.gyroXCalib = {0.1f, 0.9f};
+    pc[ComponentId::Gyro] = PhysicalGyro{};  // all halves passthrough
+
+    GamepadState physical;
+    physical.gyroActive = true;
+    physical.gyroX = 0.55f;
+    GamepadState output;
+    pc.process(physical, output);
+
+    float expected = applyDeadzoneMaxSigned(0.55f, 0.1f, 0.9f);
+    REQUIRE(output.gyroX == Catch::Approx(expected).epsilon(0.001f));
+}
+
+TEST_CASE("PhysicalController::process gyro reading inside the deadzone reads exactly 0", "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.gyroXCalib = {0.1f, 0.9f};
+    pc[ComponentId::Gyro] = PhysicalGyro{};
+
+    GamepadState physical;
+    physical.gyroActive = true;
+    physical.gyroX = 0.05f;  // below deadzone
+    GamepadState output;
+    pc.process(physical, output);
+
+    REQUIRE(output.gyroX == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalController::process applies per-axis accel calibration before PhysicalAccel sees it", "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.accelZCalib = {0.0f, 0.5f};  // max<1 boosts sensitivity, see applyDeadzoneMaxSigned
+    pc[ComponentId::Accel] = PhysicalAccel{};
+
+    GamepadState physical;
+    physical.accelActive = true;
+    physical.accelZ = 0.5f;
+    GamepadState output;
+    pc.process(physical, output);
+
+    REQUIRE(output.accelZ == Catch::Approx(1.0f));
+}

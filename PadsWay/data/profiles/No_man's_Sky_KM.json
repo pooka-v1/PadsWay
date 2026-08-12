@@ -1,0 +1,111 @@
+{
+  "axis_actions": {
+    "left_x_neg": {
+      "keys": [
+        "a"
+      ],
+      "type": "keyboard"
+    },
+    "left_x_pos": {
+      "keys": [
+        "d"
+      ],
+      "type": "keyboard"
+    },
+    "left_y_neg": {
+      "keys": [
+        "s"
+      ],
+      "type": "keyboard"
+    },
+    "left_y_pos": {
+      "keys": [
+        "w"
+      ],
+      "type": "keyboard"
+    },
+    "right_x_neg": {
+      "speed": 15.0,
+      "target": "mouse_x"
+    },
+    "right_x_pos": {
+      "speed": 15.0,
+      "target": "mouse_x"
+    },
+    "right_y_neg": {
+      "speed": 5.0,
+      "target": "mouse_y"
+    },
+    "right_y_pos": {
+      "speed": 5.0,
+      "target": "mouse_y"
+    }
+  },
+  "buttons": {
+    "a": {
+      "button": "left",
+      "type": "mouse_click"
+    },
+    "b": {
+      "button": "right",
+      "type": "mouse_click"
+    },
+    "x": {
+      "keys": [
+        "e"
+      ],
+      "type": "keyboard"
+    }
+  },
+  "dpad_remap": {
+    "down": {
+      "keys": [
+        "s"
+      ],
+      "physical": "dpad_down",
+      "type": "keyboard"
+    },
+    "left": {
+      "keys": [
+        "a"
+      ],
+      "physical": "dpad_left",
+      "type": "keyboard"
+    },
+    "right": {
+      "keys": [
+        "d"
+      ],
+      "physical": "dpad_right",
+      "type": "keyboard"
+    },
+    "up": {
+      "keys": [
+        "w"
+      ],
+      "physical": "dpad_up",
+      "type": "keyboard"
+    }
+  },
+  "gyro_actions": {
+    "x_neg": {
+      "invert": true,
+      "speed": 15.0,
+      "target": "mouse_y"
+    },
+    "x_pos": {
+      "invert": true,
+      "speed": 15.0,
+      "target": "mouse_y"
+    },
+    "y_neg": {
+      "speed": 15.0,
+      "target": "mouse_x"
+    },
+    "y_pos": {
+      "speed": 15.0,
+      "target": "mouse_x"
+    }
+  },
+  "profile_name": "No man's Sky KM"
+}

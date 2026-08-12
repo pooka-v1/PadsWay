@@ -539,6 +539,8 @@ void LayoutEditor::renderRightPanel(float w) {
         stateCombo("state_x##gx", c.stateX);
         ImGui::TextDisabled("%s", tr("layout.gyro_v"));
         stateCombo("state_y##gy", c.stateY);
+        ImGui::TextDisabled("%s", tr("layout.gyro_rot"));
+        stateCombo("state_z##gz", c.stateZ);
     }
 
     // Colors (gyro renders with fixed colors, nothing to edit)
@@ -766,6 +768,7 @@ void LayoutEditor::addComponent(const char* type) {
         if (strcmp(type, "gyro") == 0) {
             c.stateX = "gyroZ";
             c.stateY = "gyroX";
+            c.stateZ = "gyroY";
         }
     } else if (strcmp(type, "dpad") == 0 || strcmp(type, "analog_dpad") == 0) {
         c.size = 1.0f;  // scale factor: 1.0 = natural texture size

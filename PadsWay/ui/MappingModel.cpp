@@ -1,10 +1,12 @@
 #include "MappingModel.h"
 #include "../nlohmann/json.hpp"
 using json = nlohmann::json;
+#include "../Log.h"
 
 #include <algorithm>
 #include <fstream>
 #include <cstdio>
+#include <cerrno>
 #include <windows.h>
 
 // ---------------------------------------------------------------------------
@@ -58,24 +60,29 @@ static json halfAxisToJson(const HalfAxisAction& ha) {
         json arr = json::array();
         for (const auto& k : ha.keys) arr.push_back(k);
         j["keys"] = arr;
+        if (ha.threshold != 0.5f) j["threshold"] = ha.threshold;
         break;
     }
     case HalfAxisActionType::Macro:
         j["type"] = "macro";
         j["name"] = ha.target;
         if (!ha.execution.empty()) j["execution"] = ha.execution;
+        if (ha.threshold != 0.5f) j["threshold"] = ha.threshold;
         break;
     case HalfAxisActionType::Bot:
         j["type"] = "bot";
         j["name"] = ha.target;
+        if (ha.threshold != 0.5f) j["threshold"] = ha.threshold;
         break;
     case HalfAxisActionType::MouseClick:
         j["type"]   = "mouse_click";
         j["button"] = ha.mouseButton;
+        if (ha.threshold != 0.5f) j["threshold"] = ha.threshold;
         break;
     case HalfAxisActionType::MouseMove:
         j["target"] = ha.target;
         j["speed"]  = ha.speed;
+        if (ha.invert) j["invert"] = true;
         break;
     case HalfAxisActionType::Analog:
         j["type"]    = "analog";
@@ -224,6 +231,8 @@ void MappingModel::clear() {
     actionEdits.clear();
     axisEdits.clear();
     axisActionEdits.clear();
+    gyroActionEdits.clear();
+    accelActionEdits.clear();
     trigActionEdits.clear();
     trigLRangeEdits.clear();
     trigRRangeEdits.clear();
@@ -246,6 +255,7 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
         case ButtonActionType::MouseClick:
         case ButtonActionType::Macro:
         case ButtonActionType::Trigger:
+        case ButtonActionType::Bot:
             actionEdits[action.physical] = action;
             break;
         default: break;
@@ -288,6 +298,11 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
 
     for (const auto& [key, action] : cfg.axis_actions)
         axisActionEdits[key] = action;
+
+    for (const auto& [key, action] : cfg.gyro_actions)
+        gyroActionEdits[key] = action;
+    for (const auto& [key, action] : cfg.accel_actions)
+        accelActionEdits[key] = action;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +323,7 @@ void MappingModel::loadProfile(const ControllerConfig& base, const GameProfile& 
 }
 
 // ---------------------------------------------------------------------------
-void MappingModel::saveProfile(const std::string& path, const std::string& profileName,
+bool MappingModel::saveProfile(const std::string& path, const std::string& profileName,
                                const ControllerConfig& base) {
     // Build physShort -> base action + physShort -> virtual output name.
     std::unordered_map<std::string, const ButtonAction*> baseByPhys;
@@ -392,6 +407,19 @@ void MappingModel::saveProfile(const std::string& path, const std::string& profi
         else                   root["axis_actions"] = std::move(modelAA);
     }
 
+    // --- gyro_actions / accel_actions — whole-section diff against base ---
+    {
+        json modelGA = axisActionsToJson(gyroActionEdits);
+        json baseGA  = axisActionsToJson(base.gyro_actions);
+        if (modelGA == baseGA) root.erase("gyro_actions");
+        else                   root["gyro_actions"] = std::move(modelGA);
+
+        json modelAcA = axisActionsToJson(accelActionEdits);
+        json baseAcA  = axisActionsToJson(base.accel_actions);
+        if (modelAcA == baseAcA) root.erase("accel_actions");
+        else                     root["accel_actions"] = std::move(modelAcA);
+    }
+
     // --- axes (whole-axis remap) — per-key diff against base, keyed by stickId ---
     if (!axisEdits.empty()) {
         std::unordered_map<std::string, const AxisMapping*> baseByStick;
@@ -421,10 +449,18 @@ void MappingModel::saveProfile(const std::string& path, const std::string& profi
     std::string tmpPath = path + ".tmp";
     {
         std::ofstream tmp(tmpPath);
-        if (!tmp.is_open()) return;
+        if (!tmp.is_open()) {
+            spdlog::warn("[Profile] saveProfile: could not open '{}' for writing (errno {})",
+                        tmpPath, errno);
+            return false;
+        }
         tmp << dumped;
     }
-    MoveFileExA(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+    bool moved = MoveFileExA(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+    if (!moved)
+        spdlog::warn("[Profile] saveProfile: MoveFileExA('{}' -> '{}') failed, GetLastError={}",
+                    tmpPath, path, GetLastError());
+    return moved;
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +603,19 @@ void MappingModel::save(const std::string& path) {
                 ctrl["axis_actions"] = axisActionsToJson(axisActionEdits);
             else
                 ctrl.erase("axis_actions");
+        }
+
+        // --- gyro_actions / accel_actions ---
+        {
+            if (!gyroActionEdits.empty())
+                ctrl["gyro_actions"] = axisActionsToJson(gyroActionEdits);
+            else
+                ctrl.erase("gyro_actions");
+
+            if (!accelActionEdits.empty())
+                ctrl["accel_actions"] = axisActionsToJson(accelActionEdits);
+            else
+                ctrl.erase("accel_actions");
         }
 
         break;

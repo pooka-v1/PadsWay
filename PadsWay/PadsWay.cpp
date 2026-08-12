@@ -4,6 +4,7 @@
 #include "Log.h"
 #include "Paths.h"
 #include "config/ConfigLoader.h"
+#include "input/DeviceHub.h"
 #include "PadEngine.h"
 #include "AppWindow.h"
 
@@ -52,7 +53,10 @@ int main() {
 
     Log::init(vpCfg.logLevel, vpCfg.console);
 
-    PadEngine engine;
-    AppWindow window(engine);
+    // Owns every open HID connection, indexed by device path — a sibling of PadEngine and
+    // AppWindow, consumed by both (see ARCHITECTURE.md, "DeviceHub").
+    DeviceHub deviceHub;
+    PadEngine engine(deviceHub);
+    AppWindow window(engine, deviceHub);
     return window.run();
 }
