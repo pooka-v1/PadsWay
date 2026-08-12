@@ -1,7 +1,7 @@
 #include "RawHIDReader.h"
 #include <hidsdi.h>
 
-#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_hid.preparsed()))
+#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(hid.preparsed()))
 
 static constexpr USHORT kUsageX   = 0x30;
 static constexpr USHORT kUsageY   = 0x31;
@@ -26,9 +26,17 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
     if (result == HIDDevice::ReadResult::Disconnected) return false;
     if (result == HIDDevice::ReadResult::Timeout)      return true;
 
-    PCHAR buf    = reinterpret_cast<PCHAR>(const_cast<BYTE*>(m_hid.reportBuf().data()));
-    ULONG bufLen = m_hid.reportLen();
-    BYTE  btnId  = m_hid.buttonReportId();
+    decodeRawHIDReport(m_hid, out);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+
+void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out)
+{
+    PCHAR buf    = reinterpret_cast<PCHAR>(const_cast<BYTE*>(hid.reportBuf().data()));
+    ULONG bufLen = hid.reportLen();
+    BYTE  btnId  = hid.buttonReportId();
 
     // ── Buttons ──────────────────────────────────────────────────────────────
     USAGE usages[128];
@@ -52,8 +60,8 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
 
     // ── Axes ─────────────────────────────────────────────────────────────────
     auto readAxis = [&](USHORT usage, float& dest) {
-        auto pit   = m_hid.usagePage().find(usage);
-        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : HID_USAGE_PAGE_GENERIC;
+        auto pit   = hid.usagePage().find(usage);
+        USHORT page = (pit != hid.usagePage().end()) ? pit->second : HID_USAGE_PAGE_GENERIC;
         ULONG raw = 0;
         NTSTATUS st = HidP_GetUsageValue(HidP_Input, page, 0,
                                          usage, &raw, PREPARSED, buf, bufLen);
@@ -64,7 +72,7 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
                                     usage, &raw, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
-        if (st == HIDP_STATUS_SUCCESS) dest = m_hid.normalizeAxis(usage, raw);
+        if (st == HIDP_STATUS_SUCCESS) dest = hid.normalizeAxis(usage, raw);
     };
 
     readAxis(kUsageX,  out.axisX);
@@ -86,7 +94,7 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
                                     usage, &raw, PREPARSED, buf, bufLen);
             buf[0] = savedId;
         }
-        if (st == HIDP_STATUS_SUCCESS) dest = m_hid.normalizeAxis(usage, raw);
+        if (st == HIDP_STATUS_SUCCESS) dest = hid.normalizeAxis(usage, raw);
     };
     readSimAxis(0xC4, out.axisBrake);
     readSimAxis(0xC5, out.axisAccel);
@@ -102,8 +110,8 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
                            kUsageHat, &hat, PREPARSED, buf, bufLen);
         buf[0] = savedId;
     }
-    auto hatIt = m_hid.valueCaps().find(kUsageHat);
-    if (hatIt != m_hid.valueCaps().end()) {
+    auto hatIt = hid.valueCaps().find(kUsageHat);
+    if (hatIt != hid.valueCaps().end()) {
         ULONG hatMin = static_cast<ULONG>(hatIt->second.logMin);
         ULONG hatMax = static_cast<ULONG>(hatIt->second.logMax);
         out.hat = (hat >= hatMin && hat <= hatMax) ? hat - hatMin : 0xFFFFFFFF;
@@ -111,25 +119,15 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
         out.hat = hat;
     }
 
-    // ── Raw gyro (DS4 USB: 3×int16 LE at byte offset 13) ────────────────────
-    static constexpr int  kGyroOffset = 13;
-    static constexpr float kGyroScale = 1.0f / 32768.0f;
-    const auto& rb = m_hid.reportBuf();
-    if (m_hid.lastBytesRead() >= kGyroOffset + 6 && rb.size() >= kGyroOffset + 6u) {
-        auto readI16 = [&](int o) -> int16_t {
-            return static_cast<int16_t>(
-                static_cast<uint8_t>(rb[o]) | (static_cast<uint16_t>(rb[o + 1]) << 8));
-        };
-        out.gyroRawX     = readI16(kGyroOffset)     * kGyroScale;
-        out.gyroRawY     = readI16(kGyroOffset + 2) * kGyroScale;
-        out.gyroRawZ     = readI16(kGyroOffset + 4) * kGyroScale;
-        out.gyroRawValid = true;
-    } else {
-        out.gyroRawValid = false;
+    // ── Full raw report bytes (for the IMU calibration wizard and the Scanner tab) ──
+    {
+        const auto& rb = hid.reportBuf();
+        ULONG n = hid.lastBytesRead();
+        if (n > rb.size()) n = static_cast<ULONG>(rb.size());
+        out.raw.assign(rb.begin(), rb.begin() + n);
     }
 
     out.valid = true;
-    return true;
 }
 
 #undef PREPARSED

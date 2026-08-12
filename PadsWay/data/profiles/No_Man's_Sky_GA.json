@@ -1,0 +1,17 @@
+{
+  "accel_actions": {
+    "x_neg": {
+      "virtual": "left_x_neg"
+    },
+    "x_pos": {
+      "virtual": "left_x_pos"
+    },
+    "y_neg": {
+      "virtual": "left_y_pos"
+    },
+    "y_pos": {
+      "virtual": "left_y_neg"
+    }
+  },
+  "profile_name": "No Man's Sky"
+}

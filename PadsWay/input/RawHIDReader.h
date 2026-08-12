@@ -1,6 +1,8 @@
 #pragma once
 #include "HIDDevice.h"
 #include <string>
+#include <vector>
+#include <cstdint>
 
 // Raw HID report snapshot — no ControllerConfig, no GamepadState.
 // buttonMask: bit N set = HID button usage N+1 is pressed (up to 32 buttons).
@@ -18,13 +20,19 @@ struct RawHIDState {
     float  axisAccel = 0.0f;   // HID usage 0xC5 (Simulation page) — e.g. Pro 3 R2
     ULONG  hat    = 0xFFFFFFFF;
     bool   valid  = false;
-    // Raw gyro bytes parsed directly from the HID report buffer (DS4: offset 13, 3×int16 LE).
-    // Other controllers may have unrelated data here — treat as valid only if the device has IMU.
-    float  gyroRawX = 0.0f;
-    float  gyroRawY = 0.0f;
-    float  gyroRawZ = 0.0f;
-    bool   gyroRawValid = false;  // true when buffer was long enough to parse
+
+    // Full raw input report bytes for this frame (size = bytes actually read).
+    // Used by the IMU calibration wizard to scan for undeclared sensor data beyond
+    // the HID-declared usages above — gyro/accel are not exposed as HID axes.
+    std::vector<uint8_t> raw;
 };
+
+// Decodes one already-read HID report (hid.reportBuf(), populated by a prior hid.read()) into
+// out: buttons, the fixed set of Generic Desktop/Simulation axes, hat, and the full raw byte
+// snapshot. Shared by RawHIDReader (below) and DeviceHub's HIDInputSource-backed connections
+// (see input/DeviceHub.h) so the Scanner gets the same generic view regardless of who is driving
+// the reads — config-independent, works even for a device with no controllers.json entry yet.
+void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out);
 
 // Lightweight HID reader for the binding wizard and Scanner.
 // Opens a device by path (from HIDScanner) and reads raw button/axis data

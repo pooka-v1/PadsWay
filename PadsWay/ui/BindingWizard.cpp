@@ -1,12 +1,15 @@
+#define NOMINMAX
 #include "BindingWizard.h"
 #include "../config/Strings.h"
 #include "../config/ConfigLoader.h"
 #include "../input/ControllerConfig.h"
+#include "../Log.h"
 #include "../imgui/imgui.h"
 #include "../nlohmann/json.hpp"
 #include <fstream>
 #include <algorithm>
 #include <cstring>
+#include <cmath>
 using json = nlohmann::json;
 
 // ── HID axis names by RawHIDState field index ────────────────────────────────
@@ -50,6 +53,12 @@ void BindingWizard::unload() {
     m_arrowRight.release();
     m_arrowUp.release();
     m_arrowDown.release();
+    m_gyroArrowN.release();
+    m_gyroArrowS.release();
+    m_gyroArrowE.release();
+    m_gyroArrowW.release();
+    m_gyroArrowCW.release();
+    m_gyroArrowCCW.release();
 }
 
 void BindingWizard::loadArrows() {
@@ -57,6 +66,12 @@ void BindingWizard::loadArrows() {
     PadView::loadPng(m_device, "images/decorations/ArrowRight.png", m_arrowRight);
     PadView::loadPng(m_device, "images/decorations/ArrowUp.png",    m_arrowUp);
     PadView::loadPng(m_device, "images/decorations/ArrowDown.png",  m_arrowDown);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowNort.png",             m_gyroArrowN);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowSouth.png",            m_gyroArrowS);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowEst.png",              m_gyroArrowE);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowWest.png",             m_gyroArrowW);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowClockwise.png",        m_gyroArrowCW);
+    PadView::loadPng(m_device, "images/gyroscope/ArrowCounterclockwise.png", m_gyroArrowCCW);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +91,12 @@ void BindingWizard::start(const PadLayout& layout) {
     m_dpadType.clear();
     m_saveWithConnection = false;
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
+
+    m_gyroPhase    = GyroPhase::Baseline;
+    m_hasGyroStep  = false;
+    m_gyroSamples.clear();
+    m_gyroPhaseFrames = 0;
+    m_gyroResult   = ImuCalibrationResult{};
 
     m_canvasView.forceSetLayout(m_layout);
     scanControllers();
@@ -276,10 +297,40 @@ void BindingWizard::renderBinding() {
                 }
             } else if (t == "dpad") {
                 promptText = tr("wizard.press_dpad");
+            } else if (t == "gyro") {
+                if (m_gyroPoolFailed) {
+                    promptText = tr("wizard.gyro_pool_failed");
+                } else if (m_gyroPhase == GyroPhase::Baseline) {
+                    promptText = tr("wizard.gyro_baseline");
+                } else if (m_gyroPhase == GyroPhase::Flip) {
+                    promptText = tr("wizard.gyro_flip");
+                } else if (m_gyroRoundStage == GyroRoundStage::MoveToA ||
+                           m_gyroRoundStage == GyroRoundStage::MoveToB) {
+                    bool toA = (m_gyroRoundStage == GyroRoundStage::MoveToA);
+                    switch (m_gyroPhase) {
+                    case GyroPhase::Roll:  promptText = toA ? tr("wizard.gyro_roll_a")  : tr("wizard.gyro_roll_b");  break;
+                    case GyroPhase::Pitch: promptText = toA ? tr("wizard.gyro_pitch_a") : tr("wizard.gyro_pitch_b"); break;
+                    case GyroPhase::Yaw:   promptText = toA ? tr("wizard.gyro_yaw_a")   : tr("wizard.gyro_yaw_b");   break;
+                    default: break;
+                    }
+                } else {
+                    promptText = tr("wizard.gyro_hold"); // HoldA / HoldB — same instruction either side
+                }
             }
 
+            if (t == "gyro" && m_gyroPhase != GyroPhase::Baseline && m_gyroPhase != GyroPhase::Flip) {
+                int axisIdx = static_cast<int>(m_gyroPhase) - static_cast<int>(GyroPhase::Roll);
+                ImGui::Text(tr("wizard.gyro_phase"), axisIdx + 1);
+                ImGui::Text(tr("wizard.gyro_round"), m_gyroRound);
+                ImGui::Spacing();
+            }
+
+            // Amber for the pool-failed message (matches Review's review_gyro_failed), yellow for
+            // every normal instruction prompt.
+            bool isFailure = (t == "gyro" && m_gyroPoolFailed);
             ImGui::SetWindowFontScale(1.35f);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.95f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, isFailure ? ImVec4(1.0f, 0.6f, 0.2f, 1.0f)
+                                                             : ImVec4(1.0f, 0.95f, 0.2f, 1.0f));
             ImGui::TextWrapped("%s", promptText);
             ImGui::PopStyleColor();
             ImGui::SetWindowFontScale(1.0f);
@@ -300,12 +351,93 @@ void BindingWizard::renderBinding() {
         } else if (t == "dpad") {
             std::string dt;
             if (captureDpad(dt)) commitDpad(dt);
+        } else if (t == "gyro") {
+            if (m_gyroPoolFailed) {
+                // Held here instead of auto-advancing (see commitGyroPhase()) so the amber
+                // message above is actually seen before the gyro component gets skipped.
+                if (ImGui::Button(trid("wizard.gyro_continue", "bind").c_str(), { 180.0f, 0.0f })) {
+                    m_gyroPoolFailed = false;
+                    finishGyroStep();
+                }
+            } else if (!m_gyroPhaseStarted) {
+                ImGui::TextWrapped("%s", tr("wizard.gyro_start"));
+                int dummyIdx = 0;
+                // Always call captureButton() so m_prevButtonMask stays in sync with the real
+                // controller state — but only honor the press once m_gyroAwaitingRelease has
+                // cleared. Without this, a button still physically held from confirming the
+                // PREVIOUS step (or a stray bump while the hand repositions) can start the phase
+                // instantly, before the user ever sees this prompt — confirmed for real, 2026/07:
+                // finishing the last regular button step (Home) sometimes jumped straight into
+                // Baseline capture with no visible pause.
+                bool pressed = captureButton(dummyIdx);
+                if (m_gyroAwaitingRelease) {
+                    if (m_prevButtonMask == 0) m_gyroAwaitingRelease = false;
+                } else if (pressed) {
+                    m_gyroPhaseStarted = true;
+                    // Re-snapshot the contamination reference right as the user commits to
+                    // starting, not back in beginStep() (which fires the instant the step
+                    // becomes active — often still mid-release from confirming the PREVIOUS
+                    // step, e.g. a trigger binding). A stale one-shot snapshot here means every
+                    // later frame compares against a wrong resting value forever: confirmed for
+                    // real on the DS4, 2026/07/11 — R2 (hid_ry) read a constant -2.0 delta
+                    // (a full bipolar swing) against every subsequent frame, so Baseline never
+                    // saw a single "clean" frame and sat at 0% the whole capture.
+                    if (m_hidReader && m_hidReader->isOpen())
+                        m_hidReader->read(m_gyroAxisBaseline);
+                }
+            } else if (m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) {
+                // Baseline and Flip have no back-and-forth gesture to repeat — they just need the
+                // controller quiet (in a different orientation each) for a fixed time, so both
+                // keep the same time-based gate instead of the Roll/Pitch/Yaw round machine.
+                sampleGyroFrame();
+                int  minFrames  = (m_gyroPhase == GyroPhase::Baseline) ? kGyroMinCaptureFrames : kGyroFlipMinCaptureFrames;
+                bool canAdvance = m_gyroPhaseFrames >= minFrames;
+                int  pct        = std::min(100, (m_gyroPhaseFrames * 100) / minFrames);
+                ImGui::Text(tr("wizard.gyro_capturing"), pct);
+                if (canAdvance) ImGui::TextDisabled("%s", tr("wizard.gyro_ready_hint"));
+                ImGui::Spacing();
+                if (renderGyroAdvanceControl(canAdvance)) commitGyroPhase();
+            } else {
+                // Roll/Pitch/Yaw: fully automatic move/hold detection (see updateGyroRound()) —
+                // no manual "Continuar", the round machine advances itself. The only escape
+                // hatches are Atras (redo this axis) and Saltar (skip the whole component);
+                // finishGyroRound() has its own kGyroMaxRounds cap if an axis never converges.
+                std::vector<float> raw;
+                if (sampleGyroFrame(&raw)) updateGyroRound(raw);
+                float confidence = axisConfidence();
+                ImGui::Text(tr("wizard.gyro_confidence"), static_cast<int>(confidence * 100.0f));
+            }
         }
 
         // ── Manual controls ──────────────────────────────────────────────────
-        if (m_currentStep == 0) ImGui::BeginDisabled();
-        if (ImGui::Button(trid("btn.back", "bind").c_str(), { 90.0f, 0.0f })) goBack();
-        if (m_currentStep == 0) ImGui::EndDisabled();
+        bool atVeryStart = (m_currentStep == 0 && !(t == "gyro" && m_gyroPhase != GyroPhase::Baseline));
+        if (atVeryStart) ImGui::BeginDisabled();
+        if (ImGui::Button(trid("btn.back", "bind").c_str(), { 90.0f, 0.0f })) {
+            if (t == "gyro" && m_gyroPhase != GyroPhase::Baseline) {
+                m_gyroPhase = static_cast<GyroPhase>(static_cast<int>(m_gyroPhase) - 1);
+                resetGyroRoundState(/*clearVotes=*/true);
+                if (m_gyroPhase == GyroPhase::Baseline) {
+                    m_gyroCandidates.clear();
+                    m_gyroHasAccel     = false;
+                    m_gyroNormalOffset = -1;
+                } else if (m_gyroPhase == GyroPhase::Flip) {
+                    // Stepping back into Flip from Roll: undo confirmNormalOffsetFromFlip()'s
+                    // pick, fall back to computeGyroCandidatePool()'s baseline-magnitude guess so
+                    // Flip can be redone cleanly.
+                    computeGyroCandidatePool();
+                } else {
+                    int axisIdx = static_cast<int>(m_gyroPhase) - static_cast<int>(GyroPhase::Roll);
+                    m_gyroAxisGyroOffset[axisIdx]  = -1;
+                    m_gyroAxisAccelOffset[axisIdx] = -1;
+                }
+                m_gyroPhaseStarted = false;
+                m_gyroAwaitingRelease = true;
+                snapshotBaseline(); // resync m_prevButtonMask so a repeated start-button press is detected as new
+            } else {
+                goBack();
+            }
+        }
+        if (atVeryStart) ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button(trid("btn.skip", "bind").c_str(), { 80.0f, 0.0f })) skipStep();
         ImGui::SameLine();
@@ -340,6 +472,32 @@ void BindingWizard::renderReview() {
     ImGui::Text(tr("wizard.review_axes"), (int)m_boundAxes.size());
     if (m_hasDpad) ImGui::Text(tr("wizard.review_dpad"), m_dpadType.c_str());
     else           ImGui::TextDisabled("%s", tr("wizard.review_dpad_none"));
+
+    if (m_hasGyroStep) {
+        if (m_gyroResult.ok) {
+            const char* axes = m_gyroResult.accelXOffset >= 0 ? tr("wizard.gyro_result_full")
+                                                                : tr("wizard.gyro_result_gyro_only");
+            ImGui::Text(tr("wizard.review_gyro_ok"), axes);
+
+            std::vector<const char*> inverted;
+            if (m_gyroResult.gyroXInvert)  inverted.push_back("pitch");
+            if (m_gyroResult.gyroYInvert)  inverted.push_back("yaw");
+            if (m_gyroResult.gyroZInvert)  inverted.push_back("roll");
+            if (m_gyroResult.accelXInvert) inverted.push_back("lateral");
+            if (m_gyroResult.accelYInvert) inverted.push_back("frontal");
+            if (m_gyroResult.accelZInvert) inverted.push_back("normal");
+            if (!inverted.empty()) {
+                std::string list;
+                for (size_t i = 0; i < inverted.size(); ++i) {
+                    if (i > 0) list += ", ";
+                    list += inverted[i];
+                }
+                ImGui::Text(tr("wizard.review_gyro_inverted"), list.c_str());
+            }
+        } else {
+            ImGui::TextColored({ 1.0f, 0.6f, 0.2f, 1.0f }, "%s", tr("wizard.review_gyro_failed"));
+        }
+    }
 
     ImGui::Spacing();
     ImGui::BeginChild("##revList", { 0.0f, 180.0f }, true);
@@ -449,6 +607,32 @@ void BindingWizard::renderCanvas(int highlightComp) {
                 drawArrow(m_arrowDown, { center.x - kArrowSize * 0.5f,
                                          center.y + offset });
             }
+        } else if (type == "gyro" &&
+                   (m_gyroRoundStage == GyroRoundStage::MoveToA || m_gyroRoundStage == GyroRoundStage::MoveToB) &&
+                   step.compIndex >= 0 && step.compIndex < (int)m_layout.components.size()) {
+            // Light the gyro widget's own reference arrow for the gesture being requested
+            // (see gyro_roll_a/gyro_pitch_a/gyro_yaw_a prompts) — drawn at native size centered
+            // on the component, same as every other gyro-widget layer (PadView.cpp), as an
+            // overlay on top of the widget's always-dim arrows (PadView's fake wizard state has
+            // no gyro reading).
+            const PadComponent& comp = m_layout.components[step.compIndex];
+            ImVec2 gCenter = { m_canvasOrigin.x + comp.cx, m_canvasOrigin.y + comp.cy };
+
+            auto drawGyroArrow = [&](const PadTexture& tex) {
+                if (!tex.valid()) return;
+                ImVec2 tl = { gCenter.x - tex.w * 0.5f, gCenter.y - tex.h * 0.5f };
+                ImVec2 br = { tl.x + tex.w, tl.y + tex.h };
+                dl->AddImage((ImTextureID)(intptr_t)tex.srv, tl, br,
+                             {0,0}, {1,1}, IM_COL32(255, 235, 120, 255));
+            };
+
+            bool toA = (m_gyroRoundStage == GyroRoundStage::MoveToA);
+            switch (m_gyroPhase) {
+            case GyroPhase::Roll:  drawGyroArrow(toA ? m_gyroArrowE : m_gyroArrowW);  break;
+            case GyroPhase::Pitch: drawGyroArrow(toA ? m_gyroArrowN : m_gyroArrowS);  break;
+            case GyroPhase::Yaw:   drawGyroArrow(toA ? m_gyroArrowCW : m_gyroArrowCCW); break;
+            default: break;
+            }
         }
     }
 }
@@ -522,11 +706,25 @@ void BindingWizard::loadStateMap() {
 void BindingWizard::buildSteps() {
     m_steps.clear();
     m_noStateCount = 0;
+    m_hasGyroStep  = false;
     bool dpadAdded = false;
 
     for (int i = 0; i < (int)m_layout.components.size(); ++i) {
         const auto& comp = m_layout.components[i];
-        if (comp.type == "template" || comp.type == "decoration" || comp.type == "gyro") continue;
+        if (comp.type == "template" || comp.type == "decoration") continue;
+
+        // Gyro/IMU: one step that internally runs a 4-phase calibration sub-machine
+        // (Baseline/Roll/Pitch/Yaw). No state_map entry — it doesn't bind to a virtual
+        // action, it calibrates raw sensor byte offsets for ImuConfig.
+        if (comp.type == "gyro") {
+            BindStep s;
+            s.compIndex   = i;
+            s.state       = "gyro";
+            s.mapping.type = "gyro";
+            m_steps.push_back(s);
+            m_hasGyroStep = true;
+            continue;
+        }
 
         // Stick: add click button (L3/R3); axes are added separately below.
         if (comp.type == "stick") {
@@ -669,6 +867,22 @@ void BindingWizard::beginStep() {
         m_state = State::Review;
         return;
     }
+    if (m_steps[m_currentStep].mapping.type == "gyro") {
+        m_gyroPhase = GyroPhase::Baseline;
+        m_gyroSamples.clear();
+        m_gyroPhaseFrames = 0;
+        m_gyroPhaseStarted = false;
+        m_gyroAwaitingRelease = true;
+        m_gyroResult = ImuCalibrationResult{};
+        m_gyroCandidates.clear();
+        m_gyroHasAccel     = false;
+        m_gyroNormalOffset = -1;
+        m_gyroPoolFailed   = false;
+        for (int i = 0; i < 3; ++i) { m_gyroAxisGyroOffset[i] = -1; m_gyroAxisAccelOffset[i] = -1; }
+        resetGyroRoundState(/*clearVotes=*/true);
+        if (m_hidReader && m_hidReader->isOpen())
+            m_hidReader->read(m_gyroAxisBaseline);
+    }
     snapshotBaseline();
 }
 
@@ -727,6 +941,70 @@ void BindingWizard::commitDpad(const std::string& dpadType) {
     beginStep();
 }
 
+// Only reachable from Baseline and Flip — Roll/Pitch/Yaw auto-advance via finishGyroRound()
+// instead of a manual "Continuar" click, see renderBinding()'s gyro block.
+void BindingWizard::commitGyroPhase() {
+    if (m_gyroPhase == GyroPhase::Baseline) {
+        computeGyroCandidatePool();
+        if (m_gyroCandidates.empty()) {
+            // No usable run of alive offsets — same failure classifyGyro() used to report at the
+            // very end, caught early here instead so Flip/Roll/Pitch/Yaw aren't captured for
+            // nothing. Don't auto-advance: hold the step on an explicit message (see
+            // renderBinding()'s gyro block, m_gyroPoolFailed) so the user sees why the gyro step
+            // is about to be skipped instead of the wizard silently jumping to the next
+            // component (2026/08/10 field report).
+            m_gyroResult = ImuCalibrationResult{};
+            m_gyroPoolFailed = true;
+            return;
+        }
+        // A gyro-only device (no accelerometer block found) has nothing for the flip gesture to
+        // confirm — skip straight to Roll.
+        m_gyroPhase = m_gyroHasAccel ? GyroPhase::Flip : GyroPhase::Roll;
+    } else if (m_gyroPhase == GyroPhase::Flip) {
+        confirmNormalOffsetFromFlip();
+        m_gyroPhase = GyroPhase::Roll;
+    }
+    resetGyroRoundState(/*clearVotes=*/true);
+    m_gyroPhaseStarted = false;
+    m_gyroAwaitingRelease = true;
+    snapshotBaseline(); // resync m_prevButtonMask so a repeated start-button press is detected as new
+}
+
+// Shared tail of the gyro BindStep, reached either after all 3 axes converge or after a failure
+// (no usable candidate pool, or kGyroMaxRounds reached without a winner) — same bookkeeping the
+// other commit* methods do.
+void BindingWizard::finishGyroStep() {
+    const BindStep& step = m_steps[m_currentStep];
+    if (step.compIndex >= 0)
+        m_overlayLabels[step.compIndex] = m_gyroResult.ok ? "IMU" : "IMU?";
+    m_stepCooldown = kAxisCooldown;
+    ++m_currentStep;
+    beginStep();
+}
+
+// See BindingWizard.h for what clearVotes gates. Round-scoped fields (rest streak/HoldA
+// reading/this-round move amplitude) are always reset; axis-scoped fields (vote tallies, round
+// counter, this axis's slice of m_gyroSamples) only when starting a genuinely fresh axis.
+void BindingWizard::resetGyroRoundState(bool clearVotes) {
+    m_gyroRoundStage = GyroRoundStage::MoveToA;
+    m_gyroRestA.clear();
+    m_gyroRestStreak.clear();
+    m_gyroRestStreakFrames = 0;
+    m_gyroLegMoveAmp.clear();
+    m_gyroRoundMoveAmp.clear();
+    m_gyroMoveASignMean.clear();
+    if (clearVotes) {
+        m_gyroRound = 1;
+        m_gyroGyroVotes.clear();
+        m_gyroAccelVotes.clear();
+        m_gyroBaselineMisses = 0;
+        m_gyroBaselineContaminated = 0;
+        m_gyroPhaseFrames = 0;
+        int idx = static_cast<int>(m_gyroPhase);
+        for (auto& offsetStats : m_gyroSamples) offsetStats[idx] = GyroOffsetStats{};
+    }
+}
+
 void BindingWizard::skipStep() {
     ++m_currentStep;
     beginStep();
@@ -750,6 +1028,20 @@ void BindingWizard::goBack() {
         if (!m_boundAxes.empty()) m_boundAxes.pop_back();
     } else if (t == "dpad") {
         m_hasDpad = false; m_dpadType.clear();
+    } else if (t == "gyro") {
+        // Re-entering a completed gyro step: start the whole capture over from scratch.
+        m_gyroPhase = GyroPhase::Baseline;
+        m_gyroSamples.clear();
+        m_gyroPhaseFrames = 0;
+        m_gyroPhaseStarted = false;
+        m_gyroAwaitingRelease = true;
+        m_gyroResult = ImuCalibrationResult{};
+        m_gyroCandidates.clear();
+        m_gyroHasAccel     = false;
+        m_gyroNormalOffset = -1;
+        m_gyroPoolFailed   = false;
+        for (int i = 0; i < 3; ++i) { m_gyroAxisGyroOffset[i] = -1; m_gyroAxisAccelOffset[i] = -1; }
+        resetGyroRoundState(/*clearVotes=*/true);
     }
 
     snapshotBaseline();
@@ -767,6 +1059,21 @@ void BindingWizard::cancel() {
 // ---------------------------------------------------------------------------
 // Input capture
 // ---------------------------------------------------------------------------
+
+// Shared "Continuar" control for the gyro sub-phases: draws the button (disabled until
+// canAdvance) and also accepts any controller button press as a confirm, so the user never
+// has to let go of the controller to reach for the mouse. Returns true once confirmed.
+bool BindingWizard::renderGyroAdvanceControl(bool canAdvance) {
+    if (!canAdvance) ImGui::BeginDisabled();
+    bool clicked = ImGui::Button(trid("wizard.gyro_continue", "bind").c_str(), { 180.0f, 0.0f });
+    if (!canAdvance) ImGui::EndDisabled();
+
+    // Always poll captureButton (not just once canAdvance) so a button already held during the
+    // gesture doesn't read as a fresh press the instant the threshold flips.
+    int dummyIdx = 0;
+    bool pressedAnyButton = captureButton(dummyIdx);
+    return clicked || (canAdvance && pressedAnyButton);
+}
 
 bool BindingWizard::captureButton(int& outIndex) {
     if (!m_hidReader || !m_hidReader->isOpen()) return false;
@@ -867,6 +1174,568 @@ bool BindingWizard::captureDpad(std::string& outDpadType) {
         if (s.hat != 0xFFFFFFFF) { outDpadType = "hid_hat"; return true; }
     }
     return false;
+}
+
+bool BindingWizard::sampleGyroFrame(std::vector<float>* outRaw) {
+    if (!m_hidReader || !m_hidReader->isOpen()) return false;
+    RawHIDState s{};
+    bool readOk = m_hidReader->read(s);
+    if (!s.valid || s.raw.size() < 2) {
+        ++m_gyroBaselineMisses;
+        if (m_gyroPhase == GyroPhase::Baseline && (m_gyroBaselineMisses % 60 == 1)) {
+            spdlog::trace("[GyroCal] baseline stall: misses={} readOk={} valid={} rawSize={}",
+                          m_gyroBaselineMisses, readOk, s.valid, s.raw.size());
+        }
+        return false;
+    }
+
+    // Reject frames where a declared HID axis (stick/trigger) drifted from its Baseline-start
+    // value — likely an accidental touch during the gesture, not the gyro/accel itself.
+    for (int i = 0; i < 8; ++i) {
+        if (std::abs(kHIDAxisValues(s, i) - kHIDAxisValues(m_gyroAxisBaseline, i)) > kGyroAxisContamination) {
+            ++m_gyroBaselineContaminated;
+            if (m_gyroPhase == GyroPhase::Baseline && (m_gyroBaselineContaminated % 60 == 1)) {
+                spdlog::trace("[GyroCal] baseline stall: contaminated={} axis={} delta={:.3f}",
+                              m_gyroBaselineContaminated, i,
+                              kHIDAxisValues(s, i) - kHIDAxisValues(m_gyroAxisBaseline, i));
+            }
+            return false;
+        }
+    }
+
+    int n = static_cast<int>(s.raw.size()) - 1;
+    if (static_cast<int>(m_gyroSamples.size()) != n) m_gyroSamples.assign(n, {});
+
+    int phaseIdx = static_cast<int>(m_gyroPhase);
+    std::vector<float> v(n);
+    for (int o = 0; o < n; ++o) {
+        int16_t raw = static_cast<int16_t>(
+            static_cast<uint8_t>(s.raw[o]) | (static_cast<uint16_t>(s.raw[o + 1]) << 8));
+        v[o] = static_cast<float>(raw);
+        GyroOffsetStats& st = m_gyroSamples[o][phaseIdx];
+        st.minV = (st.count == 0) ? v[o] : std::min(st.minV, v[o]);
+        st.maxV = (st.count == 0) ? v[o] : std::max(st.maxV, v[o]);
+        st.sum += v[o];
+        ++st.count;
+    }
+    ++m_gyroPhaseFrames;
+
+    if (outRaw) *outRaw = std::move(v);
+    return true;
+}
+
+// Runs the old Step 1-3 once, right when Baseline commits: find the longest run of alive
+// offsets, trim to 6/3, pick the gravity ("normal") axis. See BindingWizard.h for what each
+// output field feeds. Leaves m_gyroCandidates empty if no usable run was found (bestLen < 3).
+void BindingWizard::computeGyroCandidatePool() {
+    m_gyroCandidates.clear();
+    m_gyroHasAccel     = false;
+    m_gyroNormalOffset = -1;
+
+    const int n = static_cast<int>(m_gyroSamples.size());
+    if (n == 0) return;
+
+    std::vector<bool> alive = computeAliveOffsets();
+
+    // Longest run of alive offsets spaced 2 bytes apart. See the historical comment that used to
+    // live here (now in classifyGyro()'s Step 5/6 block) for why the LONGEST run is taken instead
+    // of the first one.
+    int bestStart = -1, bestLen = 0;
+    for (int s = 0; s < n; ++s) {
+        if (!alive[s]) continue;
+        if (s >= 2 && alive[s - 2]) continue; // not the start of a run, already counted
+        int len = 0;
+        while (s + len * 2 < n && alive[s + len * 2]) ++len;
+        if (len > bestLen) { bestLen = len; bestStart = s; }
+    }
+    if (bestLen < 3) {
+        spdlog::trace("[GyroCal] pool FAILED: no run of >=3 alive offsets found (longest={})", bestLen);
+        return;
+    }
+
+    auto baselineAmp = [&](int o) -> float {
+        if (o < 0 || o >= n) return -1.0f;
+        const GyroOffsetStats& b = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
+        return (b.count > 0) ? (b.maxV - b.minV) : -1.0f;
+    };
+
+    // A hardware IMU block has a FIXED length (3 gyro-only or 6 gyro+accel) — it doesn't
+    // organically shrink between captures of the SAME device. A borderline offset's baseline
+    // peak-to-peak can land just above kGyroBaselineNoiseFloor on an unlucky capture (confirmed
+    // for real on the DS4: offset 21 measured 288.0 one capture, 957.0 another, straddling the
+    // 800 cutoff both times) and get marked "not alive", silently costing the whole calibration
+    // its accelerometer (or, for a gyro-only device, an entire axis). Bridge a SINGLE immediate
+    // neighbor when the run is exactly one short of 3 or 6, but only up to
+    // kGyroBorderlineNoiseFloor — a genuinely dead byte (CRC/counter, changing by design every
+    // frame) reads far higher than that, so this doesn't risk pulling in real noise, just
+    // rescuing a real sensor channel that had a noisy moment.
+    if (bestLen == 2 || bestLen == 5) {
+        int before = bestStart - 2;
+        int after  = bestStart + bestLen * 2;
+        float ampAfter  = baselineAmp(after);
+        float ampBefore = baselineAmp(before);
+        if (ampAfter >= 0.0f && ampAfter < kGyroBorderlineNoiseFloor) {
+            spdlog::trace("[GyroCal] pool: bridged borderline offset={} (amp={:.1f}) to complete the block", after, ampAfter);
+            ++bestLen;
+        } else if (ampBefore >= 0.0f && ampBefore < kGyroBorderlineNoiseFloor) {
+            spdlog::trace("[GyroCal] pool: bridged borderline offset={} (amp={:.1f}) to complete the block", before, ampBefore);
+            bestStart = before;
+            ++bestLen;
+        }
+    }
+
+    // A run longer than 6 has a spurious extra offset stuck to one end (e.g. a slowly
+    // incrementing counter byte) — trim from whichever end has the smallest Baseline amplitude
+    // deviation... actually: trim from whichever end reacts LESS overall. Reactivity isn't known
+    // yet at this point (Roll/Pitch/Yaw haven't been captured), so trim using Baseline amplitude
+    // alone: the spurious byte is flatter (closer to constant) than a real sensor's noise floor.
+    while (bestLen > 6) {
+        int headOffset = bestStart;
+        int tailOffset = bestStart + (bestLen - 1) * 2;
+        if (baselineAmp(headOffset) < baselineAmp(tailOffset)) bestStart += 2;
+        --bestLen;
+    }
+
+    m_gyroHasAccel = bestLen >= 6;
+    int runLen = m_gyroHasAccel ? 6 : bestLen;
+    std::vector<int> blockOffsets;
+    for (int k = 0; k < runLen; ++k) blockOffsets.push_back(bestStart + k * 2);
+
+    // Pull out the "normal" accel axis: by far the largest steady baseline magnitude (gravity).
+    if (m_gyroHasAccel) {
+        auto baselineMean = [&](int o) {
+            const GyroOffsetStats& b = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
+            return (b.count > 0) ? std::abs(b.sum / b.count) : 0.0f;
+        };
+        for (int o : blockOffsets) {
+            if (m_gyroNormalOffset < 0 || baselineMean(o) > baselineMean(m_gyroNormalOffset))
+                m_gyroNormalOffset = o;
+        }
+    }
+
+    for (int o : blockOffsets) if (o != m_gyroNormalOffset) m_gyroCandidates.push_back(o);
+
+    spdlog::trace("[GyroCal] pool OK: {} candidates, hasAccel={}, normalOffset={}",
+                  m_gyroCandidates.size(), m_gyroHasAccel, m_gyroNormalOffset);
+}
+
+// See BindingWizard.h for the reasoning. Called once, right when Flip commits.
+void BindingWizard::confirmNormalOffsetFromFlip() {
+    if (m_gyroNormalOffset < 0) return; // no accel guess to confirm (hasAccel gated the Flip phase)
+
+    std::vector<int> blockOffsets = m_gyroCandidates;
+    blockOffsets.push_back(m_gyroNormalOffset);
+
+    auto phaseMean = [&](int o, GyroPhase p) -> float {
+        const GyroOffsetStats& s = m_gyroSamples[o][static_cast<int>(p)];
+        return (s.count > 0) ? (s.sum / s.count) : 0.0f;
+    };
+
+    // A genuine 180-degree flip inverts the SIGN of gravity's projection while keeping roughly
+    // the same magnitude (+g -> -g). A candidate that merely drifted during an imperfect flip
+    // (a lateral/frontal accel axis nudged off-level, say) tends to move in only one direction
+    // without truly crossing zero with comparable strength on both sides — plain abs(delta)
+    // can't tell those apart and picked the wrong offset on a rough flip (2026/08/10 field
+    // report). Require an actual sign flip, scored by the WEAKER of the two magnitudes so a
+    // one-sided jump can't win just because its big side is huge.
+    int   bestOffset = m_gyroNormalOffset;
+    float bestScore  = -1.0f;
+    for (int o : blockOffsets) {
+        float baseMean = phaseMean(o, GyroPhase::Baseline);
+        float flipMean = phaseMean(o, GyroPhase::Flip);
+        bool  oppositeSign = (baseMean > 0.0f && flipMean < 0.0f) || (baseMean < 0.0f && flipMean > 0.0f);
+        if (!oppositeSign) continue;
+        float score = std::min(std::abs(baseMean), std::abs(flipMean));
+        if (score > bestScore) { bestScore = score; bestOffset = o; }
+    }
+
+    // No candidate flipped sign with enough magnitude on both sides to trust (e.g. the user
+    // didn't actually flip the controller, or the flip wasn't clean) — keep
+    // computeGyroCandidatePool()'s magnitude-only guess rather than risk a worse pick from noise.
+    if (bestScore < kGyroMinSignalAmp) {
+        spdlog::trace("[GyroCal] flip: no clean sign flip (best score={:.1f} at offset={}), keeping baseline guess normalOffset={}",
+                      bestScore, bestOffset, m_gyroNormalOffset);
+        return;
+    }
+
+    if (bestOffset != m_gyroNormalOffset) {
+        spdlog::trace("[GyroCal] flip: reclassified normalOffset {} -> {} (score={:.1f})",
+                      m_gyroNormalOffset, bestOffset, bestScore);
+    }
+
+    m_gyroNormalOffset = bestOffset;
+    m_gyroCandidates.clear();
+    for (int o : blockOffsets) if (o != m_gyroNormalOffset) m_gyroCandidates.push_back(o);
+}
+
+// An offset is a real sensor channel only if it stayed quiet (low peak-to-peak) during
+// Baseline (mando quieto) — discards CRC/packet-counter bytes, which drift or jump even at
+// rest. It also must show SOME jitter (amp > 0): a real sensor always has a little electrical
+// noise, but a constant header/padding byte reads EXACTLY the same value every single frame
+// (amp == 0 exactly) — which otherwise passes the "quiet" half of this test *more* cleanly than
+// genuine sensor noise does. Without this, findRun() below picks up the first run of constant
+// header bytes (e.g. offsets 0,2,4,6,8,10, all amp==0) instead of the real accel+gyro block,
+// and classification fails silently (see BITACORA — first case caught 2026/07/10).
+// Called once from computeGyroCandidatePool() when Baseline commits.
+std::vector<bool> BindingWizard::computeAliveOffsets() const {
+    const int n = static_cast<int>(m_gyroSamples.size());
+    std::vector<bool> alive(n, false);
+    for (int o = 0; o < n; ++o) {
+        const GyroOffsetStats& base = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
+        if (base.count == 0) continue;
+        float amp = base.maxV - base.minV;
+        alive[o] = amp > 0.0f && amp < kGyroBaselineNoiseFloor;
+    }
+    return alive;
+}
+
+// Advances the Move/Hold sub-state machine for the current axis by one already-decoded frame.
+// `raw` is indexed by raw report offset (same indexing as m_gyroSamples' outer index) — only the
+// entries listed in m_gyroCandidates are read.
+void BindingWizard::updateGyroRound(const std::vector<float>& raw) {
+    const int nc = static_cast<int>(m_gyroCandidates.size());
+    if (nc == 0) return;
+
+    bool holding = (m_gyroRoundStage == GyroRoundStage::HoldA || m_gyroRoundStage == GyroRoundStage::HoldB);
+
+    if (!holding) {
+        // MoveToA / MoveToB: track this leg's amplitude (gate) and the whole round's amplitude
+        // (score, see finishGyroRound()) in parallel.
+        if (static_cast<int>(m_gyroLegMoveAmp.size())   != nc) m_gyroLegMoveAmp.assign(nc, {});
+        if (static_cast<int>(m_gyroRoundMoveAmp.size()) != nc) m_gyroRoundMoveAmp.assign(nc, {});
+        float bestLegAmp = 0.0f;
+        for (int c = 0; c < nc; ++c) {
+            float val = raw[m_gyroCandidates[c]];
+            for (GyroOffsetStats* st : { &m_gyroLegMoveAmp[c], &m_gyroRoundMoveAmp[c] }) {
+                st->minV = (st->count == 0) ? val : std::min(st->minV, val);
+                st->maxV = (st->count == 0) ? val : std::max(st->maxV, val);
+                st->sum += val;
+                ++st->count;
+            }
+            bestLegAmp = std::max(bestLegAmp, m_gyroLegMoveAmp[c].maxV - m_gyroLegMoveAmp[c].minV);
+        }
+        // Frame floor before an amplitude spike is allowed to end the leg — a gyro's angular
+        // rate peaks right as the motion STARTS and can already clear kGyroMinSignalAmp before
+        // the controller is anywhere near the intended extreme, while the accelerometer only
+        // reflects the new orientation once the motion is over. Without this floor, HoldA/HoldB
+        // can end up capturing two positions both still close to center (chased by the gyro's
+        // early spike, not the accelerometer's settled value), so holdDelta stays near-zero even
+        // with a full, deliberate tilt — same "one lucky early frame" risk the old Fast-phase
+        // gate (kGyroFastMinPhaseFrames) already guarded against, lost when that design was
+        // replaced. Reuses m_gyroLegMoveAmp[0].count — every candidate accumulates together each
+        // frame in this loop, so any one of them tracks frames elapsed in this leg.
+        if (m_gyroLegMoveAmp[0].count >= kGyroMoveMinFrames && bestLegAmp > kGyroMinSignalAmp) {
+            m_gyroRoundStage = (m_gyroRoundStage == GyroRoundStage::MoveToA)
+                ? GyroRoundStage::HoldA : GyroRoundStage::HoldB;
+            m_gyroRestStreak.assign(nc, {});
+            m_gyroRestStreakFrames = 0;
+        }
+        return;
+    }
+
+    // HoldA / HoldB: rest-streak detector. If adding this frame would push any candidate's
+    // peak-to-peak past kGyroBaselineNoiseFloor, the streak is broken — restart it from this
+    // single frame instead of extending it.
+    if (static_cast<int>(m_gyroRestStreak.size()) != nc) m_gyroRestStreak.assign(nc, {});
+    bool broke = false;
+    for (int c = 0; c < nc; ++c) {
+        const GyroOffsetStats& st = m_gyroRestStreak[c];
+        if (st.count == 0) continue;
+        float val = raw[m_gyroCandidates[c]];
+        if (std::max(st.maxV, val) - std::min(st.minV, val) > kGyroBaselineNoiseFloor) { broke = true; break; }
+    }
+    if (broke) {
+        for (int c = 0; c < nc; ++c) {
+            float val = raw[m_gyroCandidates[c]];
+            m_gyroRestStreak[c] = GyroOffsetStats{ val, val, val, 1 };
+        }
+        m_gyroRestStreakFrames = 1;
+        return;
+    }
+    for (int c = 0; c < nc; ++c) {
+        float val = raw[m_gyroCandidates[c]];
+        GyroOffsetStats& st = m_gyroRestStreak[c];
+        st.minV = (st.count == 0) ? val : std::min(st.minV, val);
+        st.maxV = (st.count == 0) ? val : std::max(st.maxV, val);
+        st.sum += val;
+        ++st.count;
+    }
+    ++m_gyroRestStreakFrames;
+    if (m_gyroRestStreakFrames < kGyroRestMinFrames) return;
+
+    // Settled — the streak's mean is the stable reading for this hold.
+    std::vector<float> stable(nc);
+    for (int c = 0; c < nc; ++c) {
+        const GyroOffsetStats& st = m_gyroRestStreak[c];
+        stable[c] = (st.count > 0) ? (st.sum / st.count) : 0.0f;
+    }
+
+    if (m_gyroRoundStage == GyroRoundStage::HoldA) {
+        m_gyroRestA = stable;
+        // Snapshot the MoveToA leg's mean raw value per candidate before m_gyroLegMoveAmp resets
+        // for the B leg — its sign is what finishGyroRound() uses to type gyro axes (see
+        // ImuConfig::gyroXInvert et al.), since a gyro's rest reading (~0 either way) can't tell
+        // direction, only the reading WHILE moving toward "direction A" can.
+        m_gyroMoveASignMean.assign(nc, 0.0f);
+        for (int c = 0; c < nc; ++c) {
+            const GyroOffsetStats& leg = m_gyroLegMoveAmp[c];
+            m_gyroMoveASignMean[c] = (leg.count > 0) ? (leg.sum / leg.count) : 0.0f;
+        }
+        m_gyroRoundStage = GyroRoundStage::MoveToB;
+        m_gyroLegMoveAmp.assign(nc, {}); // fresh gate tracking for the B leg; m_gyroRoundMoveAmp keeps accumulating
+    } else {
+        finishGyroRound(stable);
+    }
+}
+
+// top-second vote count ("ventaja"). Returns 0 (no lead) if fewer than 2 candidates have any
+// votes yet — a single candidate with votes and everyone else at 0 still counts as a lead of
+// its own vote count, which is exactly what we want (see finishGyroRound()'s 2-vote-lead check).
+int BindingWizard::voteLead(const std::vector<int>& votes, int* outTopCandidate) {
+    int topIdx = -1, topVotes = -1, secondVotes = 0;
+    for (int i = 0; i < (int)votes.size(); ++i) {
+        if (votes[i] > topVotes) { secondVotes = topVotes < 0 ? 0 : topVotes; topVotes = votes[i]; topIdx = i; }
+        else if (votes[i] > secondVotes) { secondVotes = votes[i]; }
+    }
+    if (outTopCandidate) *outTopCandidate = topIdx;
+    return (topIdx < 0) ? 0 : (topVotes - secondVotes);
+}
+
+// Closes out one round: hold-delta typing + vote, then either confirms the axis winner, starts
+// another round, or fails the whole gyro step (kGyroMaxRounds reached without a winner). See
+// REFERENCE.md, "Wizard de calibracion IMU - 4 diseno de classifyGyro()", for the algorithm this
+// implements.
+void BindingWizard::finishGyroRound(const std::vector<float>& restB) {
+    const int nc = static_cast<int>(m_gyroCandidates.size());
+    int axis = static_cast<int>(m_gyroPhase) - static_cast<int>(GyroPhase::Roll); // Roll=0,Pitch=1,Yaw=2
+    bool accelApplies = m_gyroHasAccel && m_gyroPhase != GyroPhase::Yaw;
+
+    if (static_cast<int>(m_gyroGyroVotes.size())  != nc) m_gyroGyroVotes.assign(nc, 0);
+    if (static_cast<int>(m_gyroAccelVotes.size()) != nc) m_gyroAccelVotes.assign(nc, 0);
+
+    // A candidate already confirmed as an EARLIER axis's accel offset can't win this round's
+    // gyro vote. Needed because holdDelta (the accel-vs-gyro safety net below) doesn't apply to
+    // Yaw at all (yaw rotation doesn't move gravity, so a hold-delta reading during yaw says
+    // nothing about whether a candidate is accel or gyro) — without this, a real accelerometer
+    // picking up incidental amplitude during ANY hand motion (pure rotation isn't achievable by
+    // hand) can outscore the true yaw-gyro channel on raw move-amplitude alone, the same
+    // cross-sensor-scale trap that broke the 3 earlier classifyGyro() designs. Confirmed
+    // reproducible: offset 17 (Roll's own accel winner) won yaw's gyro vote in 3/3 real runs,
+    // every one, regardless of how carefully the gesture was performed.
+    auto alreadyClaimedAsAccel = [&](int rawOffset) {
+        for (int i = 0; i < 2; ++i) {
+            if (i != axis && m_gyroAxisAccelOffset[i] == rawOffset) return true;
+        }
+        return false;
+    };
+
+    int   bestAccelIdx = -1; float bestAccelDelta = 0.0f;
+    int   bestGyroIdx  = -1; float bestGyroAmp    = 0.0f;
+    for (int c = 0; c < nc; ++c) {
+        float holdDelta = std::abs(restB[c] - m_gyroRestA[c]);
+        const GyroOffsetStats& mv = (c < (int)m_gyroRoundMoveAmp.size()) ? m_gyroRoundMoveAmp[c] : GyroOffsetStats{};
+        float moveAmp = (mv.count > 0) ? (mv.maxV - mv.minV) : 0.0f;
+        spdlog::trace("[GyroCal]   candidate offset={} restA={:.1f} restB={:.1f} holdDelta={:.1f} moveAmp={:.1f}",
+                      m_gyroCandidates[c], m_gyroRestA[c], restB[c], holdDelta, moveAmp);
+
+        if (accelApplies && holdDelta > kGyroBaselineNoiseFloor) {
+            if (holdDelta > bestAccelDelta) { bestAccelDelta = holdDelta; bestAccelIdx = c; }
+        } else if (!alreadyClaimedAsAccel(m_gyroCandidates[c]) && moveAmp > kGyroMinSignalAmp) {
+            if (moveAmp > bestGyroAmp) { bestGyroAmp = moveAmp; bestGyroIdx = c; }
+        }
+    }
+    if (bestGyroIdx  >= 0) ++m_gyroGyroVotes[bestGyroIdx];
+    if (bestAccelIdx >= 0) ++m_gyroAccelVotes[bestAccelIdx];
+
+    int gyroTop = -1, accelTop = -1;
+    bool gyroDone  = voteLead(m_gyroGyroVotes, &gyroTop) >= kGyroRoundVoteLead;
+    bool accelDone = !accelApplies || voteLead(m_gyroAccelVotes, &accelTop) >= kGyroRoundVoteLead;
+
+    spdlog::trace("[GyroCal] axis={} round={} gyroVote={} accelVote={} gyroDone={} accelDone={}",
+                  axis, m_gyroRound, bestGyroIdx, bestAccelIdx, gyroDone, accelDone);
+
+    if (gyroDone && accelDone) {
+        m_gyroAxisGyroOffset[axis] = m_gyroCandidates[gyroTop];
+        // Sign: rotating toward "direction A" (see gyro_roll_a/gyro_pitch_a/gyro_yaw_a prompts)
+        // should read positive after the fixup — invert when the MoveToA mean came out negative.
+        m_gyroAxisGyroInvert[axis] = m_gyroMoveASignMean[gyroTop] < 0.0f;
+        if (accelApplies) {
+            m_gyroAxisAccelOffset[axis] = m_gyroCandidates[accelTop];
+            // Sign: tilting toward "direction A" should read HIGHER than "direction B" after the
+            // fixup — invert when the hold reading at A came out lower than at B.
+            m_gyroAxisAccelInvert[axis] = m_gyroRestA[accelTop] < restB[accelTop];
+        }
+        // Advance to the next axis, or finish the whole gyro step if this was Yaw.
+        if (m_gyroPhase == GyroPhase::Yaw) {
+            m_gyroResult = classifyGyro();
+            finishGyroStep();
+        } else {
+            m_gyroPhase = static_cast<GyroPhase>(static_cast<int>(m_gyroPhase) + 1);
+            resetGyroRoundState(/*clearVotes=*/true);
+            m_gyroPhaseStarted = false;
+            m_gyroAwaitingRelease = true;
+            snapshotBaseline();
+        }
+    } else if (m_gyroRound >= kGyroMaxRounds) {
+        spdlog::trace("[GyroCal] axis={} classify FAILED: no winner after {} rounds", axis, kGyroMaxRounds);
+        m_gyroResult = ImuCalibrationResult{};
+        finishGyroStep();
+    } else {
+        ++m_gyroRound;
+        resetGyroRoundState(/*clearVotes=*/false); // votes (m_gyroGyroVotes/m_gyroAccelVotes) intentionally kept
+    }
+}
+
+// Confidence (0..1) for the axis currently being captured: how close its vote tally is to a
+// confirmed winner. 0 until at least 2 rounds have completed (round 1 alone can't show
+// agreement or disagreement yet); after that, the lead over the runner-up as a fraction of
+// kGyroRoundVoteLead. If this axis also votes accel (Roll/Pitch, see finishGyroRound()), the
+// displayed confidence is the MINIMUM of the two tallies — whichever hasn't converged is the
+// bottleneck holding the axis back.
+float BindingWizard::axisConfidence() const {
+    if (m_gyroRound < 2) return 0.0f;
+    bool accelApplies = m_gyroHasAccel && m_gyroPhase != GyroPhase::Yaw;
+    float gyroConf = std::clamp(static_cast<float>(voteLead(m_gyroGyroVotes)) / kGyroRoundVoteLead, 0.0f, 1.0f);
+    if (!accelApplies) return gyroConf;
+    float accelConf = std::clamp(static_cast<float>(voteLead(m_gyroAccelVotes)) / kGyroRoundVoteLead, 0.0f, 1.0f);
+    return std::min(gyroConf, accelConf);
+}
+
+// Step 5/6 of the original design (unchanged): within each already-typed pool, assign axes by
+// greedy elimination — strongest (candidate, slot) pair first, claimed candidates removed from
+// later passes. Resolves the case where the SAME offset won the round-vote for two different
+// axes (real, correlated motion can make e.g. roll's gyro also react somewhat during pitch) by
+// letting the axis it scores higher for keep it.
+BindingWizard::ImuCalibrationResult BindingWizard::classifyGyro() const {
+    ImuCalibrationResult result;
+    if (m_gyroCandidates.empty()) return result;
+
+    auto amp = [](const GyroOffsetStats& s) { return (s.count > 0) ? (s.maxV - s.minV) : 0.0f; };
+
+    // Build the deduplicated gyro/accel pools from each axis's round-vote winner.
+    std::vector<int> gyroPool, accelPool;
+    for (int offset : m_gyroAxisGyroOffset) {
+        if (offset >= 0 && std::find(gyroPool.begin(), gyroPool.end(), offset) == gyroPool.end())
+            gyroPool.push_back(offset);
+    }
+    for (int i = 0; i < 2; ++i) { // only Roll(0)/Pitch(1) vote accel — see m_gyroAxisAccelOffset
+        int offset = m_gyroAxisAccelOffset[i];
+        if (offset >= 0 && std::find(accelPool.begin(), accelPool.end(), offset) == accelPool.end())
+            accelPool.push_back(offset);
+    }
+
+    // A candidate can win one axis's gyro vote AND a different axis's accel vote (each axis
+    // votes independently, unlike the old design's single self-relative typing pass) — real
+    // motion isn't perfectly isolated per axis, so a genuine accel offset can pick up enough
+    // amplitude during another axis's move to win that axis's gyro vote too. Don't guess which
+    // role is right: drop it from BOTH pools, same "ambiguous, don't guess" rule used everywhere
+    // else here. The resulting undersized pool fails the size check right below.
+    std::vector<int> conflicting;
+    for (int o : gyroPool)
+        if (std::find(accelPool.begin(), accelPool.end(), o) != accelPool.end())
+            conflicting.push_back(o);
+    for (int o : conflicting) {
+        gyroPool.erase(std::remove(gyroPool.begin(), gyroPool.end(), o), gyroPool.end());
+        accelPool.erase(std::remove(accelPool.begin(), accelPool.end(), o), accelPool.end());
+        spdlog::trace("[GyroCal] offset={} won both a gyro vote and an accel vote (different axes) - dropped from both pools", o);
+    }
+
+    if (gyroPool.size() != 3 || (m_gyroHasAccel && accelPool.size() != 2)) {
+        spdlog::trace("[GyroCal] classify FAILED: {} distinct gyro winners / {} distinct accel winners (expected 3 / {})",
+                      gyroPool.size(), accelPool.size(), m_gyroHasAccel ? 2 : 0);
+        return result;
+    }
+
+    struct Slot { int* target; GyroPhase phase; };
+    auto assignSlots = [&](std::vector<Slot>& slots, const std::vector<int>& pool) {
+        std::vector<bool> claimed(pool.size(), false);
+        std::vector<bool> filled(slots.size(), false);
+        for (size_t pass = 0; pass < slots.size(); ++pass) {
+            int bestCandidate = -1, bestSlot = -1; float bestScore = -1.0f;
+            for (size_t sIdx = 0; sIdx < slots.size(); ++sIdx) {
+                if (filled[sIdx]) continue;
+                int phaseIdx = static_cast<int>(slots[sIdx].phase);
+                for (size_t cIdx = 0; cIdx < pool.size(); ++cIdx) {
+                    if (claimed[cIdx]) continue;
+                    float a = amp(m_gyroSamples[pool[cIdx]][phaseIdx]);
+                    if (a > bestScore) { bestScore = a; bestCandidate = (int)cIdx; bestSlot = (int)sIdx; }
+                }
+            }
+            if (bestCandidate < 0) break;
+            *slots[bestSlot].target = pool[bestCandidate];
+            claimed[bestCandidate] = true;
+            filled[bestSlot] = true;
+        }
+    };
+
+    int rollOffset = -1, pitchOffset = -1, yawOffset = -1;
+    std::vector<Slot> gyroSlots = {
+        { &rollOffset,  GyroPhase::Roll },
+        { &pitchOffset, GyroPhase::Pitch },
+        { &yawOffset,   GyroPhase::Yaw },
+    };
+    assignSlots(gyroSlots, gyroPool);
+    if (rollOffset < 0 || pitchOffset < 0 || yawOffset < 0) {
+        spdlog::trace("[GyroCal] classify FAILED: roll={} pitch={} yaw={} (ambiguous gyro slot match)",
+                      rollOffset, pitchOffset, yawOffset);
+        return result;
+    }
+
+    int lateralOffset = -1, frontalOffset = -1;
+    if (m_gyroHasAccel) {
+        std::vector<Slot> accelSlots = {
+            { &lateralOffset, GyroPhase::Roll },
+            { &frontalOffset, GyroPhase::Pitch },
+        };
+        assignSlots(accelSlots, accelPool);
+        if (lateralOffset < 0 || frontalOffset < 0) {
+            spdlog::trace("[GyroCal] classify FAILED: lateral={} frontal={} (ambiguous accel slot match)",
+                          lateralOffset, frontalOffset);
+            return result;
+        }
+    }
+
+    // Axis naming convention already used by the DS4/Pro3 entries in controllers.json:
+    // gyroX = pitch, gyroY = yaw, gyroZ = roll.
+    result.gyroXOffset = pitchOffset;
+    result.gyroYOffset = yawOffset;
+    result.gyroZOffset = rollOffset;
+
+    // Invert flags travel with their raw offset, not with the axis index — assignSlots() above
+    // can hand a candidate to a different axis than the one whose round-vote originally won it
+    // (see the comment on assignSlots' caller). Map offset -> invert per sensor so each final
+    // slot picks up the sign that was actually measured for that offset.
+    std::unordered_map<int, bool> gyroInvertByOffset, accelInvertByOffset;
+    for (int i = 0; i < 3; ++i)
+        if (m_gyroAxisGyroOffset[i] >= 0) gyroInvertByOffset[m_gyroAxisGyroOffset[i]] = m_gyroAxisGyroInvert[i];
+    for (int i = 0; i < 2; ++i)
+        if (m_gyroAxisAccelOffset[i] >= 0) accelInvertByOffset[m_gyroAxisAccelOffset[i]] = m_gyroAxisAccelInvert[i];
+
+    result.gyroXInvert = gyroInvertByOffset[pitchOffset];
+    result.gyroYInvert = gyroInvertByOffset[yawOffset];
+    result.gyroZInvert = gyroInvertByOffset[rollOffset];
+
+    if (m_gyroHasAccel) {
+        result.accelZOffset = m_gyroNormalOffset;
+        result.accelXOffset = lateralOffset;
+        result.accelYOffset = frontalOffset;
+        result.accelXInvert = accelInvertByOffset[lateralOffset];
+        result.accelYInvert = accelInvertByOffset[frontalOffset];
+        // AccelZ (gravity/normal) has no directional gesture of its own — its polarity is read
+        // straight from the Baseline posture ("top of the controller facing the ceiling" is
+        // documented as the positive reference, see wizard.gyro_baseline).
+        const GyroOffsetStats& normalBaseline = m_gyroSamples[m_gyroNormalOffset][static_cast<int>(GyroPhase::Baseline)];
+        float normalMean = (normalBaseline.count > 0) ? (normalBaseline.sum / normalBaseline.count) : 0.0f;
+        result.accelZInvert = normalMean < 0.0f;
+        spdlog::trace("[GyroCal] classify OK: gyroX(pitch)={} gyroY(yaw)={} gyroZ(roll)={} accelX(lateral)={} accelY(frontal)={} accelZ(normal)={}",
+                      pitchOffset, yawOffset, rollOffset, lateralOffset, frontalOffset, m_gyroNormalOffset);
+    } else {
+        spdlog::trace("[GyroCal] classify OK (no accel): gyroX(pitch)={} gyroY(yaw)={} gyroZ(roll)={}",
+                      pitchOffset, yawOffset, rollOffset);
+    }
+
+    result.ok = true;
+    return result;
 }
 
 void BindingWizard::openReader() {
@@ -1035,6 +1904,31 @@ void BindingWizard::saveResult() {
     // Dpad
     if (m_hasDpad) entry["dpad"] = m_dpadType;
 
+    // IMU — only written when the layout has a gyro component AND classification succeeded.
+    // On failure the key is simply omitted, so the merge below preserves whatever "imu" block
+    // (if any) was already in controllers.json for this controller.
+    if (m_hasGyroStep && m_gyroResult.ok) {
+        json imu;
+        imu["enabled"]        = true;
+        imu["gyro_scale"]     = 1.0f / 32768.0f;
+        imu["gyro_x_offset"]  = m_gyroResult.gyroXOffset;
+        imu["gyro_y_offset"]  = m_gyroResult.gyroYOffset;
+        imu["gyro_z_offset"]  = m_gyroResult.gyroZOffset;
+        imu["gyro_x_invert"]  = m_gyroResult.gyroXInvert;
+        imu["gyro_y_invert"]  = m_gyroResult.gyroYInvert;
+        imu["gyro_z_invert"]  = m_gyroResult.gyroZInvert;
+        if (m_gyroResult.accelXOffset >= 0) {
+            imu["accel_scale"]    = 1.0f / 32768.0f;
+            imu["accel_x_offset"] = m_gyroResult.accelXOffset;
+            imu["accel_y_offset"] = m_gyroResult.accelYOffset;
+            imu["accel_z_offset"] = m_gyroResult.accelZOffset;
+            imu["accel_x_invert"] = m_gyroResult.accelXInvert;
+            imu["accel_y_invert"] = m_gyroResult.accelYInvert;
+            imu["accel_z_invert"] = m_gyroResult.accelZInvert;
+        }
+        entry["imu"] = imu;
+    }
+
     // Load existing controllers.json, replace or append
     json root;
     {
@@ -1046,32 +1940,53 @@ void BindingWizard::saveResult() {
     if (!root.contains("controllers") || !root["controllers"].is_array())
         root["controllers"] = json::array();
 
-    // Replace existing entry matching VID+PID+connection+source_name, or append.
-    // Rules:
-    //  - connection: if both sides declare it and differ → skip (different transport)
-    //  - source_name: if both sides have it and differ → skip (different device identity)
-    //  - Old entries without connection/source_name: matched by VID+PID only (backwards compat)
-    std::string newConn = ctrl.connectionType;
-    std::string newName = m_nameBuf;
-    bool replaced = false;
+    // Replace existing entry matching VID+PID (+connection/product_name as tie-breakers), or
+    // append. Mirrors the same scoring approach as ConfigLoader::findConfig() (the runtime
+    // device→config picker), for the same reason: VID+PID alone isn't always a unique key.
+    // 8BitDo Pro 2 (X-mode) and 8BitDo Zero 2 (X-mode) share VID 045E/PID 02E0 — only
+    // product_name tells them apart (see controllers.json, both entries) — so product_name
+    // has to stay part of this match, same as findConfig() already relies on for runtime
+    // device recognition.
+    //
+    // source_name is deliberately NOT part of it: it's just a display label (device-reported
+    // or user-typed), not a device identity. Requiring it to match too caused real duplicate
+    // entries — the DS4's hardware-reported name ("Wireless Controller") doesn't match the
+    // hand-curated source_name ("Dualshock 4") from before the wizard existed, so every
+    // recalibration kept creating a new entry instead of overwriting it
+    // (BUG-WIZARD-DUPLICATE-ENTRY, confirmed for real 2026/07/10 and again 2026/07/11). The
+    // merge below still updates source_name to whatever the wizard captured, same as any other
+    // wizard-managed field.
+    //
+    // Rule per discriminator (connection, product_name): if BOTH sides declare it and it
+    // differs → this entry can't be a match, skip entirely. If only one side declares it (or
+    // neither) → not a blocker, but also doesn't count toward the score. Among all surviving
+    // candidates, the one with the highest score (most discriminators that actually matched)
+    // wins — this is what lets the Pro2/Zero2 collision resolve by elimination: the Zero2
+    // entry's product_name check fails outright against a real Pro2 device (so it's skipped),
+    // leaving the product_name-less Pro2 entry as the only surviving candidate.
+    std::string newConn        = ctrl.connectionType;
+    std::string newProductName = ctrl.productName;
+    json* bestMatch = nullptr;
+    int   bestScore = -1;
     for (auto& e : root["controllers"]) {
         if (e.value("vid","") != std::string(vidStr) || e.value("pid","") != std::string(pidStr))
             continue;
-        // Entries without "connection" are generic fallbacks → match any transport
-        std::string eConn = e.value("connection","");
-        bool connMatch = newConn.empty() || eConn.empty() || eConn == newConn;
-        std::string eName = e.value("source_name","");
-        bool nameMatch = eName.empty() || newName.empty() || eName == newName;
-        if (connMatch && nameMatch) {
-            // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype")
-            // by starting from the old entry and overwriting only wizard-managed keys.
-            for (auto& [k, v] : entry.items())
-                e[k] = v;
-            replaced = true;
-            break;
-        }
+        std::string eConn    = e.value("connection","");
+        std::string eProduct = e.value("product_name","");
+        if (!eConn.empty()    && !newConn.empty()        && eConn    != newConn)        continue;
+        if (!eProduct.empty() && !newProductName.empty() && eProduct != newProductName) continue;
+        int score = (!eConn.empty()    && eConn    == newConn        ? 2 : 0)
+                  + (!eProduct.empty() && eProduct == newProductName ? 2 : 0);
+        if (score > bestScore) { bestScore = score; bestMatch = &e; }
     }
-    if (!replaced) root["controllers"].push_back(entry);
+    if (bestMatch) {
+        // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype") by
+        // starting from the old entry and overwriting only wizard-managed keys.
+        for (auto& [k, v] : entry.items())
+            (*bestMatch)[k] = v;
+    } else {
+        root["controllers"].push_back(entry);
+    }
 
     // Write back
     std::ofstream f(m_controllersPath);

@@ -21,6 +21,23 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    const std::string& sourceName   = "",
                                    const std::string& productName  = "");
 
+// Persists one controller entry's stick, trigger and gyro/accel calibration (deadzone/max, see
+// ARCHITECTURE.md "Calibracion de entrada") plus per-axis invert flags, preserving every other
+// field in the file untouched. imu's invert fields (gyro_x_invert...accel_z_invert) come from
+// `imu` itself and are written alongside deadzone/max — CalibrationPanel now owns those too, not
+// just the wizard. Stick axis invert doesn't live on StickCalibration (it's on the whole-axis
+// `axes` map, keyed by HID source name, not by logical stick axis), so it's passed separately as
+// (HID source name, invert) pairs and merged into ctrl["axes"][key]["invert"]; entries whose HID
+// key doesn't exist in this file are skipped. Matches the entry by source_name (exact, unlike
+// vid+pid which duplicate across compat-mode fallbacks — see findConfig's productName/connection
+// discriminators).
+// Throws std::runtime_error if the file can't be written or sourceName isn't found.
+void saveCalibration(const std::string& path, const std::string& sourceName,
+                     const StickCalibration& leftStick, const StickCalibration& rightStick,
+                     const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
+                     const ImuConfig& imu,
+                     const std::vector<std::pair<std::string, bool>>& axisInverts);
+
 // Loads macro library from a JSON file (name -> execution string).
 // Returns an empty map if the file does not exist.
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path);
@@ -54,6 +71,13 @@ struct VirtualPadConfig {
     std::vector<std::string> acceptedXboxButtons    = {"a","b","x","y","l1","r1","select","start","home","l3","r3"};
     float                    stickSelectThreshold   = 0.85f;    // normalized [0,1]
     int                      stickHoldMs            = 2000;     // ms held at tope to select direction
+    // Gyro/accel hold-to-arm thresholds for the Mapper (Component System half-axis reassignment).
+    // Deliberately well above the gyro widget's own 0.12 deadzone — a held gesture should be
+    // unmistakable, not a casual jostle. Accel (orientation, sustains while tilted) is what
+    // actually completes the hold for pitch/roll; gyro (angular velocity, decays to 0 at rest)
+    // is checked as a fallback for pitch/roll and is the only source for yaw (cw/ccw).
+    float                    gyroSelectThreshold    = 0.24f;
+    float                    accelSelectThreshold   = 0.5f;
     bool                     console                = false;    // open a console window for live logs (set "console": true)
 };
 
@@ -88,6 +112,12 @@ struct GameProfile {
     bool hasAxisActions = false;
     std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "left_x_pos"… -> action
 
+    bool hasGyroActions = false;
+    std::unordered_map<std::string, HalfAxisAction> gyro_actions;   // "x_pos"… (gyro's own axes)
+
+    bool hasAccelActions = false;
+    std::unordered_map<std::string, HalfAxisAction> accel_actions;  // "x_pos"… (accel's own axes)
+
     bool hasDpadRemap = false;
     std::unordered_map<std::string, std::string>  dpadRemap;   // dir -> virtual short name
     std::unordered_map<std::string, ButtonAction> dpadActions; // dir -> keyboard/mouse/macro action
@@ -110,8 +140,8 @@ GameProfile loadGameProfile(const std::string& path);
 // Overrides for virtual buttons not produced by this controller are silently ignored.
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
 
-// Rebuilds pc's base layer (buttons, dpad, triggers, analog dirs) from cfg.
-// Touchpad and gyro components are left as parsed (not profile-overridable).
+// Rebuilds pc's base layer (buttons, dpad, triggers, analog dirs, gyro, accel) from cfg.
+// Touchpad is left as parsed (not profile-overridable).
 // Call after applyProfile() to ensure the Component System reflects profile overrides.
 void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg);
 

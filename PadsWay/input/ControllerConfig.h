@@ -60,6 +60,9 @@ struct HalfAxisAction {
     float                threshold = 0.5f;   // digital: activation threshold
     float                scale     = 1.0f;   // Analog: output multiplier
     float                speed     = 15.0f;  // MouseMove: pixels per tick at full deflection
+    bool                 invert    = false;  // MouseMove: flip this mapping's own sign — independent
+                                              // of axis calibration, so it doesn't affect anything
+                                              // else that reads the same physical sensor axis
     std::vector<std::string> keys;           // Keyboard
     std::string          mouseButton;        // MouseClick: "left"|"right"|"middle"
     std::string          execution;          // Macro: compact execution string
@@ -85,9 +88,66 @@ struct TouchpadConfig {
 };
 
 struct ImuConfig {
-    bool  enabled     = false;
-    int   gyroOffset  = 13;    // byte index of gyro X in raw HID report (DS4 USB: 13)
-    float gyroScale   = 1.0f / 32768.0f;  // int16 raw → normalized [-1..1]
+    bool  enabled      = false;
+
+    // Gyroscope (angular velocity). Independent per-axis byte offsets — some
+    // controllers (8BitDo Pro 3) do not use the DS4's contiguous X,Y,Z order.
+    int   gyroXOffset  = 13;   // pitch
+    int   gyroYOffset  = 15;   // yaw
+    int   gyroZOffset  = 17;   // roll
+    float gyroScale    = 1.0f / 32768.0f;  // int16 raw → normalized [-1..1]
+    // Sign fixup, set by the wizard's calibration: true when the raw reading decreases while
+    // rotating toward the axis's canonical positive direction (right/forward/clockwise) and
+    // needs flipping. See REFERENCE.md, "Inversion de ejes IMU - propuesta".
+    bool  gyroXInvert  = false;
+    bool  gyroYInvert  = false;
+    bool  gyroZInvert  = false;
+
+    // Per-axis calibration (mirrored bar around 0 in the Calibracion UI, see ARCHITECTURE.md
+    // "Calibracion de entrada"). deadzone: fraction of the normalized [-1,1] reading below which
+    // the axis is treated as 0. max: same threshold role as StickCalibration/TriggerCalibration's
+    // `max` (the raw reading at which output already saturates to +-1.0), except it isn't
+    // clamped to <=1.0 here — the sensor has no mechanical stop, so max<1.0 boosts sensitivity
+    // and max>1.0 softens it (the raw ceiling alone doesn't reach full output).
+    float gyroXDeadzone = 0.0f;
+    float gyroYDeadzone = 0.0f;
+    float gyroZDeadzone = 0.0f;
+    float gyroXMax      = 1.0f;
+    float gyroYMax      = 1.0f;
+    float gyroZMax      = 1.0f;
+
+    // Accelerometer (gravity/orientation). -1 = axis not present on this device.
+    int   accelXOffset = -1;
+    int   accelYOffset = -1;
+    int   accelZOffset = -1;
+    float accelScale   = 1.0f / 32768.0f;
+    bool  accelXInvert = false;
+    bool  accelYInvert = false;
+    bool  accelZInvert = false;
+
+    // Same shape as the gyro calibration fields above.
+    float accelXDeadzone = 0.0f;
+    float accelYDeadzone = 0.0f;
+    float accelZDeadzone = 0.0f;
+    float accelXMax      = 1.0f;
+    float accelYMax      = 1.0f;
+    float accelZMax      = 1.0f;
+};
+
+// Radial deadzone/max for one analog stick (shared between its X and Y half-axes — see
+// ARCHITECTURE.md "Calibracion de entrada": calibrating both axes together keeps the feel
+// symmetric between directions). No gain: max is the stick's mechanical travel limit, output
+// can never exceed 1.0.
+struct StickCalibration {
+    float deadzone = 0.0f;  // [0, 1) of the radial magnitude below which the stick reads 0
+    float max      = 1.0f;  // (0, 1] radial magnitude that already saturates output to 1.0
+};
+
+// Deadzone/max for one physical trigger's proportional [0,1] reading. No gain, same reasoning
+// as StickCalibration: the trigger's own travel is the ceiling.
+struct TriggerCalibration {
+    float deadzone = 0.0f;
+    float max      = 1.0f;
 };
 
 struct ControllerConfig {
@@ -101,12 +161,25 @@ struct ControllerConfig {
     std::unordered_map<int, ButtonAction>           buttons;       // physical bit (1-indexed) -> action
     std::unordered_map<std::string, AxisMapping>    axes;          // HID source name -> whole-axis mapping
     std::unordered_map<std::string, HalfAxisAction> axis_actions;  // "left_x_pos"/"right_y_neg"/... -> per-direction action
+    // Gyro/accel half-axis actions. Keys "x_pos"/"x_neg"/"y_pos"/"y_neg"/"z_pos"/"z_neg" use each
+    // sensor's own native letter (gyroX=pitch/gyroY=yaw/gyroZ=roll vs accelX=lateral/accelY=frontal/
+    // accelZ=normal — they do NOT share the same letter-to-gesture mapping, see BindingWizard.cpp
+    // classifyGyro()/finishGyroRound()). The Mapper UI translates arrow direction -> the right key
+    // per sensor; this struct just stores whatever was assigned, generically.
+    std::unordered_map<std::string, HalfAxisAction> gyro_actions;
+    std::unordered_map<std::string, HalfAxisAction> accel_actions;
     std::unordered_map<std::string, std::string>    dpadRemap;     // "up"/"down"/"left"/"right" -> virtual short name
     std::unordered_map<std::string, ButtonAction>   dpadActions;   // "up"/"down"/"left"/"right" -> keyboard/mouse/macro action
     std::string    dpad;
     std::string    layout_id;  // references an entry in data/pad_layouts.json; empty = use defaults
     TouchpadConfig touchpad;
     ImuConfig      imu;
+
+    // Physical input calibration (deadzone/max) — see ARCHITECTURE.md "Calibracion de entrada".
+    StickCalibration   leftStickCalib;
+    StickCalibration   rightStickCalib;
+    TriggerCalibration triggerLCalib;
+    TriggerCalibration triggerRCalib;
 
     // Physical trigger → action mapping (physical trigger as source)
     ButtonAction   triggerLAction;

@@ -58,4 +58,21 @@ public:
         static const std::unordered_map<std::string, ButtonAction> empty;
         return empty;
     }
+
+    // Same as getActiveAxisActions()/getActiveAxisRangeActions(), but for gyro_actions/
+    // accel_actions (gyro/accel used as a source, keys "x_pos".."z_neg"). These are kept
+    // separate from the stick/trigger axis actions above because gyro/accel go through the
+    // Component System (PhysicalGyro/PhysicalAccel), which only writes proportional/digital
+    // targets to GamepadState directly — Keyboard/Macro/MouseClick/Bot are marker targets
+    // resolved externally by PadEngine, same as for axis_actions.
+    virtual std::vector<std::string> getActiveGyroActions() const { return {}; }
+    virtual const std::unordered_map<std::string, ButtonAction>& getActiveGyroRangeActions() const {
+        static const std::unordered_map<std::string, ButtonAction> empty;
+        return empty;
+    }
+    virtual std::vector<std::string> getActiveAccelActions() const { return {}; }
+    virtual const std::unordered_map<std::string, ButtonAction>& getActiveAccelRangeActions() const {
+        static const std::unordered_map<std::string, ButtonAction> empty;
+        return empty;
+    }
 };

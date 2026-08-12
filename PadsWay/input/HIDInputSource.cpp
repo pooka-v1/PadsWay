@@ -65,9 +65,12 @@ bool HIDInputSource::read(GamepadState& state) {
     ULONG bufLen   = m_hid.reportLen();
     ULONG bytesRead = m_hid.lastBytesRead();
 
-    // Diagnostic: log raw bytes every ~2 seconds (240 reads * 8ms = ~2s)
-    if (++m_readCount % 240 == 0) {
-        ULONG dumpLen = (bufLen < 20) ? bufLen : 20;
+    // Generic decode (buttons/axes/hat/raw bytes), independent of m_config — see getLastRawSnapshot().
+    decodeRawHIDReport(m_hid, m_lastRawSnapshot);
+
+    // Diagnostic: log raw bytes every ~250ms (30 reads * 8ms) — full report, no offset cap
+    if (++m_readCount % 30 == 0) {
+        ULONG dumpLen = bufLen;
         std::string raw;
         raw.reserve(dumpLen * 3);
         for (ULONG i = 0; i < dumpLen; ++i) {
@@ -87,6 +90,12 @@ bool HIDInputSource::read(GamepadState& state) {
         m_physicalState = {};
         buildPhysicalButtons(buf, bufLen);
         buildPhysicalAxes(buf, bufLen);
+        // Gyro/accel must land in m_physicalState (the "physical" input to process() below),
+        // not just in the output `state` — otherwise PhysicalGyro/PhysicalAccel always see
+        // gyroActive/accelActive false and every gyro_actions/accel_actions mapping is a no-op,
+        // even though the widget still shows live motion (it reads the applyIMU(state) call
+        // further down, which stays as-is for the legacy path and as an output passthrough here).
+        applyIMU(buf, bytesRead, m_physicalState);
 
         // Hat switch → physical state; process() handles virtual output via PhysicalDpadDir.
         if (!hasAxisDpad && m_config.dpad == "hid_hat") {
@@ -226,6 +235,7 @@ bool HIDInputSource::read(GamepadState& state) {
 
     applyTouchpad(buf, bytesRead, state);
     applyIMU     (buf, bytesRead, state);
+    applyImuActions();
 
     return true;
 }
@@ -389,18 +399,6 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
         else if (name == "l3")        state.btnL3    = true;
         else if (name == "r3")        state.btnR3    = true;
     };
-
-    if (m_readCount == 1) {
-        ULONG dumpLen = (bufLen < 24) ? bufLen : 24;
-        std::string raw;
-        raw.reserve(dumpLen * 3);
-        for (ULONG i = 0; i < dumpLen; ++i) {
-            char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
-            raw += tmp;
-        }
-        spdlog::debug("[HID][{}] First report ({} bytes): {}", m_name, bufLen, raw);
-    }
 
     for (const auto& [source, mapping] : m_config.axes) {
         AxisUsage au = usageFromAxisName(source);
@@ -877,32 +875,128 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
 }
 
 void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
-    state.gyroActive = false;
+    state.gyroActive  = false;
+    state.accelActive = false;
 
     if (!m_config.imu.enabled) return;
-
-    // Need 6 bytes starting at gyroOffset (3 × int16 for X, Y, Z)
-    int off = m_config.imu.gyroOffset;
-    if (off + 6 > static_cast<int>(bytesRead)) return;
 
     auto readI16 = [&](int o) -> int16_t {
         return static_cast<int16_t>(
             static_cast<uint8_t>(buf[o]) |
             (static_cast<uint16_t>(static_cast<uint8_t>(buf[o + 1])) << 8));
     };
+    // -1 offset means "axis not present on this device"; each axis has its own
+    // offset (no assumed contiguity/order — some controllers interleave gyro/accel
+    // differently than the DS4's contiguous X,Y,Z).
+    auto fits = [&](int o) { return o >= 0 && o + 2 <= static_cast<int>(bytesRead); };
 
-    int16_t rawX = readI16(off);
-    int16_t rawY = readI16(off + 2);
-    int16_t rawZ = readI16(off + 4);
+    const auto& imu = m_config.imu;
 
-    state.gyroX     = std::clamp(rawX * m_config.imu.gyroScale, -1.0f, 1.0f);
-    state.gyroY     = std::clamp(rawY * m_config.imu.gyroScale, -1.0f, 1.0f);
-    state.gyroZ     = std::clamp(rawZ * m_config.imu.gyroScale, -1.0f, 1.0f);
-    state.gyroActive = true;
-    m_physicalState.gyroX     = state.gyroX;
-    m_physicalState.gyroY     = state.gyroY;
-    m_physicalState.gyroZ     = state.gyroZ;
-    m_physicalState.gyroActive = true;
+    if (fits(imu.gyroXOffset) && fits(imu.gyroYOffset) && fits(imu.gyroZOffset)) {
+        state.gyroX = std::clamp(readI16(imu.gyroXOffset) * imu.gyroScale * (imu.gyroXInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.gyroY = std::clamp(readI16(imu.gyroYOffset) * imu.gyroScale * (imu.gyroYInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.gyroZ = std::clamp(readI16(imu.gyroZOffset) * imu.gyroScale * (imu.gyroZInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.gyroActive = true;
+        m_physicalState.gyroX      = state.gyroX;
+        m_physicalState.gyroY      = state.gyroY;
+        m_physicalState.gyroZ      = state.gyroZ;
+        m_physicalState.gyroActive = true;
+    }
+
+    if (fits(imu.accelXOffset) && fits(imu.accelYOffset) && fits(imu.accelZOffset)) {
+        state.accelX = std::clamp(readI16(imu.accelXOffset) * imu.accelScale * (imu.accelXInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.accelY = std::clamp(readI16(imu.accelYOffset) * imu.accelScale * (imu.accelYInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.accelZ = std::clamp(readI16(imu.accelZOffset) * imu.accelScale * (imu.accelZInvert ? -1.0f : 1.0f), -1.0f, 1.0f);
+        state.accelActive = true;
+        m_physicalState.accelX      = state.accelX;
+        m_physicalState.accelY      = state.accelY;
+        m_physicalState.accelZ      = state.accelZ;
+        m_physicalState.accelActive = true;
+    }
+
+    // Diagnostic trace for the parsed IMU values (gyro/accel already scaled+clamped),
+    // same 30-read throttle as [HID][raw] — useful again for future controller onboarding.
+    if ((state.gyroActive || state.accelActive) && m_readCount % 30 == 0) {
+        spdlog::trace("[IMU] gyro({:+.3f},{:+.3f},{:+.3f}) accel({:+.3f},{:+.3f},{:+.3f})",
+                      state.gyroX, state.gyroY, state.gyroZ,
+                      state.accelX, state.accelY, state.accelZ);
+    }
+}
+
+// Populates m_activeGyroActions/m_activeAccelActions (and their Ranges counterparts) from
+// cfg.gyro_actions/accel_actions, mirroring applyAxesResidual()'s checkHalf() for stick/trigger
+// axes. This is the piece PhysicalGyro/PhysicalAccel::process() deliberately leaves undone —
+// they resolve VirtualButton/Dpad/Trigger/StickSlot/MouseMove targets directly into GamepadState,
+// but Keyboard/Macro/MouseClick/Bot are marker-only there (see ComponentTypes.cpp,
+// applyVirtualTarget()) and need PadEngine to pick them up from here, same as for axis_actions.
+// Uses the same per-axis deadzone/max shaping as PhysicalController::process() (imu.*Deadzone/
+// *Max) so a Ranges entry mixing e.g. a VirtualButton sub-range and a Macro sub-range on the
+// same half-axis activates both at the same physical threshold.
+void HIDInputSource::applyImuActions() {
+    m_activeGyroActions.clear();
+    m_activeGyroRangeActions.clear();
+    m_activeAccelActions.clear();
+    m_activeAccelRangeActions.clear();
+    if (!m_config.imu.enabled) return;
+
+    auto checkHalf = [](const std::unordered_map<std::string, HalfAxisAction>& actions,
+                         const std::string& key, float magnitude,
+                         std::vector<std::string>& activeActions,
+                         std::unordered_map<std::string, ButtonAction>& activeRangeActions) {
+        auto ait = actions.find(key);
+        if (ait == actions.end()) return;
+        const HalfAxisAction& ha = ait->second;
+        switch (ha.type) {
+        case HalfAxisActionType::Macro:
+        case HalfAxisActionType::Keyboard:
+        case HalfAxisActionType::MouseClick:
+        case HalfAxisActionType::Bot:
+            if (magnitude > ha.threshold) activeActions.push_back(key);
+            break;
+        case HalfAxisActionType::Ranges:
+            for (const auto& r : ha.ranges) {
+                if (magnitude < r.from || magnitude > r.to || !r.hasAction) continue;
+                if (r.action.type == ButtonActionType::Keyboard   ||
+                    r.action.type == ButtonActionType::MouseClick ||
+                    r.action.type == ButtonActionType::Macro      ||
+                    r.action.type == ButtonActionType::Bot)
+                    activeRangeActions[key] = r.action;
+                break;
+            }
+            break;
+        default: break;
+        }
+    };
+
+    const auto& imu = m_config.imu;
+
+    // Note: plain (v > 0.0f) ? v : 0.0f instead of std::max() — this file includes hidsdi.h
+    // (-> windows.h) without NOMINMAX, so the max()/min() macros from windows.h would otherwise
+    // shadow std::max/std::min here. Same workaround PhysicalGyro::process() uses in
+    // ComponentTypes.cpp (which doesn't include windows.h, so it can use std::max directly).
+    if (m_physicalState.gyroActive && !m_config.gyro_actions.empty()) {
+        float gx = applyDeadzoneMaxSigned(m_physicalState.gyroX, imu.gyroXDeadzone, imu.gyroXMax);
+        float gy = applyDeadzoneMaxSigned(m_physicalState.gyroY, imu.gyroYDeadzone, imu.gyroYMax);
+        float gz = applyDeadzoneMaxSigned(m_physicalState.gyroZ, imu.gyroZDeadzone, imu.gyroZMax);
+        checkHalf(m_config.gyro_actions, "x_pos", (gx  > 0.0f) ? gx  : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "x_neg", (-gx > 0.0f) ? -gx : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "y_pos", (gy  > 0.0f) ? gy  : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "y_neg", (-gy > 0.0f) ? -gy : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "z_pos", (gz  > 0.0f) ? gz  : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+        checkHalf(m_config.gyro_actions, "z_neg", (-gz > 0.0f) ? -gz : 0.0f, m_activeGyroActions, m_activeGyroRangeActions);
+    }
+
+    if (m_physicalState.accelActive && !m_config.accel_actions.empty()) {
+        float ax = applyDeadzoneMaxSigned(m_physicalState.accelX, imu.accelXDeadzone, imu.accelXMax);
+        float ay = applyDeadzoneMaxSigned(m_physicalState.accelY, imu.accelYDeadzone, imu.accelYMax);
+        float az = applyDeadzoneMaxSigned(m_physicalState.accelZ, imu.accelZDeadzone, imu.accelZMax);
+        checkHalf(m_config.accel_actions, "x_pos", (ax  > 0.0f) ? ax  : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "x_neg", (-ax > 0.0f) ? -ax : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "y_pos", (ay  > 0.0f) ? ay  : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "y_neg", (-ay > 0.0f) ? -ay : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "z_pos", (az  > 0.0f) ? az  : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+        checkHalf(m_config.accel_actions, "z_neg", (-az > 0.0f) ? -az : 0.0f, m_activeAccelActions, m_activeAccelRangeActions);
+    }
 }
 
 void HIDInputSource::parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right) {

@@ -72,6 +72,14 @@ public:
     // and sets outDir to "up"/"down"/"left"/"right". Returns -1 if no arrow was hit.
     int hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const;
 
+    // Draws a selection ring over one of a gyro component's 6 logical directions
+    // ("up"/"down"/"left"/"right"/"cw"/"ccw"). selectedComp/selDir: -1/"" = none selected.
+    void renderGyroArrows(ImVec2 canvasOrigin, int selectedComp, const std::string& selDir);
+
+    // Returns the gyro component index if a click falls on one of its 6 logical direction zones,
+    // and sets outDir accordingly. Returns -1 if none was hit.
+    int hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const;
+
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
 
 private:
@@ -85,4 +93,13 @@ private:
 
     // Directional arrow overlays (loaded once in load(), used by renderStickArrows)
     PadTexture m_arrowUp, m_arrowDown, m_arrowLeft, m_arrowRight;
+
+    // Gyroscope widget assets (loaded once in load(), used by the "gyro" component type —
+    // fixed set, not driven by PadComponent::image like other component types since the gyro
+    // widget's look isn't per-layout configurable). See REFERENCE.md, "Widget visual del
+    // giroscopio - spec UI completa".
+    PadTexture m_gyroSphere;                                      // background ring, gyrosspera.png
+    PadTexture m_gyroArrowN, m_gyroArrowS, m_gyroArrowE, m_gyroArrowW; // pitch/roll cardinals
+    PadTexture m_gyroArrowCW, m_gyroArrowCCW;                     // yaw rotation direction
+    PadTexture m_gyroLevelBar;                                    // yaw clock-hand, LevelBar.png
 };

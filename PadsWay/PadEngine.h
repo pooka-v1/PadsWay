@@ -11,6 +11,8 @@
 #include "output/HidHideClient.h"
 #include "config/ConfigLoader.h"   // VirtualOutputType
 
+class DeviceHub;
+
 // ---------------------------------------------------------------------------
 // Engine events — domain facts emitted by the engine, interpreted by the UI.
 // ---------------------------------------------------------------------------
@@ -48,7 +50,8 @@ enum class EnginePhase {
 // The main (UI) thread reads engine status via the thread-safe accessors below.
 class PadEngine {
 public:
-    PadEngine();
+    // deviceHub outlives PadEngine — owned by main() (PadsWay.cpp), passed by reference.
+    explicit PadEngine(DeviceHub& deviceHub);
     ~PadEngine();
 
     void start();   // spawn background thread
@@ -154,6 +157,7 @@ private:
     std::string                   m_activeLayoutId;    // protected by m_mutex
     float                         m_mouseSpeed = 15.0f; // protected by m_mutex
     HidHideClient                 m_hidHide;
+    DeviceHub&                    m_deviceHub;        // owns the actual HID connection; see PadsWay.cpp
 
     // Switch-in-hot: set by requestSwitch(), consumed by threadFunc()
     std::atomic<bool>  m_switchPending  { false };

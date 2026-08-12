@@ -1,3 +1,4 @@
+#define NOMINMAX
 #include "AppWindow.h"
 #include "Log.h"
 #include "Paths.h"
@@ -29,8 +30,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 // Construction / destruction
 // ---------------------------------------------------------------------------
 
-AppWindow::AppWindow(PadEngine& engine)
-    : m_engine(engine) {}
+AppWindow::AppWindow(PadEngine& engine, DeviceHub& deviceHub)
+    : m_engine(engine), m_deviceHub(deviceHub) {}
 
 AppWindow::~AppWindow() {
     cleanup();
@@ -93,6 +94,8 @@ int AppWindow::run() {
         m_acceptedXboxButtons  = vpCfg.acceptedXboxButtons;
         m_stickSelectThreshold = vpCfg.stickSelectThreshold;
         m_stickHoldMs          = vpCfg.stickHoldMs;
+        m_gyroSelectThreshold  = vpCfg.gyroSelectThreshold;
+        m_accelSelectThreshold = vpCfg.accelSelectThreshold;
         locale = vpCfg.locale;
     } catch (...) {}  // struct defaults apply if file is missing or malformed
     Strings::load(locale);
@@ -110,9 +113,11 @@ int AppWindow::run() {
     m_virtualPadView.load(m_device);
     m_layoutEditor.init(m_device, &m_padLayouts, Paths::userData("data/pad_layouts.json"));
     m_mappingEditor.init(m_device, &m_engine, m_padLayouts,
-                         m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs);
+                         m_acceptedXboxButtons, m_stickSelectThreshold, m_stickHoldMs,
+                         m_gyroSelectThreshold, m_accelSelectThreshold);
     m_mappingEditor.setConfigs(m_controllerConfigs);
     m_macroManager.init(m_device);
+    m_calibrationPanel.init(&m_engine);
 
     m_engine.start();
 
@@ -534,12 +539,10 @@ void AppWindow::renderScannerTab() {
 
     // â"€â"€ HID device live monitor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     if (m_hidSelected < 0 || m_hidSelected >= (int)m_hidDevices.size()) {
-        if (m_scanDevice) {
-            stopScanReaderThread();
-            m_scanDevice.reset();
-            { std::lock_guard<std::mutex> lk(m_scanRawMutex); m_scanRawState = {}; }
-            m_scanDeviceIdx = -1;
-        }
+        if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
+        m_scanWatchOwned = false;
+        m_scanWatchedPath.clear();
+        m_scanDeviceIdx  = -1;
         ImGui::Spacing();
         ImGui::TextDisabled("%s", tr("scanner.hint"));
         ImGui::EndChild();
@@ -550,51 +553,35 @@ void AppWindow::renderScannerTab() {
     const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
                                              hdev.connectionType);
 
-    // Open/close m_scanDevice when the selection changes
+    // Selection changed — re-arm the IMU block detector for the new device.
     if (m_hidSelected != m_scanDeviceIdx) {
-        stopScanReaderThread();     // stop before resetting device handle
-        m_scanDevice.reset();
-        { std::lock_guard<std::mutex> lk(m_scanRawMutex); m_scanRawState = {}; }
-        m_scanDeviceIdx = m_hidSelected;
-        char nameLabel[64];
-        snprintf(nameLabel, sizeof(nameLabel), "VID:%04X PID:%04X", hdev.vid, hdev.pid);
-        m_scanDevice = std::make_unique<RawHIDReader>(
-            hdev.path,
-            hdev.productName.empty() ? nameLabel : hdev.productName);
-        startScanReaderThread();    // background thread for event-driven devices
+        if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
+        m_scanWatchOwned  = false;
+        m_scanDeviceIdx   = m_hidSelected;
+        m_scanWatchedPath = hdev.path;
+
+        m_scanImuOffsets.clear();
+        m_scanImuMinMax.clear();
+        m_scanImuDetectFrames = 0;
+        m_scanImuDetecting    = true;
     }
 
-    // Read new data. For devices using XInput/Xbox HID filter the driver only
-    // delivers reports to the first opener (the engine). When the selected device
-    // is the active engine device, read from the engine instead of the raw handle.
-    DeviceCandidate activeDevice = m_engine.getActiveDevice();
-    bool useEngineData = (!activeDevice.hidPath.empty() &&
-                          activeDevice.hidPath == hdev.path);
-    if (useEngineData) {
-        // Engine owns the device handle; background thread can't read independently.
-        // Use the engine's stored raw state (buttons + hat + axes) instead.
-        m_scanDataFromEngine = true;
-        std::lock_guard<std::mutex> lk(m_scanRawMutex);
-        m_scanRawState.buttonMask = m_engine.getLastRawButtonMask();
-        m_scanRawState.hat        = m_engine.getLastRawHat();
-        GamepadState phys = m_engine.getLastState();
-        m_scanRawState.axisX  = phys.leftX;
-        m_scanRawState.axisY  = phys.leftY;
-        m_scanRawState.axisZ  = phys.triggerL;
-        m_scanRawState.axisRx = phys.rightX;
-        m_scanRawState.axisRy = phys.rightY;
-        m_scanRawState.axisRz = phys.triggerR;
-    } else {
-        m_scanDataFromEngine = false;  // background thread can write freely
-        if (m_scanDevice && !m_scanDevice->isOpen()) {
-            // Device disconnected — stop background thread and clean up.
-            stopScanReaderThread();
-            m_scanDevice.reset();
-            { std::lock_guard<std::mutex> lk(m_scanRawMutex); m_scanRawState = {}; }
-            m_scanDeviceIdx = -1;
-        }
+    // The connection itself lives in DeviceHub, shared with the engine — no independent handle
+    // here anymore. If the engine already owns this exact device we just read its snapshot
+    // (kept fresh by the engine's own reads); otherwise we watch it ourselves. Re-checked every
+    // frame so the panel follows the engine picking up/dropping this device live, without ever
+    // holding a second, conflicting handle open to it (see ARCHITECTURE.md, "DeviceHub").
+    DeviceCandidate activeDevice  = m_engine.getActiveDevice();
+    bool            isEngineOwned = (!activeDevice.hidPath.empty() && activeDevice.hidPath == hdev.path);
+    if (isEngineOwned && m_scanWatchOwned) {
+        m_deviceHub.unwatch(m_scanWatchedPath);
+        m_scanWatchOwned = false;
+    } else if (!isEngineOwned && !m_scanWatchOwned) {
+        char nameLabel[64];
+        snprintf(nameLabel, sizeof(nameLabel), "VID:%04X PID:%04X", hdev.vid, hdev.pid);
+        m_deviceHub.watch(hdev.path, hdev.productName.empty() ? nameLabel : hdev.productName);
+        m_scanWatchOwned = true;
     }
-    // Background thread handles reading for non-engine devices; render thread just reads the shared state.
 
     // Header
     ImGui::Spacing();
@@ -608,7 +595,7 @@ void AppWindow::renderScannerTab() {
         ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"",
                             hdev.vid, hdev.pid);
     }
-    if (!useEngineData && (!m_scanDevice || !m_scanDevice->isOpen())) {
+    if (!m_deviceHub.isOpen(hdev.path)) {
         ImGui::Spacing();
         ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", tr("scanner.disconnected"));
         ImGui::EndChild();
@@ -618,13 +605,77 @@ void AppWindow::renderScannerTab() {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Take a snapshot of the raw state under the mutex so the render thread is consistent.
-    RawHIDState snap;
-    { std::lock_guard<std::mutex> lk(m_scanRawMutex); snap = m_scanRawState; }
+    RawHIDState snap = m_deviceHub.snapshot(hdev.path).raw;
 
-    const float barW = ImGui::GetContentRegionAvail().x - 60.0f;
+    // ── IMU block auto-detection (see BITACORA 2026/08/11) ──────────────────────────────
+    // Same "alive offset" test the wizard uses for Baseline (REFERENCE.md, "Wizard de
+    // calibracion IMU"): amp>0 rules out a constant padding byte, amp<noiseFloor rules out a
+    // CRC/counter byte that cycles through its whole range every frame. Unlike the wizard's
+    // guided Baseline this window isn't a controlled "hold still" — the user may be moving the
+    // controller while browsing Scanner — so the floor is looser and this is less certain;
+    // needs real-hardware validation. Works the same whether the engine or DeviceHub's own watch
+    // thread is driving the reads — both populate the same shared raw snapshot.
+    if (m_scanImuDetecting && !snap.raw.empty()) {
+        int n = static_cast<int>(snap.raw.size()) - 1;
+        if (static_cast<int>(m_scanImuMinMax.size()) != n)
+            m_scanImuMinMax.assign(n, { 0.0f, 0.0f });
+        for (int o = 0; o < n; ++o) {
+            int16_t raw = static_cast<int16_t>(
+                static_cast<uint8_t>(snap.raw[o]) | (static_cast<uint16_t>(snap.raw[o + 1]) << 8));
+            float v = static_cast<float>(raw);
+            if (m_scanImuDetectFrames == 0) m_scanImuMinMax[o] = { v, v };
+            else {
+                m_scanImuMinMax[o].first  = std::min(m_scanImuMinMax[o].first,  v);
+                m_scanImuMinMax[o].second = std::max(m_scanImuMinMax[o].second, v);
+            }
+        }
+        ++m_scanImuDetectFrames;
 
-    // Buttons — raw HID button numbers 1-32
+        if (m_scanImuDetectFrames >= kScanImuDetectFrames) {
+            constexpr float kNoiseFloor = 6000.0f; // looser than the wizard's 800 — uncontrolled window
+            std::vector<bool> alive(n, false);
+            for (int o = 0; o < n; ++o) {
+                float amp = m_scanImuMinMax[o].second - m_scanImuMinMax[o].first;
+                alive[o] = amp > 0.0f && amp < kNoiseFloor;
+            }
+            // Longest run of alive offsets spaced 2 bytes apart, capped to 6 (accel+gyro) —
+            // simpler than the wizard's computeGyroCandidatePool() (no borderline-bridging, no
+            // trim-from-flattest-end for a run >6): good enough for a live glance, not a
+            // calibration source.
+            int bestStart = -1, bestLen = 0;
+            for (int s = 0; s < n; ++s) {
+                if (!alive[s]) continue;
+                if (s >= 2 && alive[s - 2]) continue;
+                int len = 0;
+                while (s + len * 2 < n && alive[s + len * 2]) ++len;
+                if (len > bestLen) { bestLen = len; bestStart = s; }
+            }
+            if (bestLen >= 3) {
+                int runLen = std::min(bestLen, 6);
+                m_scanImuOffsets.clear();
+                for (int k = 0; k < runLen; ++k) m_scanImuOffsets.push_back(bestStart + k * 2);
+            }
+            m_scanImuDetecting = false;
+        }
+    }
+
+    // ── D-pad/hat compass + buttons, side by side ────────────────────────────────────────
+    // The hat compass used to render at the very bottom of the tab — moved here, first
+    // component, to the left of the button grid (2026/08/11 redesign).
+    ImGui::BeginGroup();
+    ImGui::Text("%s", tr("scanner.hat"));
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        DWORD pov = JOY_POVCENTERED;
+        if (snap.hat < 8)
+            pov = snap.hat * 4500;
+        drawPOVCompass(pov);
+    }
+    ImGui::EndGroup();
+    ImGui::SameLine(0.0f, 16.0f);
+
+    ImGui::BeginGroup();
     ImGui::Text("%s", tr("scanner.buttons"));
     ImGui::Separator();
     ImGui::Spacing();
@@ -639,10 +690,18 @@ void AppWindow::renderScannerTab() {
         ImGui::PopStyleColor(2);
         if ((i + 1) % 16 != 0) ImGui::SameLine(0.0f, 4.0f);
     }
+    ImGui::EndGroup();
 
-    // Axes — raw HID axis values [-1, 1]
+    // ── Axes | vertical divider (same technique as CalibrationPanel) | 6-value IMU block ──
     ImGui::Spacing();
     ImGui::Spacing();
+    ImVec2 axesRowStart = ImGui::GetCursorScreenPos();
+    float  fullW        = ImGui::GetContentRegionAvail().x;
+    constexpr float kAxesImuGap = 30.0f;
+    float axesW = fullW * 0.55f - kAxesImuGap;
+    float barW  = axesW - 60.0f;
+
+    ImGui::BeginGroup();
     ImGui::Text("%s", tr("scanner.axes"));
     ImGui::Separator();
     ImGui::Spacing();
@@ -666,41 +725,49 @@ void AppWindow::renderScannerTab() {
         ImGui::ProgressBar((a.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
         ImGui::PopStyleColor();
     }
+    ImGui::EndGroup();
+    float axesBottom = ImGui::GetItemRectMax().y;
 
-    // Gyro (raw bytes offset 13 — DS4 USB only; other controllers may show noise)
-    if (snap.gyroRawValid) {
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Text("Gyro (IMU)");
-        ImGui::Separator();
-        ImGui::Spacing();
-        struct { const char* name; float v; } gyros[] = {
-            { "Gx", snap.gyroRawX },
-            { "Gy", snap.gyroRawY },
-            { "Gz", snap.gyroRawZ },
-        };
-        for (auto& g : gyros) {
-            float dev_f = fabsf(g.v);
-            ImGui::PushStyleColor(ImGuiCol_PlotHistogram,
-                ImVec4(0.20f + dev_f * 0.60f, 0.55f - dev_f * 0.20f, 0.15f, 1.0f));
-            ImGui::Text("%-5s", g.name);
+    ImGui::SetCursorScreenPos({ axesRowStart.x + axesW + kAxesImuGap * 2.0f, axesRowStart.y });
+    ImGui::BeginGroup();
+    ImGui::Text("%s", tr("scanner.imu_title"));
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (m_scanImuDetecting) {
+        int pct = std::min(100, (m_scanImuDetectFrames * 100) / kScanImuDetectFrames);
+        ImGui::TextDisabled(tr("scanner.imu_detecting"), pct);
+    } else if (m_scanImuOffsets.empty()) {
+        ImGui::TextDisabled("%s", tr("scanner.imu_not_found"));
+    } else {
+        // Raw int16, normalised to [0,1] (not [-1,1] like the declared axes above) so a
+        // gyro axis sits near the middle (~0 at rest) and an accel axis sitting off-centre
+        // toward one end reads as "this one is gravity" at a glance — same idea as the flip
+        // gesture in the wizard, just eyeballed instead of auto-classified.
+        float imuBarW = fullW - axesW - kAxesImuGap * 2.0f - 60.0f;
+        for (size_t k = 0; k < m_scanImuOffsets.size(); ++k) {
+            int o = m_scanImuOffsets[k];
+            int16_t raw = 0;
+            if (o + 1 < static_cast<int>(snap.raw.size()))
+                raw = static_cast<int16_t>(
+                    static_cast<uint8_t>(snap.raw[o]) | (static_cast<uint16_t>(snap.raw[o + 1]) << 8));
+            float norm = (static_cast<float>(raw) + 32768.0f) / 65536.0f;
+            char lbl[8]; snprintf(lbl, sizeof(lbl), "#%d", static_cast<int>(k) + 1);
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.35f, 0.55f, 0.85f, 1.0f));
+            ImGui::Text("%-4s", lbl);
             ImGui::SameLine();
-            char ov[12]; snprintf(ov, sizeof(ov), "%+.3f", g.v);
-            ImGui::ProgressBar((g.v + 1.0f) * 0.5f, { barW, 18.0f }, ov);
+            char ov[16]; snprintf(ov, sizeof(ov), "%.3f", norm);
+            ImGui::ProgressBar(norm, { imuBarW, 18.0f }, ov);
             ImGui::PopStyleColor();
         }
     }
+    ImGui::EndGroup();
+    float imuBottom = ImGui::GetItemRectMax().y;
 
-    // Hat switch — raw hat value → compass widget
-    ImGui::Spacing();
-    ImGui::Spacing();
-    ImGui::Text("%s", tr("scanner.hat"));
-    ImGui::Separator();
-    ImGui::Spacing();
-    DWORD pov = JOY_POVCENTERED;
-    if (snap.hat < 8)
-        pov = snap.hat * 4500;
-    drawPOVCompass(pov);
+    float sepX      = axesRowStart.x + axesW + kAxesImuGap;
+    float sepBottom = std::max(axesBottom, imuBottom);
+    ImGui::GetWindowDrawList()->AddLine({ sepX, axesRowStart.y }, { sepX, sepBottom },
+                                        IM_COL32(90, 100, 120, 140), 1.5f);
+    ImGui::SetCursorScreenPos({ axesRowStart.x, sepBottom });
 
     ImGui::EndChild();
 }
@@ -835,7 +902,7 @@ void AppWindow::renderPadsTab() {
     }
 
     {
-      if (!m_mappingEditor.isActive() && !m_macroManager.isActive()) {
+      if (!m_mappingEditor.isActive() && !m_macroManager.isActive() && !m_calibrationPanel.isActive()) {
         ImGui::Spacing();
 
         if (!m_engine.isConnected()) {
@@ -885,6 +952,11 @@ void AppWindow::renderPadsTab() {
         ImGui::SameLine(0.0f, 8.0f);
         if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
             m_macroManager.activate();
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("calibration.title", "openCalibration").c_str(), { 120.0f, 0.0f })) {
+            m_calibrationPanel.setConfigs(m_controllerConfigs);
+            m_calibrationPanel.activate();
+        }
 
             // ── Marquee ───────────────────────────────────────────────────────────
 
@@ -946,7 +1018,7 @@ void AppWindow::renderPadsTab() {
         }
     }
 
-      } // !m_mappingEditor.isActive() && !m_macroManager.isActive()
+      } // !m_mappingEditor.isActive() && !m_macroManager.isActive() && !m_calibrationPanel.isActive()
     }
 
     if (m_mappingEditor.isActive()) {
@@ -967,6 +1039,14 @@ void AppWindow::renderPadsTab() {
         m_macroManager.render();
     if (m_macroManager.pollMacrosSaved())
         m_engine.reloadMacros();
+
+    if (m_calibrationPanel.isActive())
+        m_calibrationPanel.render();
+    if (m_calibrationPanel.pollCalibrationSaved()) {
+        m_controllerConfigs = loadControllerConfigs(Paths::userData("data/controllers.json"));
+        m_calibrationPanel.setConfigs(m_controllerConfigs);
+        m_engine.reloadConfigs();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,33 +1080,8 @@ void AppWindow::renderLayoutTab() {
 
 // ---------------------------------------------------------------------------
 
-void AppWindow::startScanReaderThread() {
-    m_scanReaderStop     = false;
-    m_scanDataFromEngine = false;
-    m_scanReaderThread = std::thread([this] {
-        RawHIDState local {};  // persists last known state across reads
-        while (!m_scanReaderStop) {
-            if (m_scanDevice && m_scanDevice->isOpen()) {
-                m_scanDevice->read(local, 20);  // blocking; keeps last state on timeout
-                if (!m_scanDataFromEngine) {    // don't overwrite when engine owns the state
-                    std::lock_guard<std::mutex> lk(m_scanRawMutex);
-                    m_scanRawState = local;
-                }
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
-            }
-        }
-    });
-}
-
-void AppWindow::stopScanReaderThread() {
-    m_scanReaderStop = true;
-    if (m_scanReaderThread.joinable())
-        m_scanReaderThread.join();
-}
-
 void AppWindow::cleanup() {
-    stopScanReaderThread();
+    if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
     m_mappingEditor.unload();
     m_layoutEditor.unload();
     m_virtualPadView.unload();

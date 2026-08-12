@@ -59,6 +59,7 @@ static void applyVirtualTarget(const VirtualTarget& vt, float value,
             }
         } else if constexpr (std::is_same_v<T, VirtualMouseMove>) {
             float mv = value * dirSign * v.speed;
+            if (v.invert) mv = -mv;
             if (v.axis == MouseAxis::X) out.mouseX += mv;
             else                        out.mouseY += mv;
         }
@@ -235,24 +236,59 @@ void PhysicalGyro::process(const GamepadState& physical, GamepadState& out,
     out.gyroActive = physical.gyroActive;
     if (!physical.gyroActive) return;
 
-    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned,
+    // dirSign: which way VirtualMouseMove should push the cursor for this half-axis. Neg
+    // half-axes carry the magnitude of the negative reading (always >=0, see rawSigned below),
+    // so without this the sign information is lost and MouseMove would push the same direction
+    // for both halves of the axis — see PhysicalAnalogDir::process()'s identical reasoning.
+    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned, float dirSign,
                           std::function<void(float)> passthroughFn) {
         float halfVal = rawSigned > 0.0f ? rawSigned : 0.0f;
-        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, gyro);
+        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, gyro, dirSign);
     };
 
-    applyHalf(xPos, physical.gyroX,
+    applyHalf(xPos, physical.gyroX, 1.0f,
               [&](float v) { gyro.xPos = std::max(gyro.xPos, v); });
-    applyHalf(xNeg, -physical.gyroX,
+    applyHalf(xNeg, -physical.gyroX, -1.0f,
               [&](float v) { gyro.xNeg = std::max(gyro.xNeg, v); });
-    applyHalf(yPos, physical.gyroY,
+    applyHalf(yPos, physical.gyroY, 1.0f,
               [&](float v) { gyro.yPos = std::max(gyro.yPos, v); });
-    applyHalf(yNeg, -physical.gyroY,
+    applyHalf(yNeg, -physical.gyroY, -1.0f,
               [&](float v) { gyro.yNeg = std::max(gyro.yNeg, v); });
-    applyHalf(zPos, physical.gyroZ,
+    applyHalf(zPos, physical.gyroZ, 1.0f,
               [&](float v) { gyro.zPos = std::max(gyro.zPos, v); });
-    applyHalf(zNeg, -physical.gyroZ,
+    applyHalf(zNeg, -physical.gyroZ, -1.0f,
               [&](float v) { gyro.zNeg = std::max(gyro.zNeg, v); });
+}
+
+// ─── PhysicalAccel ─────────────────────────────────────────────────────────────
+
+void PhysicalAccel::process(const GamepadState& physical, GamepadState& out,
+                             StickAccumulator& left, StickAccumulator& right,
+                             GyroAccumulator& accel) const {
+    // Per-axis passthrough or remapped output via RangedHalfAxis. Same shape as
+    // PhysicalGyro::process() — see the struct comment for the axis-letter caveat.
+    out.accelActive = physical.accelActive;
+    if (!physical.accelActive) return;
+
+    // dirSign — see the identical comment in PhysicalGyro::process().
+    auto applyHalf = [&](const RangedHalfAxis& rha, float rawSigned, float dirSign,
+                          std::function<void(float)> passthroughFn) {
+        float halfVal = rawSigned > 0.0f ? rawSigned : 0.0f;
+        applyRangedHalfAxis(rha, halfVal, passthroughFn, out, left, right, accel, dirSign);
+    };
+
+    applyHalf(xPos, physical.accelX, 1.0f,
+              [&](float v) { accel.xPos = std::max(accel.xPos, v); });
+    applyHalf(xNeg, -physical.accelX, -1.0f,
+              [&](float v) { accel.xNeg = std::max(accel.xNeg, v); });
+    applyHalf(yPos, physical.accelY, 1.0f,
+              [&](float v) { accel.yPos = std::max(accel.yPos, v); });
+    applyHalf(yNeg, -physical.accelY, -1.0f,
+              [&](float v) { accel.yNeg = std::max(accel.yNeg, v); });
+    applyHalf(zPos, physical.accelZ, 1.0f,
+              [&](float v) { accel.zPos = std::max(accel.zPos, v); });
+    applyHalf(zNeg, -physical.accelZ, -1.0f,
+              [&](float v) { accel.zNeg = std::max(accel.zNeg, v); });
 }
 
 // ─── PhysicalController::process() ───────────────────────────────────────────
@@ -260,6 +296,18 @@ void PhysicalGyro::process(const GamepadState& physical, GamepadState& out,
 void PhysicalController::process(const GamepadState& physical, GamepadState& output) const {
     StickAccumulator accumLeft, accumRight;
     GyroAccumulator  accumGyro;
+    GyroAccumulator  accumAccel;
+
+    // Gyro/accel readings with per-axis deadzone/max applied — see ARCHITECTURE.md
+    // "Calibracion de entrada". PhysicalGyro/PhysicalAccel read from this copy instead of
+    // `physical` directly; everything else (buttons, touchpad, ...) keeps using the raw state.
+    GamepadState shapedPhysical = physical;
+    shapedPhysical.gyroX  = applyDeadzoneMaxSigned(physical.gyroX,  gyroXCalib.deadzone,  gyroXCalib.max);
+    shapedPhysical.gyroY  = applyDeadzoneMaxSigned(physical.gyroY,  gyroYCalib.deadzone,  gyroYCalib.max);
+    shapedPhysical.gyroZ  = applyDeadzoneMaxSigned(physical.gyroZ,  gyroZCalib.deadzone,  gyroZCalib.max);
+    shapedPhysical.accelX = applyDeadzoneMaxSigned(physical.accelX, accelXCalib.deadzone, accelXCalib.max);
+    shapedPhysical.accelY = applyDeadzoneMaxSigned(physical.accelY, accelYCalib.deadzone, accelYCalib.max);
+    shapedPhysical.accelZ = applyDeadzoneMaxSigned(physical.accelZ, accelZCalib.deadzone, accelZCalib.max);
 
     // Pass 1: evaluate modifier sources → build active ModifierMask.
     ModifierMask activeMask = kModNone;
@@ -304,18 +352,25 @@ void PhysicalController::process(const GamepadState& physical, GamepadState& out
                 c.process(physPressed(cid, physical), output, accumLeft, accumRight, accumGyro);
             else if constexpr (std::is_same_v<T, PhysicalDpadDir>)
                 c.process(physPressed(cid, physical), output, accumLeft, accumRight, accumGyro);
-            else if constexpr (std::is_same_v<T, PhysicalTrigger>)
-                c.process(c.side == TriggerSide::L ? physical.triggerL : physical.triggerR,
+            else if constexpr (std::is_same_v<T, PhysicalTrigger>) {
+                float raw = c.side == TriggerSide::L ? physical.triggerL : physical.triggerR;
+                const TriggerCalibration& tc = c.side == TriggerSide::L ? triggerLCalib : triggerRCalib;
+                c.process(applyDeadzoneMax(raw, tc.deadzone, tc.max),
                           output, accumLeft, accumRight, accumGyro);
+            }
             else if constexpr (std::is_same_v<T, PhysicalAnalogDir>)
                 c.process(physHalfAxis(c.slot, physical), output, accumLeft, accumRight, accumGyro);
-            else if constexpr (std::is_same_v<T, PhysicalTouchpad> ||
-                               std::is_same_v<T, PhysicalGyro>)
+            else if constexpr (std::is_same_v<T, PhysicalTouchpad>)
                 c.process(physical, output, accumLeft, accumRight, accumGyro);
+            else if constexpr (std::is_same_v<T, PhysicalGyro>)
+                c.process(shapedPhysical, output, accumLeft, accumRight, accumGyro);
+            else if constexpr (std::is_same_v<T, PhysicalAccel>)
+                c.process(shapedPhysical, output, accumLeft, accumRight, accumAccel);
         }, *opt);
     }
 
-    accumLeft .flush(output.leftX,  output.leftY);
-    accumRight.flush(output.rightX, output.rightY);
+    accumLeft .flush(output.leftX,  output.leftY,  leftStickCalib);
+    accumRight.flush(output.rightX, output.rightY, rightStickCalib);
     accumGyro .flush(output.gyroX,  output.gyroY, output.gyroZ);
+    accumAccel.flush(output.accelX, output.accelY, output.accelZ);
 }

@@ -151,6 +151,7 @@
     <ClCompile Include="input\HIDInputSource.cpp" />
     <ClCompile Include="bots\BotLoader.cpp" />
     <ClCompile Include="input\RawHIDReader.cpp" />
+    <ClCompile Include="input\DeviceHub.cpp" />
     <ClCompile Include="macros\Macro.cpp" />
     <ClCompile Include="macros\MacroParser.cpp" />
     <ClCompile Include="output\ViGEmOutputBase.cpp" />
@@ -163,6 +164,7 @@
     <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="ui\MappingEditor.cpp" />
     <ClCompile Include="ui\MacroManagerPanel.cpp" />
+    <ClCompile Include="ui\CalibrationPanel.cpp" />
     <ClCompile Include="ui\MacroCreatorModal.cpp" />
     <ClCompile Include="ui\MacroStep.cpp" />
     <ClCompile Include="ui\MacroStepGrid.cpp" />
@@ -191,6 +193,7 @@
     <ClInclude Include="bots\bot_api.h" />
     <ClInclude Include="bots\BotLoader.h" />
     <ClInclude Include="input\RawHIDReader.h" />
+    <ClInclude Include="input\DeviceHub.h" />
     <ClInclude Include="macros\Macro.h" />
     <ClInclude Include="macros\MacroParser.h" />
     <ClInclude Include="output\IOutputSink.h" />
@@ -210,6 +213,7 @@
     <ClInclude Include="ui\PadView.h" />
     <ClInclude Include="ui\LayoutEditor.h" />
     <ClInclude Include="ui\MacroManagerPanel.h" />
+    <ClInclude Include="ui\CalibrationPanel.h" />
     <ClInclude Include="ui\MacroCreatorModal.h" />
     <ClInclude Include="ui\MacroStep.h" />
     <ClInclude Include="ui\MacroStepGrid.h" />
