@@ -110,6 +110,12 @@ the wizard's 5 stages:
 
    > **DualShock 4:** pair it over **USB** for now (Bluetooth has a known calibration issue).
 
+   > **Controllers with a gyroscope (8BitDo Pro 3 D-mode, DualShock 4 over USB):** the wizard
+   > adds an extra IMU calibration pass right after the axes — hold the controller still, flip
+   > it over once, then repeat a move-to-extreme gesture per axis. See
+   > [*Gyroscope / Accelerometer (IMU)*](README.md#gyroscope--accelerometer-imu) in the README
+   > for mapping it to actions afterward.
+
 **4. Test it — Pads tab.** Open the **Pads** tab and check the controller responds. If it does,
 it's ready to use in your games.
 

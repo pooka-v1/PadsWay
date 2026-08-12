@@ -111,6 +111,12 @@ DualShock) para montar, digamos, un mando estilo Xbox.
    > **DualShock 4:** emparéjalo por **USB** por ahora (el Bluetooth tiene un problema de
    > calibración conocido).
 
+   > **Mandos con giroscopio (8BitDo Pro 3 D-mode, DualShock 4 por USB):** el asistente añade un
+   > paso extra de calibración IMU justo después de los ejes — mantén el mando quieto, dale la
+   > vuelta una vez, y repite un gesto de mover-al-extremo por cada eje. Ver
+   > [*Giroscopio / Acelerómetro (IMU)*](README.es.md#giroscopio--acelerómetro-imu) en el README
+   > para mapearlo a acciones después.
+
 **4. Pruébalo — pestaña Pads.** Abre la pestaña **Pads** y comprueba que el mando responde. Si
 responde, ya está listo para usarlo en tus juegos.
 

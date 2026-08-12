@@ -457,7 +457,7 @@ If there are unsaved changes, a confirmation dialog appears before switching.
 - `[Pair controller]` — launches the Controller Binding Wizard (see below).
 
 Supported component types: `button`, `stick`, `dpad`, `touchpad`, `gyroscope`, `decoration`, `template`.
-The `gyroscope` component is visible in the Pads tab when the connected controller reports IMU data (e.g. DualShock 4 over USB). It requires no calibration — data is read automatically from fixed HID offsets.
+The `gyroscope` component is visible in the Pads tab when the connected controller reports IMU data (e.g. 8BitDo Pro 3 D-mode, DualShock 4 over USB). Unlike the other axes, gyro/accel data needs a calibration pass before it's usable — see [*Gyroscope / Accelerometer (IMU)*](#gyroscope--accelerometer-imu) below.
 
 **Center panel** — canvas showing the pad layout at scale. Zones FRONT (bottom strip) and TOP (main area) are displayed with their components rendered live.
 
@@ -503,7 +503,7 @@ The wizard guides you through five stages:
    - For **left stick Y**: push fully **down**.
    - For **right stick X/Y**: same convention.
    - For **triggers**: press fully.
-   - **Gyroscope components are skipped** — gyroscope data is read automatically from fixed HID byte offsets and does not require any calibration step.
+   - **Gyroscope/accelerometer components run their own calibration** instead of a simple push-to-extreme: hold the controller still (baseline), flip it upside down once, then for each axis (roll, pitch, yaw) push to one extreme, hold still, push to the opposite extreme, hold still again. Inverted axes are detected and corrected automatically — no manual invert needed at this stage.
 5. **Review** — shows all bound buttons, axes, and D-pad. Confirm to save or restart from the name step.
 
 ### Result
@@ -532,6 +532,41 @@ The wizard uses `state_map.json` to know which physical button name (`physical`)
 |---|---|
 | Left analog stick X axis capture may fail (pushing right not detected) | Under investigation |
 | Pads tab does not refresh until app restart after wizard saves | Under investigation |
+
+---
+
+## Gyroscope / Accelerometer (IMU)
+
+Controllers with a built-in gyroscope/accelerometer (8BitDo Pro 3 D-mode, DualShock 4 over USB)
+can drive any binding — buttons, D-pad, analog sticks, triggers, macros, keyboard, mouse, or
+bots — the same way a physical control does.
+
+### Calibration
+
+1. Run the **Controller Binding Wizard** (see above) — controllers with IMU get an extra
+   calibration pass after axes, described in stage 4 above (baseline, flip, then a stop-and-vote
+   gesture per axis). Inverted axes are detected and corrected automatically.
+2. Fine-tune afterwards from the **Calibration panel** (Pads tab): deadzone, max range, and
+   invert, independently for each gyro/accel axis — same controls as sticks and triggers.
+
+### Mapping — the Mapper tab
+
+Each gyro/accel axis behaves as two half-axes (e.g. Pitch+ / Pitch-), assignable independently:
+
+- **Half-axis → button / D-pad / analog / trigger** — a progressive rest-to-extreme sweep arms
+  the action: move the controller from resting position toward the extreme to trigger it, no
+  sustained hold needed. An **activation threshold** (default 40% deflection) sets how far the
+  sweep has to go before it fires.
+- **Full axis → analog mapping**, in one of two modes:
+  - **Absolute / stick** — tilt maps directly to a stick position (e.g. Mario Kart-style
+    steering).
+  - **Incremental / mouse** — motion maps to cursor velocity, reusing the same `mouse_x`/
+    `mouse_y` targets as an analog stick (e.g. aiming). Has its own invert, independent of the
+    mouse invert used for stick-driven mouse movement.
+
+> The DualShock 4's virtual output does **not** carry gyro/accel data (see *Virtual output type*
+> above) — IMU mapping only affects what PadsWay sends to macros/keyboard/mouse/bots/the virtual
+> pad, it does not forward raw IMU data downstream.
 
 ---
 
@@ -728,7 +763,7 @@ Works the same over USB and Bluetooth (same VID/PID).
 | **14** | **Touchpad click** | **— no equivalent** |
 
 > L2 and R2 are independent analog triggers via HID (`hid_rx` / `hid_ry`). Both can be pressed simultaneously.
-> **USB fully supported**: buttons, analog sticks, analog triggers, touchpad (XY tracking + click, mouse emulation), gyroscope (X/Y/Z axes visible in the Pads tab).
+> **USB fully supported**: buttons, analog sticks, analog triggers, touchpad (XY tracking + click, mouse emulation), gyroscope (X/Y/Z axes, calibratable and mappable — see [*Gyroscope / Accelerometer (IMU)*](#gyroscope--accelerometer-imu)).
 > **Bluetooth**: simplified report only (sticks + face buttons). Full BT support pending.
 
 ---

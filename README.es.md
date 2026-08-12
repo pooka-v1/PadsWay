@@ -458,7 +458,7 @@ Si hay cambios sin guardar, aparece un diálogo de confirmación antes de cambia
 - `[Emparejar mando]` — lanza el Asistente de emparejamiento (ver más abajo).
 
 Tipos de componente soportados: `button`, `stick`, `dpad`, `touchpad`, `gyroscope`, `decoration`, `template`.
-El componente `gyroscope` es visible en la pestaña Pads cuando el mando conectado reporta datos IMU (p. ej. DualShock 4 por USB). No requiere calibración — los datos se leen automáticamente desde offsets HID fijos.
+El componente `gyroscope` es visible en la pestaña Pads cuando el mando conectado reporta datos IMU (p. ej. 8BitDo Pro 3 D-mode, DualShock 4 por USB). A diferencia del resto de ejes, los datos de gyro/accel necesitan un paso de calibración antes de poder usarse — ver [*Giroscopio / Acelerómetro (IMU)*](#giroscopio--acelerómetro-imu) más abajo.
 
 **Panel central** — canvas con el layout a escala. Se muestran las zonas FRONT (franja inferior) y TOP (área principal) con sus componentes renderizados en vivo.
 
@@ -504,7 +504,7 @@ El asistente guía a través de cinco etapas:
    - **Stick izquierdo Y**: empuja totalmente hacia **abajo**.
    - **Stick derecho X/Y**: mismo convenio.
    - **Gatillos**: aprieta completamente.
-   - **Los componentes de giroscopio se omiten** — los datos del giroscopio se leen automáticamente desde offsets HID fijos y no requieren ningún paso de calibración.
+   - **Los componentes de giroscopio/acelerómetro tienen su propia calibración** en vez del simple empuje-a-extremo: mantén el mando quieto (baseline), dale la vuelta una vez, y luego para cada eje (roll, pitch, yaw) empuja a un extremo, quieto, empuja al extremo opuesto, quieto otra vez. Los ejes invertidos se detectan y corrigen automáticamente — no hace falta invertir nada a mano en este paso.
 5. **Revisión** — muestra todos los botones, ejes y cruceta asignados. Confirma para guardar o reinicia desde el paso de nombre.
 
 ### Resultado
@@ -533,6 +533,44 @@ El asistente usa `state_map.json` para saber el nombre físico del botón (`phys
 |---|---|
 | El eje X del stick analógico izquierdo puede no capturarse (empujar a la derecha no calibra) | En investigación |
 | La pestaña Pads no se refresca hasta reiniciar la app después de que el asistente guarda | En investigación |
+
+---
+
+## Giroscopio / Acelerómetro (IMU)
+
+Los mandos con giroscopio/acelerómetro integrado (8BitDo Pro 3 D-mode, DualShock 4 por USB)
+pueden pilotar cualquier binding — botones, cruceta, sticks analógicos, gatillos, macros,
+teclado, ratón o bots — igual que un control físico.
+
+### Calibración
+
+1. Ejecuta el **Asistente de emparejamiento** (ver más arriba) — los mandos con IMU tienen un
+   paso extra de calibración tras los ejes, descrito en el paso 4 de arriba (baseline, flip, y
+   luego un gesto de parar-y-votar por eje). Los ejes invertidos se detectan y corrigen
+   automáticamente.
+2. Afínalo después desde el **panel de Calibración** (pestaña Pads): deadzone, rango máximo e
+   inversión, de forma independiente para cada eje de gyro/accel — mismos controles que sticks y
+   gatillos.
+
+### Mapeo — la pestaña Mapeador
+
+Cada eje de gyro/accel se comporta como dos medios-ejes (p. ej. Pitch+ / Pitch-), asignables por
+separado:
+
+- **Medio-eje → botón / cruceta / analógico / gatillo** — un barrido progresivo reposo→extremo
+  arma la acción: mueve el mando desde la posición de reposo hacia el extremo para disparar,
+  sin necesidad de mantener pulsado. Un **umbral de activación** (40% por defecto) fija cuánto
+  tiene que avanzar el barrido antes de disparar.
+- **Eje completo → mapeo analógico**, en uno de dos modos:
+  - **Absoluto / stick** — la inclinación mapea directamente a una posición de stick (p. ej.
+    dirección estilo Mario Kart).
+  - **Incremental / ratón** — el movimiento mapea a velocidad de cursor, reutilizando los mismos
+    targets `mouse_x`/`mouse_y` que un stick analógico (p. ej. apuntado). Tiene su propia
+    inversión, independiente de la inversión de ratón que usa el movimiento de ratón desde stick.
+
+> La salida virtual DualShock 4 **no** transmite datos de gyro/accel (ver *Tipo de salida
+> virtual* más arriba) — el mapeo IMU solo afecta a lo que PadsWay manda a macros/teclado/
+> ratón/bots/el mando virtual, no reenvía los datos IMU en bruto hacia abajo.
 
 ---
 
@@ -729,7 +767,7 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 | **14** | **Touchpad click** | **— sin equivalente** |
 
 > L2 y R2 son analógicos independientes vía HID (`hid_rx` / `hid_ry`). Se pueden pulsar ambos a la vez.
-> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, touchpad (seguimiento XY + clic, emulación de ratón), giroscopio (ejes X/Y/Z visibles en la pestaña Pads).
+> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, touchpad (seguimiento XY + clic, emulación de ratón), giroscopio (ejes X/Y/Z, calibrable y mapeable — ver [*Giroscopio / Acelerómetro (IMU)*](#giroscopio--acelerómetro-imu)).
 > **Bluetooth**: report simplificado (sticks + botones de cara). Soporte BT completo pendiente.
 
 ---
