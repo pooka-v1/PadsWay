@@ -739,7 +739,8 @@
           "virtual": "home"
         },
         "14": {
-          "physical": "touch_btn"
+          "physical": "touch_btn",
+          "virtual": "y"
         },
         "2": {
           "physical": "a",
@@ -811,6 +812,13 @@
           "deadzone": 0.03999999910593033,
           "max": 1.0
         }
+      },
+      "touchpad": {
+        "data_offset": 35,
+        "enabled": true,
+        "max_x": 1919,
+        "max_y": 942,
+        "surface_mode": "mouse"
       },
       "trigger_calibration": {
         "l2": {

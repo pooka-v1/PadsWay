@@ -238,6 +238,7 @@ void MappingModel::clear() {
     trigRRangeEdits.clear();
     stickSlotEdits.clear();
     contextBotsEdits.clear();
+    touchSurfaceMode = TouchpadSurfaceMode::Mouse;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +304,8 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
         gyroActionEdits[key] = action;
     for (const auto& [key, action] : cfg.accel_actions)
         accelActionEdits[key] = action;
+
+    touchSurfaceMode = cfg.touchpad.surfaceMode;
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +619,29 @@ void MappingModel::save(const std::string& path) {
                 ctrl["accel_actions"] = axisActionsToJson(accelActionEdits);
             else
                 ctrl.erase("accel_actions");
+        }
+
+        // --- Touchpad (Superficie channel mode) ---
+        // First writer of this section ever — controllers.json has never had a "touchpad" key
+        // (see ARCHITECTURE.md "Touchpad"). Only written for controllers that actually have one
+        // (an existing "touchpad" section, or a discovered touch_btn button bit) — otherwise
+        // every save would plant a spurious enabled:true section on non-touchpad controllers.
+        // enabled defaults true here; existing dataOffset/maxX/maxY are preserved as-is (wizard/
+        // calibration territory, not this panel's), ground-truth DS4 defaults only if new.
+        {
+            bool hasTouchBtn = false;
+            for (const auto& [key, btn] : ctrl["buttons"].items())
+                if (btn.is_object() && btn.value("physical", "") == "touch_btn") { hasTouchBtn = true; break; }
+
+            if (ctrl.contains("touchpad") || hasTouchBtn) {
+                json tpJson = ctrl.contains("touchpad") ? ctrl["touchpad"] : json::object();
+                tpJson["enabled"]      = true;
+                if (!tpJson.contains("data_offset")) tpJson["data_offset"] = 35;
+                if (!tpJson.contains("max_x"))       tpJson["max_x"]       = 1919;
+                if (!tpJson.contains("max_y"))       tpJson["max_y"]       = 942;
+                tpJson["surface_mode"] = touchpadSurfaceModeToString(touchSurfaceMode);
+                ctrl["touchpad"] = std::move(tpJson);
+            }
         }
 
         break;

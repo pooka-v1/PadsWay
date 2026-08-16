@@ -213,7 +213,8 @@ void PhysicalAnalogDir::process(float value, GamepadState& out,
 // ─── PhysicalTouchpad ────────────────────────────────────────────────────────
 
 void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
-                                StickAccumulator&, StickAccumulator&, GyroAccumulator&) const {
+                                StickAccumulator& left, StickAccumulator& right,
+                                GyroAccumulator& gyro) const {
     // Pass touchpad state through unchanged.
     // Surface routing (mouse movement) is handled by the input source's applyTouchpad().
     out.btnTouch    = physical.btnTouch;
@@ -225,6 +226,11 @@ void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
     out.touch2Y     = physical.touch2Y;
     out.touchDeltaX = physical.touchDeltaX;
     out.touchDeltaY = physical.touchDeltaY;
+
+    // Boton channel: apply the assigned virtual target on top of the raw passthrough above —
+    // same mechanism PhysicalButton uses. VirtualPassthrough (default/unbound) is a no-op here,
+    // same as everywhere else applyVirtualTarget is used.
+    if (physical.btnTouch) applyVirtualTarget(clickTarget, 1.0f, out, left, right, gyro);
 }
 
 // ─── PhysicalGyro ─────────────────────────────────────────────────────────────

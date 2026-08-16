@@ -63,6 +63,12 @@ public:
     // Bots to start automatically while this profile is active (profile mode only).
     std::vector<std::string> contextBotsEdits;
 
+    // Touchpad Superficie channel mode — device property, not per-profile (same precedent as
+    // gyro/accel calibration). Edited in Normal mode only; loadProfile()/saveProfile() leave it
+    // untouched (reloadFromConfig() picks it up from whatever ControllerConfig it's given, base
+    // or profile-applied, but saveProfile() never writes it back).
+    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Mouse;
+
     // Populate edits from the matching config entry (vid/pid must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 

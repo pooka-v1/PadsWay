@@ -318,11 +318,12 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
         if (c.contains("touchpad")) {
             const auto& tp        = c["touchpad"];
-            cfg.touchpad.enabled      = tp.value("enabled",       false);
-            cfg.touchpad.dataOffset   = tp.value("data_offset",   34);
-            cfg.touchpad.maxX         = tp.value("max_x",         1919);
-            cfg.touchpad.maxY         = tp.value("max_y",         942);
-            cfg.touchpad.mouseEnabled = tp.value("mouse_enabled", false);
+            cfg.touchpad.enabled     = tp.value("enabled",       false);
+            cfg.touchpad.dataOffset  = tp.value("data_offset",   35);
+            cfg.touchpad.maxX        = tp.value("max_x",         1919);
+            cfg.touchpad.maxY        = tp.value("max_y",         942);
+            cfg.touchpad.surfaceMode = touchpadSurfaceModeFromString(
+                tp.value("surface_mode", std::string("mouse")));
         }
 
         if (c.contains("imu")) {
@@ -994,12 +995,22 @@ static PhysicalController parsePhysicalController(const json& c) {
         ctrl.baseLayer[static_cast<size_t>(id)] = std::move(comp);
     };
 
+    // Boton channel (btnTouch) target, stashed here and merged into the touchpad section below —
+    // "touch_btn" isn't a physicalNameToComponentId() case since it doesn't drive a PhysicalButton
+    // (no HID bit array to test; "pressed" is physical.btnTouch, read directly by
+    // PhysicalTouchpad::process()), it merges into PhysicalTouchpad::clickTarget instead.
+    std::optional<VirtualTarget> touchClickTarget;
+
     // ── Buttons ──────────────────────────────────────────────────────────────
     if (c.contains("buttons")) {
         for (const auto& [key, val] : c["buttons"].items()) {
             if (!key.empty() && key[0] == '_') continue;
             ButtonAction action = parseButtonAction(val);
             if (action.physical.empty()) continue;
+            if (action.physical == "touch_btn") {
+                if (auto vt = buttonActionToVT(action)) touchClickTarget = *vt;
+                continue;
+            }
             auto cid = physicalNameToComponentId(action.physical);
             if (!cid) continue;
             auto vt = buttonActionToVT(action);
@@ -1136,15 +1147,26 @@ static PhysicalController parsePhysicalController(const json& c) {
     }
 
     // ── Touchpad ─────────────────────────────────────────────────────────────
-    if (c.contains("touchpad")) {
-        const auto& tp = c["touchpad"];
+    // Built whenever either an explicit "touchpad" JSON section exists OR a "touch_btn" buttons
+    // entry was found above. Controllers saved before MappingModel::save() gained its "touchpad"
+    // writer have no such section at all (the DS4's ground-truth dataOffset/maxX/maxY happen to
+    // already be TouchpadConfig's compiled-in defaults), so gating on c.contains("touchpad")
+    // alone left ComponentId::Touchpad permanently unset and PhysicalTouchpad::process() (and
+    // clickTarget) never ran for those controllers.
+    if (c.contains("touchpad") || touchClickTarget) {
         TouchpadConfig tpc;
-        tpc.enabled      = tp.value("enabled",       false);
-        tpc.dataOffset   = tp.value("data_offset",   34);
-        tpc.maxX         = tp.value("max_x",         1919);
-        tpc.maxY         = tp.value("max_y",         942);
-        tpc.mouseEnabled = tp.value("mouse_enabled", false);
-        setBase(ComponentId::Touchpad, PhysicalTouchpad{tpc});
+        if (c.contains("touchpad")) {
+            const auto& tp = c["touchpad"];
+            tpc.enabled     = tp.value("enabled",       false);
+            tpc.dataOffset  = tp.value("data_offset",   35);
+            tpc.maxX        = tp.value("max_x",         1919);
+            tpc.maxY        = tp.value("max_y",         942);
+            tpc.surfaceMode = touchpadSurfaceModeFromString(
+                tp.value("surface_mode", std::string("mouse")));
+        }
+        PhysicalTouchpad ptp{tpc};
+        if (touchClickTarget) ptp.clickTarget = *touchClickTarget;
+        setBase(ComponentId::Touchpad, ptp);
     }
 
     // ── Gyro / Accel ─────────────────────────────────────────────────────────
@@ -1192,13 +1214,37 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
     };
 
     // ── Buttons ──────────────────────────────────────────────────────────────
+    // "touch_btn" merges into the existing Touchpad slot's clickTarget below instead of going
+    // through setBase(cid, PhysicalButton{...}) — see the matching comment in
+    // parsePhysicalController(). Surface cfg (dataOffset/maxX/maxY/surfaceMode) isn't rebuilt
+    // here: it lives in Normal mode (MappingModel), not per-profile, same as gyro/accel calibration.
+    bool touchClickSeen = false;
+    std::optional<VirtualTarget> touchClickTarget;
     for (const auto& [bit, action] : cfg.buttons) {
         if (action.physical.empty()) continue;
+        if (action.physical == "touch_btn") {
+            touchClickSeen   = true;
+            touchClickTarget = buttonActionToVT(action);
+            continue;
+        }
         auto cid = physicalNameToComponentId(action.physical);
         if (!cid) continue;
         auto vt = buttonActionToVT(action);
         if (vt) setBase(*cid, PhysicalButton{static_cast<uint8_t>(bit), *vt});
         else    setBase(*cid, std::nullopt);   // unbound (e.g. cleared by a profile)
+    }
+    if (touchClickSeen) {
+        auto& touchSlot = pc.baseLayer[static_cast<size_t>(ComponentId::Touchpad)];
+        if (touchSlot && std::holds_alternative<PhysicalTouchpad>(*touchSlot)) {
+            std::get<PhysicalTouchpad>(*touchSlot).clickTarget =
+                touchClickTarget.value_or(VirtualTarget{VirtualPassthrough{}});
+        } else {
+            // Slot wasn't built yet (defensive — parsePhysicalController() builds it whenever
+            // a touch_btn entry exists, same condition as touchClickSeen here).
+            PhysicalTouchpad ptp{cfg.touchpad};
+            ptp.clickTarget = touchClickTarget.value_or(VirtualTarget{VirtualPassthrough{}});
+            touchSlot = ptp;
+        }
     }
 
     // ── Dpad ─────────────────────────────────────────────────────────────────

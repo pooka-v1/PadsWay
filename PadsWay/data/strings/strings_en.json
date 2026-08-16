@@ -236,7 +236,12 @@
         "mouse_middle":  "Middle",
         "mouse_back":    "Back",
         "mouse_forward":   "Forward",
-        "type_mousemove":  "Mouse Move"
+        "type_mousemove":  "Mouse Move",
+        "touch_surface_wip": "Surface mode not implemented yet.",
+        "touch_mode_mouse":   "Mouse",
+        "touch_mode_analog":  "Analog",
+        "touch_mode_gesture": "Gesture",
+        "touch_mode_zones":   "Zones"
     },
     "pad": {
         "btn_a":       "A",

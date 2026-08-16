@@ -1866,7 +1866,7 @@ void PadEngine::threadFunc() {
             }
 
             // --- Touchpad delta mouse (no dead zone — real finger movement, not velocity) ---
-            if (cfg->touchpad.mouseEnabled &&
+            if (cfg->touchpad.surfaceMode == TouchpadSurfaceMode::Mouse &&
                 (state.touchDeltaX != 0.0f || state.touchDeltaY != 0.0f)) {
                 constexpr float kTouchpadScale = 1.5f;
                 mouseAccumX += state.touchDeltaX * kTouchpadScale;

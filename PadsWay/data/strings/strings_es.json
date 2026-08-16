@@ -236,7 +236,12 @@
         "mouse_middle":  "Centro",
         "mouse_back":    "Atras",
         "mouse_forward":   "Adelante",
-        "type_mousemove":  "Mov.Raton"
+        "type_mousemove":  "Mov.Raton",
+        "touch_surface_wip": "Este modo aun no esta implementado.",
+        "touch_mode_mouse":   "Raton",
+        "touch_mode_analog":  "Analogico",
+        "touch_mode_gesture": "Gestos",
+        "touch_mode_zones":   "Zonas"
     },
     "pad": {
         "btn_a":       "A",

@@ -80,6 +80,13 @@ public:
     // and sets outDir accordingly. Returns -1 if none was hit.
     int hitTestGyroArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const;
 
+    // Draws the Superficie/Boton split hint icons over every touchpad component — Mapeador-only
+    // (called explicitly, not part of render()'s per-component loop, same precedent as
+    // renderStickArrows): showing it in Pads/Perfiles/LayoutEditor would suggest the user can
+    // click there too, which they can't. selectedComp/surfaceSelected: which half (if any) of
+    // which touchpad component is currently selected, brightened over the other's dim default.
+    void renderTouchpadHints(ImVec2 canvasOrigin, int selectedComp, bool surfaceSelected);
+
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
 
 private:
@@ -102,4 +109,11 @@ private:
     PadTexture m_gyroArrowN, m_gyroArrowS, m_gyroArrowE, m_gyroArrowW; // pitch/roll cardinals
     PadTexture m_gyroArrowCW, m_gyroArrowCCW;                     // yaw rotation direction
     PadTexture m_gyroLevelBar;                                    // yaw clock-hand, LevelBar.png
+
+    // Touchpad split hint icons (loaded once in load(), used by the "touchpad" component type —
+    // fixed set, not driven by PadComponent::image, same precedent as the gyro widget above).
+    // Drawn centered in each half of the touchpad rect: left = Superficie (touch channel),
+    // right = Boton (click channel). See ARCHITECTURE.md, "Touchpad" section.
+    PadTexture m_touchSurfaceIcon;   // TouchPanel.png       (finger touching, slide hint)
+    PadTexture m_touchButtonIcon;    // TouchPressButton.png (finger touching, press hint)
 };

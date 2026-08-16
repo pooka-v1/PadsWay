@@ -132,6 +132,7 @@ private:
     void onPhysButtonHit(PadView& phys, int physHit);
     void onPhysStickHit(int physHit);
     void onPhysDpadHit(PadView& phys, int physHit, ImVec2 mouse);
+    void onPhysTouchpadHit(PadView& phys, int physHit, ImVec2 mouse);
     void onVirtHitPhysButton(PadView& phys, PadView& virt, ImVec2 mouse);
     void onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mouse);
     void onVirtHitTriggerSrc(PadView& virt, ImVec2 mouse);

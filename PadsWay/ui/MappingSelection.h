@@ -126,6 +126,10 @@ struct MappingSelection {
     bool        stickAsButton   = false;// true → stick selected for L3/R3
     std::string dpadDir;                // "up"/"down"/"left"/"right" or ""
     std::string triggerSrc;             // "l2", "r2", or ""
+    // Touchpad component split (see MappingEditor::onPhysTouchpadHit): true → left half
+    // (Superficie/touch channel) selected, false → right half (Botón/btnTouch channel).
+    // Only meaningful while the selected physComp's type is "touchpad".
+    bool        touchSurfaceSelected = false;
 
     // --- Flash feedback on virtual pad ---
     int         flashComp       = -1;
@@ -187,6 +191,7 @@ struct MappingSelection {
         stickAsButton = false;
         dpadDir.clear();
         triggerSrc.clear();
+        touchSurfaceSelected = false;
         flashComp     = -1;
         flashTimer    = 0.0f;
         flashVirtShort.clear();

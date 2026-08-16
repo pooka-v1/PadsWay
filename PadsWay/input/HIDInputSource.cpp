@@ -4,6 +4,7 @@
 #include "StickSlotsHelper.h"
 #include <hidsdi.h>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_hid.preparsed()))
@@ -781,6 +782,22 @@ void HIDInputSource::applyAxesResidual(PCHAR buf, ULONG bufLen, GamepadState& st
 }
 
 // ---------------------------------------------------------------------------
+// Gesture-threshold harness — see ARCHITECTURE.md "Touchpad", "Harness de umbrales de Gestos".
+// Captures raw session data only (no gesture classification here, by design — that's what these
+// numbers are meant to let someone design later, not something the harness should presuppose).
+void HIDInputSource::logTouchSession(int finger, float x0, float y0, float x1, float y1,
+                                      ULONGLONG startMs) const {
+    float dx   = (x1 - x0) * static_cast<float>(m_config.touchpad.maxX);
+    float dy   = (y1 - y0) * static_cast<float>(m_config.touchpad.maxY);
+    float dist = std::sqrt(dx * dx + dy * dy);
+    float angleDeg = std::atan2(dy, dx) * 180.0f / 3.14159265f;
+    ULONGLONG durationMs = GetTickCount64() - startMs;
+    spdlog::debug("[TOUCH][sess] finger={} x0={:.3f} y0={:.3f} x1={:.3f} y1={:.3f} "
+                  "dx={:.1f} dy={:.1f} dist={:.1f} angleDeg={:.1f} durationMs={}",
+                  finger, x0, y0, x1, y1, dx, dy, dist, angleDeg, durationMs);
+}
+
+// ---------------------------------------------------------------------------
 
 void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.touchDeltaX = 0.0f;
@@ -798,6 +815,7 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         state.touch1Active = false;
         state.touch2Active = false;
         m_lastTouchActive  = false;
+        m_lastTouch2Active = false;
         return;
     }
 
@@ -831,8 +849,13 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             // Delta in raw touchpad units — used for mouse routing
             state.touchDeltaX = (normX - m_lastTouchX) * static_cast<float>(m_config.touchpad.maxX);
             state.touchDeltaY = (normY - m_lastTouchY) * static_cast<float>(m_config.touchpad.maxY);
+        } else {
+            // First contact this gesture — no delta (avoids jump on finger-down). Also the start
+            // of a new touch session for the gesture-threshold harness.
+            m_touch1SessStartX  = normX;
+            m_touch1SessStartY  = normY;
+            m_touch1SessStartMs = GetTickCount64();
         }
-        // else: first contact this gesture — no delta (avoids jump on finger-down)
 
         m_lastTouchX = normX;
         m_lastTouchY = normY;
@@ -841,6 +864,10 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         state.touch1Y = 0.0f;
         m_physicalState.touch1X = 0.0f;
         m_physicalState.touch1Y = 0.0f;
+
+        if (m_lastTouchActive)
+            logTouchSession(1, m_touch1SessStartX, m_touch1SessStartY,
+                             m_lastTouchX, m_lastTouchY, m_touch1SessStartMs);
     }
 
     m_lastTouchActive = active;
@@ -860,13 +887,31 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             state.touch2Y = static_cast<float>(rawY2) / static_cast<float>(m_config.touchpad.maxY);
             m_physicalState.touch2X = state.touch2X;
             m_physicalState.touch2Y = state.touch2Y;
+
+            if (!m_lastTouch2Active) {
+                // Start of a new touch session for finger 2 (gesture-threshold harness).
+                m_touch2SessStartX  = state.touch2X;
+                m_touch2SessStartY  = state.touch2Y;
+                m_touch2SessStartMs = GetTickCount64();
+            }
+            m_lastTouch2X = state.touch2X;
+            m_lastTouch2Y = state.touch2Y;
         } else {
             state.touch2X = 0.0f;
             state.touch2Y = 0.0f;
             m_physicalState.touch2X = 0.0f;
             m_physicalState.touch2Y = 0.0f;
+
+            if (m_lastTouch2Active)
+                logTouchSession(2, m_touch2SessStartX, m_touch2SessStartY,
+                                 m_lastTouch2X, m_lastTouch2Y, m_touch2SessStartMs);
         }
+        m_lastTouch2Active = state.touch2Active;
     } else {
+        if (m_lastTouch2Active)
+            logTouchSession(2, m_touch2SessStartX, m_touch2SessStartY,
+                             m_lastTouch2X, m_lastTouch2Y, m_touch2SessStartMs);
+        m_lastTouch2Active = false;
         state.touch2Active = false;
         state.touch2X = state.touch2Y = 0.0f;
         m_physicalState.touch2Active = false;

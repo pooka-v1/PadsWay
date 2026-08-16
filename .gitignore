@@ -40,4 +40,8 @@ tools/
 # Release staging / packaged zips
 dist/
 
+# Scratch space for Claude Code's temporary working files (commit drafts, notes,
+# generated previews) — never part of the product, replaces AppData scratchpad.
+temp/
+
 

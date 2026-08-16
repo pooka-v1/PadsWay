@@ -181,9 +181,13 @@ struct PhysicalAnalogDir {
 };
 
 // Placeholder — will grow with gestures, touch zones, two-finger combos, etc.
-// The touchpad click button goes in components[ComponentId::BtnHome] or similar, NOT here.
 struct PhysicalTouchpad {
     TouchpadConfig cfg;
+    // Boton channel (btnTouch) target — same mechanism as PhysicalButton::target, applied on top
+    // of the raw out.btnTouch passthrough when physical.btnTouch is true. Superficie channel
+    // (touch1/2, delta) has no per-instance target yet — surfaceMode selector not implemented,
+    // see ARCHITECTURE.md "Touchpad" section.
+    VirtualTarget clickTarget = VirtualPassthrough{};
 
     void process(const GamepadState& physical, GamepadState& out,
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;

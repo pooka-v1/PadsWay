@@ -52,6 +52,18 @@ private:
     float            m_lastTouchX      = 0.0f;
     float            m_lastTouchY      = 0.0f;
     bool             m_lastTouchActive = false;
+    float            m_lastTouch2X      = 0.0f;
+    float            m_lastTouch2Y      = 0.0f;
+    bool             m_lastTouch2Active = false;
+    // Gesture-threshold harness (measure, not classify — see ARCHITECTURE.md "Touchpad"): each
+    // finger's touch-down position/time, captured on the rising edge, consumed on the falling
+    // edge to log one summary line per session.
+    float            m_touch1SessStartX  = 0.0f;
+    float            m_touch1SessStartY  = 0.0f;
+    ULONGLONG        m_touch1SessStartMs = 0;
+    float            m_touch2SessStartX  = 0.0f;
+    float            m_touch2SessStartY  = 0.0f;
+    ULONGLONG        m_touch2SessStartMs = 0;
     GamepadState             m_physicalState;
     RawHIDState              m_lastRawSnapshot;
     std::vector<std::string> m_activeAxisActions;
@@ -69,6 +81,10 @@ private:
     void          applyButtons (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);
+    // Logs one [TOUCH][sess] line for a finger's just-ended touch session — see the harness
+    // comment near m_touch1SessStartX above. x0/y0/x1/y1 are normalized [0,1] touchpad coords.
+    void          logTouchSession(int finger, float x0, float y0, float x1, float y1,
+                                   ULONGLONG startMs) const;
     void          applyIMU     (PCHAR buf, ULONG bytesRead, GamepadState& state);
     void          applyImuActions();
     void          buildPhysicalButtons (PCHAR buf, ULONG bufLen);

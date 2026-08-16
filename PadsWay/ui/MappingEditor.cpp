@@ -1226,6 +1226,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         }
         phys.renderStickArrows(m_physOrigin, physArrowComp, physArrowDir);
         phys.renderGyroArrows(m_physOrigin, physArrowComp, physArrowDir);
+        phys.renderTouchpadHints(m_physOrigin, m_sel.physComp, m_sel.touchSurfaceSelected);
     }
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
@@ -1437,7 +1438,36 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         ImGui::Spacing();
         float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
 
-    if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
+    if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
+        // Superficie: surfaceMode selector. Only Mouse has real behavior today (the pre-existing
+        // touchDelta->mouse routing); Analog/Gesture/Zones are visible placeholders — see
+        // ARCHITECTURE.md "Touchpad" for the full design, each mode is its own future task.
+        float btnW   = 110.0f;
+        float totalW = btnW * 4 + ImGui::GetStyle().ItemSpacing.x * 3;
+        float offX   = (availW - totalW) * 0.5f;
+        if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
+
+        auto modeBtn = [&](const char* label, TouchpadSurfaceMode mode, bool enabled) {
+            bool sel = (m_model.touchSurfaceMode == mode);
+            if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+            if (!enabled) ImGui::BeginDisabled();
+            if (ImGui::Button(label, { btnW, 0.0f })) m_model.touchSurfaceMode = mode;
+            if (!enabled) ImGui::EndDisabled();
+            if (sel) ImGui::PopStyleColor();
+        };
+        modeBtn(tr("action.touch_mode_mouse"),   TouchpadSurfaceMode::Mouse,   true);
+        ImGui::SameLine();
+        modeBtn(tr("action.touch_mode_analog"),  TouchpadSurfaceMode::Analog,  false);
+        ImGui::SameLine();
+        modeBtn(tr("action.touch_mode_gesture"), TouchpadSurfaceMode::Gesture, false);
+        ImGui::SameLine();
+        modeBtn(tr("action.touch_mode_zones"),   TouchpadSurfaceMode::Zones,   false);
+
+        if (m_model.touchSurfaceMode != TouchpadSurfaceMode::Mouse) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("%s", tr("action.touch_surface_wip"));
+        }
+    } else if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
         // ── H5: botón seleccionado ─────────────────────────────────────────
         const auto& selPhysComp = physComps[m_sel.physComp];
         const std::string physShortSel = (selType == "stick" && m_sel.stickAsButton)
@@ -2295,6 +2325,7 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
         if      (hitType == "button") onPhysButtonHit(phys, physHit);
         else if (hitType == "stick")  onPhysStickHit(physHit);
         else if (hitType == "dpad")   onPhysDpadHit(phys, physHit, mouse);
+        else if (hitType == "touchpad") onPhysTouchpadHit(phys, physHit, mouse);
         return;
     }
 
@@ -2307,7 +2338,11 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
                                     (phys.getLayout().components[m_sel.physComp].type == "stick" ||
                                      phys.getLayout().components[m_sel.physComp].type == "gyro") &&
                                     !m_sel.stickAsButton;
-            bool hasSource = (m_sel.physComp >= 0 && !selIsAxisSource) ||
+            // Superficie half (touch channel) has no surfaceMode selector yet — not a valid
+            // axis source until that's implemented (see ARCHITECTURE.md, Touchpad "Analógico").
+            bool selIsTouchSurface = m_sel.physComp >= 0 && m_sel.touchSurfaceSelected &&
+                                      phys.getLayout().components[m_sel.physComp].type == "touchpad";
+            bool hasSource = (m_sel.physComp >= 0 && !selIsAxisSource && !selIsTouchSurface) ||
                              (!m_sel.triggerSrc.empty() && m_sel.actionType == ActionType::Xbox);
             if (hasSource) { onVirtArrowHit(phys, virt, virtArrowComp, virtArrowDir); return; }
         }
@@ -2323,6 +2358,9 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
                 onVirtHitAxisAction(phys, virt, mouse);
             else if (m_sel.stickDir.empty())
                 onVirtHitPhysStick(phys, virt, mouse);
+        } else if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
+            // Superficie: surfaceMode selector (Ratón/Analógico/Movimiento/Zonas) not
+            // implemented yet — no virtual-pad action to assign from this half.
         } else if (m_sel.actionType == ActionType::Xbox) {
             onVirtHitPhysButton(phys, virt, mouse);
         }
@@ -2432,6 +2470,24 @@ void MappingEditor::onPhysDpadHit(PadView& phys, int physHit, ImVec2 mouse) {
         m_sel.physComp = -1; m_sel.dpadDir.clear();
     } else {
         m_sel.physComp = physHit; m_sel.triggerSrc.clear(); m_sel.dpadDir = dir;
+        m_sel.actionType = ActionType::Xbox;
+        m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Touchpad split hit: left half (finger icon) = Superficie/touch channel, right half
+// (button icon) = Botón/btnTouch channel — same left-reads-first, touch-over-click priority
+// technique dpad already uses for its 4 directions (see dpadDirFromMouse).
+// ---------------------------------------------------------------------------
+void MappingEditor::onPhysTouchpadHit(PadView& phys, int physHit, ImVec2 mouse) {
+    const PadComponent& tc = phys.getLayout().components[physHit];
+    bool surfaceHalf = mouse.x < (m_physOrigin.x + tc.cx);
+    if (physHit == m_sel.physComp && m_sel.touchSurfaceSelected == surfaceHalf) {
+        m_sel.physComp = -1; m_sel.touchSurfaceSelected = false;
+    } else {
+        m_sel.physComp = physHit; m_sel.triggerSrc.clear(); m_sel.dpadDir.clear();
+        m_sel.touchSurfaceSelected = surfaceHalf;
         m_sel.actionType = ActionType::Xbox;
         m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
     }

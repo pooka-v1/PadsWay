@@ -98,6 +98,8 @@ bool PadView::load(ID3D11Device* device) {
     loadPng(device, "images/gyroscope/ArrowClockwise.png",       m_gyroArrowCW);
     loadPng(device, "images/gyroscope/ArrowCounterclockwise.png",m_gyroArrowCCW);
     loadPng(device, "images/gyroscope/LevelBar.png",             m_gyroLevelBar);
+    loadPng(device, "images/decorations/TouchPanel.png",         m_touchSurfaceIcon);
+    loadPng(device, "images/decorations/TouchPressButton.png",   m_touchButtonIcon);
     return true;
 }
 
@@ -172,6 +174,8 @@ void PadView::unload() {
     m_gyroArrowCW.release();
     m_gyroArrowCCW.release();
     m_gyroLevelBar.release();
+    m_touchSurfaceIcon.release();
+    m_touchButtonIcon.release();
     m_device = nullptr;
     m_loaded = false;
 }
@@ -597,6 +601,32 @@ void PadView::renderStickArrows(ImVec2 canvasOrigin, int selectedComp, const std
             dl->AddImage((ImTextureID)(intptr_t)arrowTex[d]->srv, p0, p1,
                          { 0, 0 }, { 1, 1 }, ImGui::ColorConvertFloat4ToU32(tint));
         }
+    }
+}
+
+void PadView::renderTouchpadHints(ImVec2 canvasOrigin, int selectedComp, bool surfaceSelected) {
+    if (!m_loaded) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    auto drawIcon = [&](const PadTexture& t, float cx, float cy, float sz, bool bright) {
+        if (!t.valid()) return;
+        float alpha = bright ? 1.0f : 0.40f;   // same dim level as renderStickArrows
+        ImVec2 p0 = { cx - sz * 0.5f, cy - sz * 0.5f };
+        ImVec2 p1 = { p0.x + sz,      p0.y + sz };
+        dl->AddImage((ImTextureID)(intptr_t)t.srv, p0, p1,
+                     { 0, 0 }, { 1, 1 }, ImGui::ColorConvertFloat4ToU32({ 1.0f, 1.0f, 1.0f, alpha }));
+    };
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "touchpad") continue;
+
+        bool isSel = (i == selectedComp);
+        float cx   = canvasOrigin.x + c.cx;
+        float cy   = canvasOrigin.y + c.cy;
+        float sz   = c.h * 0.6f;
+        drawIcon(m_touchSurfaceIcon, cx - c.w * 0.25f, cy, sz, isSel && surfaceSelected);
+        drawIcon(m_touchButtonIcon,  cx + c.w * 0.25f, cy, sz, isSel && !surfaceSelected);
     }
 }
 

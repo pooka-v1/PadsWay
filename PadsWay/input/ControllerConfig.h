@@ -79,12 +79,35 @@ struct AxisMapping {
     float       threshold = 0.5f;     // dpad_x/dpad_y/btn_dir activation threshold
 };
 
+// Superficie channel mode — see ARCHITECTURE.md "Touchpad" section for the full design.
+// Only Mouse has behavior today (the pre-existing delta-to-mouse routing); Analog/Gesture/Zones
+// are selectable placeholders until their own implementation tasks land.
+enum class TouchpadSurfaceMode { Mouse, Analog, Gesture, Zones };
+
+inline const char* touchpadSurfaceModeToString(TouchpadSurfaceMode m) {
+    switch (m) {
+        case TouchpadSurfaceMode::Analog:  return "analog";
+        case TouchpadSurfaceMode::Gesture: return "gesture";
+        case TouchpadSurfaceMode::Zones:   return "zones";
+        default:                           return "mouse";
+    }
+}
+
+inline TouchpadSurfaceMode touchpadSurfaceModeFromString(const std::string& s) {
+    if (s == "analog")  return TouchpadSurfaceMode::Analog;
+    if (s == "gesture") return TouchpadSurfaceMode::Gesture;
+    if (s == "zones")   return TouchpadSurfaceMode::Zones;
+    return TouchpadSurfaceMode::Mouse;
+}
+
 struct TouchpadConfig {
     bool enabled      = false;
-    int  dataOffset   = 34;    // byte index of finger-1 data in raw HID report (DS4 USB: 34)
+    int  dataOffset   = 35;    // byte index of finger-1 data in raw HID report (DS4 USB: 35, see REFERENCE.md)
     int  maxX         = 1919;  // DS4 touchpad horizontal resolution
     int  maxY         = 942;   // DS4 touchpad vertical resolution
-    bool mouseEnabled = false; // route surface movement → mouse (delta-based)
+    // Sustituye al bool mouseEnabled: route surface movement -> mouse (delta-based) is now just
+    // the Mouse case of this enum.
+    TouchpadSurfaceMode surfaceMode = TouchpadSurfaceMode::Mouse;
 };
 
 struct ImuConfig {
