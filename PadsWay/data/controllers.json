@@ -814,11 +814,12 @@
         }
       },
       "touchpad": {
+        "analog_target": "both",
         "data_offset": 35,
         "enabled": true,
         "max_x": 1919,
         "max_y": 942,
-        "surface_mode": "mouse"
+        "surface_mode": "analog"
       },
       "trigger_calibration": {
         "l2": {

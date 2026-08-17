@@ -132,6 +132,14 @@ bool HIDInputSource::read(GamepadState& state) {
         }
 
         state = {};
+        // Must run BEFORE process(): PhysicalTouchpad::process() reads touch1Active/X/Y (and, for
+        // Analog mode, drives a stick accumulator from them) off m_physicalState, the same way
+        // applyIMU() above feeds gyro/accel into it. Calling this after process() (as used to be
+        // the case, back when only Mouse mode existed and read state.touchDelta* directly outside
+        // the Component System) left m_physicalState.touch1Active permanently false — wiped by the
+        // `m_physicalState = {}` at the top of this branch and never refreshed in time — so Analog
+        // mode's condition on physical.touch1Active could never fire.
+        applyTouchpad(buf, bytesRead, state);
         m_physicalController.process(m_physicalState, state);
         applyAxesResidual(buf, bufLen, state);
 
@@ -228,13 +236,13 @@ bool HIDInputSource::read(GamepadState& state) {
         }
 
         applyStickSlots(m_config, m_physicalState, state);
+        applyTouchpad(buf, bytesRead, state);
 
         spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
                m_name, state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
     }
 
-    applyTouchpad(buf, bytesRead, state);
     applyIMU     (buf, bytesRead, state);
     applyImuActions();
 
@@ -802,6 +810,8 @@ void HIDInputSource::logTouchSession(int finger, float x0, float y0, float x1, f
 void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.touchDeltaX = 0.0f;
     state.touchDeltaY = 0.0f;
+    m_physicalState.touchDeltaX = 0.0f;
+    m_physicalState.touchDeltaY = 0.0f;
 
     if (!m_config.touchpad.enabled) return;
 
@@ -849,6 +859,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             // Delta in raw touchpad units — used for mouse routing
             state.touchDeltaX = (normX - m_lastTouchX) * static_cast<float>(m_config.touchpad.maxX);
             state.touchDeltaY = (normY - m_lastTouchY) * static_cast<float>(m_config.touchpad.maxY);
+            m_physicalState.touchDeltaX = state.touchDeltaX;
+            m_physicalState.touchDeltaY = state.touchDeltaY;
         } else {
             // First contact this gesture — no delta (avoids jump on finger-down). Also the start
             // of a new touch session for the gesture-threshold harness.

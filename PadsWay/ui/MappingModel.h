@@ -69,6 +69,10 @@ public:
     // or profile-applied, but saveProfile() never writes it back).
     TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Mouse;
 
+    // Analog mode only: which virtual stick the surface drives, "left"/"right"/"" (none).
+    // Same precedent as touchSurfaceMode — Normal mode only, not per-profile.
+    std::string touchAnalogStickTarget;
+
     // Populate edits from the matching config entry (vid/pid must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 

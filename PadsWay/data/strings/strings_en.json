@@ -241,7 +241,10 @@
         "touch_mode_mouse":   "Mouse",
         "touch_mode_analog":  "Analog",
         "touch_mode_gesture": "Gesture",
-        "touch_mode_zones":   "Zones"
+        "touch_mode_zones":   "Zones",
+        "touch_analog_left":  "Left Stick",
+        "touch_analog_right": "Right Stick",
+        "touch_analog_both":  "Both"
     },
     "pad": {
         "btn_a":       "A",

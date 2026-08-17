@@ -239,6 +239,7 @@ void MappingModel::clear() {
     stickSlotEdits.clear();
     contextBotsEdits.clear();
     touchSurfaceMode = TouchpadSurfaceMode::Mouse;
+    touchAnalogStickTarget.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -306,6 +307,7 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
         accelActionEdits[key] = action;
 
     touchSurfaceMode = cfg.touchpad.surfaceMode;
+    touchAnalogStickTarget = cfg.touchpad.analogStickTarget;
 }
 
 // ---------------------------------------------------------------------------
@@ -640,6 +642,8 @@ void MappingModel::save(const std::string& path) {
                 if (!tpJson.contains("max_x"))       tpJson["max_x"]       = 1919;
                 if (!tpJson.contains("max_y"))       tpJson["max_y"]       = 942;
                 tpJson["surface_mode"] = touchpadSurfaceModeToString(touchSurfaceMode);
+                if (touchAnalogStickTarget.empty()) tpJson.erase("analog_target");
+                else                                 tpJson["analog_target"] = touchAnalogStickTarget;
                 ctrl["touchpad"] = std::move(tpJson);
             }
         }

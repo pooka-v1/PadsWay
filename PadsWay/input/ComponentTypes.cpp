@@ -216,7 +216,8 @@ void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
                                 StickAccumulator& left, StickAccumulator& right,
                                 GyroAccumulator& gyro) const {
     // Pass touchpad state through unchanged.
-    // Surface routing (mouse movement) is handled by the input source's applyTouchpad().
+    // Mouse-mode routing (touchDelta -> mouse movement) is handled by the input source's
+    // applyTouchpad(); Analog-mode routing (stick accumulator) is handled below.
     out.btnTouch    = physical.btnTouch;
     out.touch1Active = physical.touch1Active;
     out.touch1X     = physical.touch1X;
@@ -231,6 +232,56 @@ void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
     // same mechanism PhysicalButton uses. VirtualPassthrough (default/unbound) is a no-op here,
     // same as everywhere else applyVirtualTarget is used.
     if (physical.btnTouch) applyVirtualTarget(clickTarget, 1.0f, out, left, right, gyro);
+
+    // Analog channel: the surface behaves as a real analog stick — absolute finger position,
+    // recentered on the surface's own geometric middle, feeds the chosen stick's accumulator
+    // directly (same StickCalibration/flush() pipeline any physical stick uses). No per-direction
+    // action assignment here by design (that's Zonas/Movimiento's job) — see ARCHITECTURE.md
+    // "Touchpad" -> "Analogico". Finger up contributes nothing this frame, so the stick reads 0,
+    // same as releasing a physical stick.
+    if (cfg.surfaceMode == TouchpadSurfaceMode::Analog && !cfg.analogStickTarget.empty()) {
+        // rawX/rawY in [0,1]; centerX/halfWidthX pick which slice of the surface maps to this
+        // stick's full [-1,1] range — the whole surface for "left"/"right", one half of it for
+        // "both" (split-lr-2: left half of the pad -> left stick, right half -> right stick).
+        auto applyFinger = [&](bool active, float rawX, float rawY, StickAccumulator& target,
+                                float centerX, float halfWidthX) {
+            if (!active) return;
+            float sx = std::clamp((rawX - centerX) / halfWidthX, -1.0f, 1.0f);
+            // touch Y grows downward like screen coordinates; stick Y+ is "up" (see
+            // pad.left_y_pos = "Arriba"), so this axis is inverted relative to X.
+            float sy = -std::clamp((rawY - 0.5f) * 2.0f, -1.0f, 1.0f);
+            if (sx > 0.0f) target.xPos = std::max(target.xPos,  sx);
+            else           target.xNeg = std::max(target.xNeg, -sx);
+            if (sy > 0.0f) target.yPos = std::max(target.yPos,  sy);
+            else           target.yNeg = std::max(target.yNeg, -sy);
+        };
+
+        if (cfg.analogStickTarget == "both") {
+            // Each finger drives whichever stick corresponds to the half of the surface it
+            // *started* on — locked for the whole touch session (see touch1OnRightHalf's
+            // comment), not re-evaluated every frame. Without the lock, dragging a finger across
+            // the midline mid-gesture would hand control to the other stick, which reads as the
+            // stick "jumping" to whatever the other hand happens to be doing.
+            auto applyBothFinger = [&](bool active, float rawX, float rawY,
+                                       bool& sessionActive, bool& onRightHalf) {
+                if (!active) { sessionActive = false; return; }
+                if (!sessionActive) {
+                    onRightHalf   = rawX >= 0.5f;
+                    sessionActive = true;
+                }
+                applyFinger(true, rawX, rawY, onRightHalf ? right : left,
+                            onRightHalf ? 0.75f : 0.25f, 0.25f);
+            };
+            applyBothFinger(physical.touch1Active, physical.touch1X, physical.touch1Y,
+                            touch1SessionActive, touch1OnRightHalf);
+            applyBothFinger(physical.touch2Active, physical.touch2X, physical.touch2Y,
+                            touch2SessionActive, touch2OnRightHalf);
+        } else {
+            StickAccumulator& target = (cfg.analogStickTarget == "right") ? right : left;
+            applyFinger(physical.touch1Active, physical.touch1X, physical.touch1Y, target,
+                        0.5f, 0.5f);
+        }
+    }
 }
 
 // ─── PhysicalGyro ─────────────────────────────────────────────────────────────

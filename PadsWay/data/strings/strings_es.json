@@ -241,7 +241,10 @@
         "touch_mode_mouse":   "Raton",
         "touch_mode_analog":  "Analogico",
         "touch_mode_gesture": "Gestos",
-        "touch_mode_zones":   "Zonas"
+        "touch_mode_zones":   "Zonas",
+        "touch_analog_left":  "Stick Izq",
+        "touch_analog_right": "Stick Der",
+        "touch_analog_both":  "Ambos"
     },
     "pad": {
         "btn_a":       "A",

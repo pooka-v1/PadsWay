@@ -457,8 +457,9 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_sel.h9HoldDpadDir.clear();
                     m_sel.h9HoldTimer = 0.0f;
                 } else {
-                    int  activeComp       = -1;
-                    bool activeIsStickBtn = false;
+                    int  activeComp          = -1;
+                    bool activeIsStickBtn    = false;
+                    bool activeIsTouchSurface = false;
                     std::string activeDpadDir;
                     for (int i = 0; i < (int)physComps.size(); ++i) {
                         const PadComponent& c = physComps[i];
@@ -478,6 +479,19 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                             }
                             if (activeComp >= 0) break;
                         }
+                        if (c.type == "touchpad") {
+                            // Botón (physical click, c.state == "btnTouch") takes priority over
+                            // Superficie (just touching, touch1Active) — a real click implies the
+                            // finger is already touching, so a firmer press is the more deliberate
+                            // signal. See MappingEditor.cpp's onPhysTouchpadHit for the mouse-click
+                            // equivalent of this same left/right-half split.
+                            if (isStateActive(physNow, c.state)) {
+                                activeComp = i; activeIsTouchSurface = false; break;
+                            }
+                            if (physNow.touch1Active) {
+                                activeComp = i; activeIsTouchSurface = true; break;
+                            }
+                        }
                     }
                     if (activeComp >= 0) {
                         if (m_sel.h9HoldComp != activeComp) {
@@ -490,7 +504,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                             if (m_sel.h9HoldTimer >= 1.0f) {
                                 m_sel.physComp      = activeComp;
                                 m_sel.stickAsButton = activeIsStickBtn;
-                                m_sel.dpadDir       = activeDpadDir;
+                                m_sel.dpadDir        = activeDpadDir;
+                                m_sel.touchSurfaceSelected = activeIsTouchSurface;
                                 m_sel.actionType    = ActionType::Xbox;
                                 m_sel.h9HoldComp    = -1;
                                 m_sel.h9HoldDpadDir.clear();
@@ -1439,9 +1454,10 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         float availW = m_virtOrigin.x + virt.getLayout().W - m_physOrigin.x;
 
     if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
-        // Superficie: surfaceMode selector. Only Mouse has real behavior today (the pre-existing
-        // touchDelta->mouse routing); Analog/Gesture/Zones are visible placeholders — see
-        // ARCHITECTURE.md "Touchpad" for the full design, each mode is its own future task.
+        // Superficie: surfaceMode selector. Mouse (pre-existing touchDelta->mouse routing) and
+        // Analog (recentered touch position -> a chosen virtual stick, see below) have real
+        // behavior; Gesture/Zones are still visible placeholders — see ARCHITECTURE.md
+        // "Touchpad" for the full design.
         float btnW   = 110.0f;
         float totalW = btnW * 4 + ImGui::GetStyle().ItemSpacing.x * 3;
         float offX   = (availW - totalW) * 0.5f;
@@ -1451,21 +1467,63 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             bool sel = (m_model.touchSurfaceMode == mode);
             if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
             if (!enabled) ImGui::BeginDisabled();
-            if (ImGui::Button(label, { btnW, 0.0f })) m_model.touchSurfaceMode = mode;
+            if (ImGui::Button(label, { btnW, 0.0f })) {
+                m_model.touchSurfaceMode = mode;
+                // Analog is meaningless with no stick target — default to Left the moment the
+                // mode is picked instead of showing an empty/"none" resting state (there's no
+                // reason to pick Analog and not want a stick driven by it).
+                if (mode == TouchpadSurfaceMode::Analog && m_model.touchAnalogStickTarget.empty())
+                    m_model.touchAnalogStickTarget = "left";
+            }
             if (!enabled) ImGui::EndDisabled();
             if (sel) ImGui::PopStyleColor();
         };
         modeBtn(tr("action.touch_mode_mouse"),   TouchpadSurfaceMode::Mouse,   true);
         ImGui::SameLine();
-        modeBtn(tr("action.touch_mode_analog"),  TouchpadSurfaceMode::Analog,  false);
+        modeBtn(tr("action.touch_mode_analog"),  TouchpadSurfaceMode::Analog,  true);
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_gesture"), TouchpadSurfaceMode::Gesture, false);
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_zones"),   TouchpadSurfaceMode::Zones,   false);
 
-        if (m_model.touchSurfaceMode != TouchpadSurfaceMode::Mouse) {
+        if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog) {
+            // Analog: no per-direction action assignment (that's Zonas/Movimiento's job, whole
+            // discrete triggers) — the surface is a continuous stick, the only choice is which
+            // virtual stick it drives.
+            ImGui::Spacing();
+            float tgtBtnW   = 110.0f;
+            float tgtTotalW = tgtBtnW * 3 + ImGui::GetStyle().ItemSpacing.x * 2;
+            float tgtOffX   = (availW - tgtTotalW) * 0.5f;
+            if (tgtOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + tgtOffX);
+
+            auto targetBtn = [&](const char* label, const char* target) {
+                bool sel = (m_model.touchAnalogStickTarget == target);
+                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                if (ImGui::Button(label, { tgtBtnW, 0.0f })) m_model.touchAnalogStickTarget = target;
+                if (sel) ImGui::PopStyleColor();
+            };
+            targetBtn(tr("action.touch_analog_left"),  "left");
+            ImGui::SameLine();
+            targetBtn(tr("action.touch_analog_right"), "right");
+            ImGui::SameLine();
+            targetBtn(tr("action.touch_analog_both"),  "both");
+        } else if (m_model.touchSurfaceMode != TouchpadSurfaceMode::Mouse) {
             ImGui::Spacing();
             ImGui::TextDisabled("%s", tr("action.touch_surface_wip"));
+        }
+
+        // Explicit close, same "Asignar" pattern as every other capture panel in this editor
+        // (ActionPanel::renderKeyboardCapture/renderMacroCombo/renderBotCombo, MouseMove assign
+        // button) — mode/target choices above already commit into m_model the instant they're
+        // clicked (nothing staged), this button only ends the selection so the panel doesn't
+        // linger open until Guardar.
+        ImGui::Spacing();
+        float assignW  = 110.0f;
+        float assignOffX = (availW - assignW) * 0.5f;
+        if (assignOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + assignOffX);
+        if (ImGui::Button(tr("btn.assign"), { assignW, 0.0f })) {
+            m_sel.physComp = -1;
+            m_sel.touchSurfaceSelected = false;
         }
     } else if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
         // ── H5: botón seleccionado ─────────────────────────────────────────
@@ -2338,8 +2396,10 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
                                     (phys.getLayout().components[m_sel.physComp].type == "stick" ||
                                      phys.getLayout().components[m_sel.physComp].type == "gyro") &&
                                     !m_sel.stickAsButton;
-            // Superficie half (touch channel) has no surfaceMode selector yet — not a valid
-            // axis source until that's implemented (see ARCHITECTURE.md, Touchpad "Analógico").
+            // Superficie (touch channel) never goes through this per-half-axis arrow-click path,
+            // even in Analog mode: the surface is assigned to a whole stick (both axes at once)
+            // via its own target-stick selector in the action panel, not by clicking one arrow
+            // at a time like a digital source would — see ARCHITECTURE.md, Touchpad "Analógico".
             bool selIsTouchSurface = m_sel.physComp >= 0 && m_sel.touchSurfaceSelected &&
                                       phys.getLayout().components[m_sel.physComp].type == "touchpad";
             bool hasSource = (m_sel.physComp >= 0 && !selIsAxisSource && !selIsTouchSurface) ||
@@ -2359,8 +2419,10 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
             else if (m_sel.stickDir.empty())
                 onVirtHitPhysStick(phys, virt, mouse);
         } else if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
-            // Superficie: surfaceMode selector (Ratón/Analógico/Movimiento/Zonas) not
-            // implemented yet — no virtual-pad action to assign from this half.
+            // Superficie: no click-to-assign action from the virtual pad in any mode — Mouse has
+            // no target to assign, Analog is assigned via its own target-stick buttons in the
+            // action panel (whole surface -> whole stick, not per-arrow), and Gesture/Zones
+            // aren't implemented yet.
         } else if (m_sel.actionType == ActionType::Xbox) {
             onVirtHitPhysButton(phys, virt, mouse);
         }

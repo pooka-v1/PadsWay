@@ -180,14 +180,22 @@ struct PhysicalAnalogDir {
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;
 };
 
-// Placeholder — will grow with gestures, touch zones, two-finger combos, etc.
+// Botón/Superficie split (see ARCHITECTURE.md "Touchpad"). Mouse/Analog surfaceModes have real
+// behavior in process() below; Gesture/Zones are still to grow (two-finger combos, touch zones).
 struct PhysicalTouchpad {
     TouchpadConfig cfg;
     // Boton channel (btnTouch) target — same mechanism as PhysicalButton::target, applied on top
-    // of the raw out.btnTouch passthrough when physical.btnTouch is true. Superficie channel
-    // (touch1/2, delta) has no per-instance target yet — surfaceMode selector not implemented,
-    // see ARCHITECTURE.md "Touchpad" section.
+    // of the raw out.btnTouch passthrough when physical.btnTouch is true.
     VirtualTarget clickTarget = VirtualPassthrough{};
+
+    // Analog "both" mode only: which half each finger's current touch session is locked onto,
+    // decided once at finger-down and held for the whole session even if the finger later
+    // crosses the midline without lifting — see process()'s "both" branch. Mutable so process()
+    // can stay logically const (this is session bookkeeping, not a mapping decision).
+    mutable bool touch1SessionActive = false;
+    mutable bool touch2SessionActive = false;
+    mutable bool touch1OnRightHalf   = false;
+    mutable bool touch2OnRightHalf   = false;
 
     void process(const GamepadState& physical, GamepadState& out,
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;

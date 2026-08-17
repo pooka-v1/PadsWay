@@ -324,6 +324,7 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.touchpad.maxY        = tp.value("max_y",         942);
             cfg.touchpad.surfaceMode = touchpadSurfaceModeFromString(
                 tp.value("surface_mode", std::string("mouse")));
+            cfg.touchpad.analogStickTarget = tp.value("analog_target", std::string{});
         }
 
         if (c.contains("imu")) {
@@ -1163,6 +1164,7 @@ static PhysicalController parsePhysicalController(const json& c) {
             tpc.maxY        = tp.value("max_y",         942);
             tpc.surfaceMode = touchpadSurfaceModeFromString(
                 tp.value("surface_mode", std::string("mouse")));
+            tpc.analogStickTarget = tp.value("analog_target", std::string{});
         }
         PhysicalTouchpad ptp{tpc};
         if (touchClickTarget) ptp.clickTarget = *touchClickTarget;
@@ -1213,11 +1215,24 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
         return false;
     };
 
+    // Surface cfg (dataOffset/maxX/maxY/surfaceMode/analogStickTarget) is edited in Normal mode
+    // only (not per-profile) but still needs refreshing here on every rebuild — same treatment as
+    // the gyro/accel calibration above. Skipping it (as this used to do) left a live edit+save in
+    // the Mapeador invisible to the already-running PhysicalController until the app restarted and
+    // loadPhysicalControllers() re-parsed controllers.json from scratch: Mouse mode never showed
+    // the gap because PadEngine's touchDelta->mouse routing reads cfg->touchpad.surfaceMode
+    // directly every frame (PadEngine.cpp, outside the Component System) instead of through this
+    // struct, but Analog mode's routing lives inside PhysicalTouchpad::process() and does read it
+    // from here.
+    if (auto& touchSlot = pc.baseLayer[static_cast<size_t>(ComponentId::Touchpad)];
+        touchSlot && std::holds_alternative<PhysicalTouchpad>(*touchSlot)) {
+        std::get<PhysicalTouchpad>(*touchSlot).cfg = cfg.touchpad;
+    }
+
     // ── Buttons ──────────────────────────────────────────────────────────────
     // "touch_btn" merges into the existing Touchpad slot's clickTarget below instead of going
     // through setBase(cid, PhysicalButton{...}) — see the matching comment in
-    // parsePhysicalController(). Surface cfg (dataOffset/maxX/maxY/surfaceMode) isn't rebuilt
-    // here: it lives in Normal mode (MappingModel), not per-profile, same as gyro/accel calibration.
+    // parsePhysicalController().
     bool touchClickSeen = false;
     std::optional<VirtualTarget> touchClickTarget;
     for (const auto& [bit, action] : cfg.buttons) {

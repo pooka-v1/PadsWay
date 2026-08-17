@@ -80,8 +80,9 @@ struct AxisMapping {
 };
 
 // Superficie channel mode — see ARCHITECTURE.md "Touchpad" section for the full design.
-// Only Mouse has behavior today (the pre-existing delta-to-mouse routing); Analog/Gesture/Zones
-// are selectable placeholders until their own implementation tasks land.
+// Mouse (pre-existing delta-to-mouse routing) and Analog (recentered touch position -> a chosen
+// virtual stick, TouchpadConfig::analogStickTarget) have real behavior; Gesture/Zones are still
+// selectable placeholders until their own implementation tasks land.
 enum class TouchpadSurfaceMode { Mouse, Analog, Gesture, Zones };
 
 inline const char* touchpadSurfaceModeToString(TouchpadSurfaceMode m) {
@@ -108,6 +109,13 @@ struct TouchpadConfig {
     // Sustituye al bool mouseEnabled: route surface movement -> mouse (delta-based) is now just
     // the Mouse case of this enum.
     TouchpadSurfaceMode surfaceMode = TouchpadSurfaceMode::Mouse;
+    // Analog mode only: which virtual stick the recentered touch position drives directly,
+    // "left"/"right"/"both"/"" (empty = unassigned — surface reads but drives nothing). "both"
+    // splits the surface left/right (split-lr-2): whichever finger is on each half drives that
+    // half's stick, each recentered on its own half rather than the whole surface. Device
+    // property like surfaceMode itself, edited in Normal mode only, not per-profile — see
+    // ARCHITECTURE.md "Touchpad" -> "Analogico".
+    std::string analogStickTarget;
 };
 
 struct ImuConfig {
