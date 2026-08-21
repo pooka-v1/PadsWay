@@ -695,6 +695,17 @@ void PadEngine::threadFunc() {
         std::unordered_map<std::string, std::string> dpadBotNames;  // dir → bot name
         std::unordered_map<std::string, bool>        dpadBotPrev;   // dir → prev active state
 
+        // Touchpad Zonas actions (keyed by TouchZoneRegion::id, dynamic per template — not a
+        // fixed set like dpad's 4 directions). Same shape as the dpad maps above, driven by
+        // cfg->touchZoneActions instead of cfg->dpadActions.
+        std::unordered_map<std::string, Macro>       touchZoneMacros;
+        std::unordered_map<std::string, bool>        touchZoneMacroPrev;
+        std::unordered_map<std::string, std::string> touchZoneMacroNames;
+        std::unordered_map<std::string, bool>        touchZoneKbPrev;
+        std::unordered_map<std::string, bool>        touchZoneMousePrev;
+        std::unordered_map<std::string, std::string> touchZoneBotNames;  // region id → bot name
+        std::unordered_map<std::string, bool>        touchZoneBotPrev;   // region id → prev active state
+
         // Trigger-as-source state
         float trigLPrev = 0.0f;           // previous frame physical trigger L value
         float trigRPrev = 0.0f;           // previous frame physical trigger R value
@@ -943,6 +954,9 @@ void PadEngine::threadFunc() {
             dpadMacros.clear();  dpadMacroPrev.clear(); dpadMacroNames.clear();
             dpadKbPrev.clear();  dpadMousePrev.clear();
             dpadBotNames.clear(); dpadBotPrev.clear();
+            touchZoneMacros.clear();  touchZoneMacroPrev.clear(); touchZoneMacroNames.clear();
+            touchZoneKbPrev.clear();  touchZoneMousePrev.clear();
+            touchZoneBotNames.clear(); touchZoneBotPrev.clear();
             for (const auto& [bit, action] : cfg->buttons) {
                 if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
                 if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
@@ -950,6 +964,10 @@ void PadEngine::threadFunc() {
             for (const auto& [dir, action] : cfg->dpadActions) {
                 if (action.type == ButtonActionType::Keyboard)   dpadKbPrev[dir]    = false;
                 if (action.type == ButtonActionType::MouseClick) dpadMousePrev[dir] = false;
+            }
+            for (const auto& [regionId, action] : cfg->touchZoneActions) {
+                if (action.type == ButtonActionType::Keyboard)   touchZoneKbPrev[regionId]    = false;
+                if (action.type == ButtonActionType::MouseClick) touchZoneMousePrev[regionId] = false;
             }
             axisRangePrev.clear();
             axisRangeMacros.clear();
@@ -999,6 +1017,12 @@ void PadEngine::threadFunc() {
                 dpadBotPrev[dir]  = false;
                 spdlog::info("Bot '{}' assigned to dpad {}.", action.name, dir);
             }
+            for (const auto& [regionId, action] : cfg->touchZoneActions) {
+                if (action.type != ButtonActionType::Bot) continue;
+                touchZoneBotNames[regionId] = action.name;
+                touchZoneBotPrev[regionId]  = false;
+                spdlog::info("Bot '{}' assigned to touch zone '{}'.", action.name, regionId);
+            }
             for (const auto& [bit, action] : cfg->buttons) {
                 if (action.type != ButtonActionType::Macro) continue;
                 std::string execution = action.execution;
@@ -1043,6 +1067,29 @@ void PadEngine::threadFunc() {
                     dpadMacroPrev[dir]  = false;
                     dpadMacroNames[dir] = action.name;
                     spdlog::info("Macro '{}' assigned to dpad {}.", action.name, dir);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+                }
+            }
+            // Touch zone macros
+            for (const auto& [regionId, action] : cfg->touchZoneActions) {
+                if (action.type != ButtonActionType::Macro) continue;
+                std::string execution = action.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(action.name);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (touch zone '{}') not found in library.", action.name, regionId);
+                        continue;
+                    }
+                    execution = it->second;
+                }
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    touchZoneMacros[regionId]     = std::move(m);
+                    touchZoneMacroPrev[regionId]  = false;
+                    touchZoneMacroNames[regionId] = action.name;
+                    spdlog::info("Macro '{}' assigned to touch zone '{}'.", action.name, regionId);
                 } catch (const std::exception& ex) {
                     spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
                 }
@@ -1642,6 +1689,81 @@ void PadEngine::threadFunc() {
                     if (dir == "left")  state.dpadLeft  = false;
                     if (dir == "right") state.dpadRight = false;
                 }
+            }
+
+            // --- Touchpad Zonas actions (Macro / Keyboard / Mouse / Bot / VirtualButton / Trigger,
+            // edge-triggered where it applies) ---
+            // Reads `state`, not physical, unlike dpadActive above: activeTouchZone1/2 is itself
+            // the Component System's output (PhysicalTouchpad::process() resolves the hit-test
+            // straight into GamepadState), not something a downstream remap could have touched.
+            // Either finger can drive its own region independently (e.g. two-finger chords on
+            // split-lr-2), so a region counts as active if ANY finger currently sits in it.
+            auto touchZoneActive = [&](const std::string& regionId) -> bool {
+                return state.activeTouchZone1 == regionId || state.activeTouchZone2 == regionId;
+            };
+            for (auto& [regionId, macro] : touchZoneMacros) {
+                bool active = touchZoneActive(regionId);
+                bool& prev  = touchZoneMacroPrev[regionId];
+                if (active && !prev) {
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
+                    else macro.toggle();
+                    if (macro.isActive())
+                        spdlog::info("[MACRO][TOUCHZONE] '{}' ON", touchZoneMacroNames[regionId]);
+                    pushEvent({ PadEventType::MacroToggle, touchZoneMacroNames[regionId], macro.isActive() });
+                }
+                if (!active && prev)
+                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
+                prev = active;
+                macro.tick(state);
+            }
+            for (auto& [regionId, prev] : touchZoneKbPrev) {
+                bool active = touchZoneActive(regionId);
+                const ButtonAction& action = cfg->touchZoneActions.at(regionId);
+                if (active && !prev) {
+                    sendKeyCombo(action.keys, true);
+                    std::string combo;
+                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                }
+                if (!active && prev) sendKeyCombo(action.keys, false);
+                prev = active;
+            }
+            for (auto& [regionId, prev] : touchZoneMousePrev) {
+                bool active = touchZoneActive(regionId);
+                if (active != prev) {
+                    const std::string& btn = cfg->touchZoneActions.at(regionId).mouseButton;
+                    sendMouseButton(btn, active);
+                    if (active)
+                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
+                }
+                prev = active;
+            }
+            for (auto& [regionId, prev] : touchZoneBotPrev) {
+                bool active = touchZoneActive(regionId);
+                if (active && !prev) {
+                    const std::string& botName = touchZoneBotNames[regionId];
+                    if (auto* b = botLoader.find(botName)) {
+                        b->toggle();
+                        spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
+                        pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
+                    } else {
+                        spdlog::warn("[BOT] '{}' not loaded.", botName);
+                    }
+                }
+                prev = active;
+            }
+            // VirtualButton/Trigger: level-based, no prev-state (applyVirtualBtnByName only ever
+            // sets true — same OR-latch every other button source relies on; a plain trigger
+            // level matches the dpad-as-trigger block above).
+            for (const auto& [regionId, action] : cfg->touchZoneActions) {
+                if (action.type != ButtonActionType::VirtualButton) continue;
+                if (touchZoneActive(regionId)) applyVirtualBtnByName(state, action.name, true);
+            }
+            for (const auto& [regionId, action] : cfg->touchZoneActions) {
+                if (action.type != ButtonActionType::Trigger) continue;
+                if (!touchZoneActive(regionId)) continue;
+                if      (action.target == "l2") state.triggerL = 1.0f;
+                else if (action.target == "r2") state.triggerR = 1.0f;
             }
 
             // --- Trigger-as-source actions ---

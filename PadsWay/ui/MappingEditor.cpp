@@ -59,7 +59,7 @@ void MappingEditor::activateProfile(const std::vector<std::string>& profilePaths
     DeviceCandidate dev = m_engine->getActiveDevice();
     m_model.vid = dev.vid;
     m_model.pid = dev.pid;
-    m_sel.physComp = -1;
+    m_sel.clear();
     reload();
 }
 
@@ -243,6 +243,22 @@ static std::string dirFromAccelKey(const std::string& k) {
     if (k == "x_pos") return "right";
     if (k == "x_neg") return "left";
     return "";
+}
+
+// TouchZoneTemplate::id (data/touch_zone_templates.json, e.g. "cross-plus-5-center") -> localized
+// display name (strings_*.json). Falls back to the raw id for any template not yet localized
+// (new catalog entry added without a matching string key) instead of showing nothing.
+static std::string touchZoneTemplateDisplayName(const std::string& templateId) {
+    if (templateId == "single-1")            return tr("action.touch_zone_tmpl_single_1");
+    if (templateId == "split-lr-2")          return tr("action.touch_zone_tmpl_split_lr_2");
+    if (templateId == "cross-x-4")           return tr("action.touch_zone_tmpl_cross_x_4");
+    if (templateId == "cross-plus-4")        return tr("action.touch_zone_tmpl_cross_plus_4");
+    if (templateId == "cross-x-5-center")    return tr("action.touch_zone_tmpl_cross_x_5_center");
+    if (templateId == "cross-plus-5-center") return tr("action.touch_zone_tmpl_cross_plus_5_center");
+    if (templateId == "grid-6")              return tr("action.touch_zone_tmpl_grid_6");
+    if (templateId == "compass-8-center")    return tr("action.touch_zone_tmpl_compass_8_center");
+    if (templateId == "compass-8")           return tr("action.touch_zone_tmpl_compass_8");
+    return templateId;
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,6 +1258,20 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         phys.renderStickArrows(m_physOrigin, physArrowComp, physArrowDir);
         phys.renderGyroArrows(m_physOrigin, physArrowComp, physArrowDir);
         phys.renderTouchpadHints(m_physOrigin, m_sel.physComp, m_sel.touchSurfaceSelected);
+        // Only while the touchpad is actively selected as Superficie (the user clicked into the
+        // touch event, not just glancing at the pad) — otherwise the overlay drew over the touch
+        // icons on every frame the editor was open, regardless of what was selected.
+        bool touchpadSelected = m_sel.physComp >= 0 &&
+            m_sel.physComp < (int)phys.getLayout().components.size() &&
+            phys.getLayout().components[m_sel.physComp].type == "touchpad" &&
+            m_sel.touchSurfaceSelected;
+        if (touchpadSelected && m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
+            !m_model.touchZones.empty()) {
+            std::string hoveredRegionId;
+            phys.hitTestZoneRegion(ImGui::GetMousePos(), m_physOrigin, m_model.touchZones, hoveredRegionId);
+            phys.renderTouchZoneOverlay(m_physOrigin, m_model.touchZones,
+                                         m_sel.touchZoneRegionSelected, hoveredRegionId);
+        }
     }
     ImGui::Spacing();
     ImGui::SetWindowFontScale(1.35f);
@@ -1478,13 +1508,13 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             if (!enabled) ImGui::EndDisabled();
             if (sel) ImGui::PopStyleColor();
         };
-        modeBtn(tr("action.touch_mode_mouse"),   TouchpadSurfaceMode::Mouse,   true);
+        modeBtn(tr("action.type_mousemove"),     TouchpadSurfaceMode::Mouse,   true);
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_analog"),  TouchpadSurfaceMode::Analog,  true);
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_gesture"), TouchpadSurfaceMode::Gesture, false);
         ImGui::SameLine();
-        modeBtn(tr("action.touch_mode_zones"),   TouchpadSurfaceMode::Zones,   false);
+        modeBtn(tr("action.touch_mode_zones"),   TouchpadSurfaceMode::Zones,   true);
 
         if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog) {
             // Analog: no per-direction action assignment (that's Zonas/Movimiento's job, whole
@@ -1507,23 +1537,154 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             targetBtn(tr("action.touch_analog_right"), "right");
             ImGui::SameLine();
             targetBtn(tr("action.touch_analog_both"),  "both");
+        } else if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones) {
+            ImGui::Spacing();
+            // Template picker — always visible, not just while touchZones is still empty, so the
+            // instance can switch templates later too, not only seed one the first time. Loaded
+            // lazily, same precedent as m_macroNamesLoaded below.
+            if (!m_zoneTemplatesLoaded) {
+                m_zoneTemplates = loadTouchZoneTemplates(Paths::userData("data/touch_zone_templates.json"));
+                m_zoneTemplatesLoaded = true;
+            }
+            ImGui::TextDisabled("%s", tr("action.touch_zones_pick_template"));
+            ImGui::SetNextItemWidth(240.0f);
+            std::string currentTmplLabel = m_model.touchZoneTemplateId.empty()
+                ? tr("action.touch_zones_pick_template")
+                : touchZoneTemplateDisplayName(m_model.touchZoneTemplateId);
+            if (ImGui::BeginCombo("##zoneTemplateSel", currentTmplLabel.c_str())) {
+                for (const auto& tmpl : m_zoneTemplates) {
+                    bool sel = (tmpl.id == m_model.touchZoneTemplateId);
+                    if (ImGui::Selectable(touchZoneTemplateDisplayName(tmpl.id).c_str(), sel)) {
+                        m_model.touchZoneTemplateId = tmpl.id;
+                        m_model.touchZones = tmpl.regions;
+                        // Region ids from the previous template may not exist in the new one (or
+                        // may mean something different even if the id string matches) — wipe
+                        // per-region actions rather than leave orphaned/mismatched entries.
+                        m_model.touchZoneActionEdits.clear();
+                        m_sel.touchZoneRegionSelected.clear();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::Spacing();
+
+            if (m_model.touchZones.empty()) {
+                // Nothing more to show until a template is picked above.
+            } else if (m_sel.touchZoneRegionSelected.empty()) {
+                ImGui::TextDisabled("%s", tr("action.touch_zones_pick_region"));
+            } else {
+                const std::string& regionSel = m_sel.touchZoneRegionSelected;
+                auto typeBtnZone = [&](const char* label, ActionType type) {
+                    bool sel = (m_sel.actionType == type);
+                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                    if (ImGui::Button(label, { 110.0f, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
+                    if (sel) ImGui::PopStyleColor();
+                };
+                char lblGamepadZ[64], lblMacroZ[64], lblKbZ[64], lblMouseZ[64], lblBotZ[64];
+                snprintf(lblGamepadZ, sizeof(lblGamepadZ), "%s##btnGamepadZ", tr("action.type_gamepad"));
+                snprintf(lblMacroZ, sizeof(lblMacroZ), "%s##btnMacroZ", tr("action.type_macro"));
+                snprintf(lblKbZ,    sizeof(lblKbZ),    "%s##btnKbZ",    tr("action.type_keyboard"));
+                snprintf(lblMouseZ, sizeof(lblMouseZ), "%s##btnMouseZ", tr("action.type_mouse"));
+                snprintf(lblBotZ,   sizeof(lblBotZ),   "%s##btnBotZ",   tr("action.type_bot"));
+                typeBtnZone(lblGamepadZ, ActionType::Xbox);   ImGui::SameLine();
+                typeBtnZone(lblMacroZ, ActionType::Macro);    ImGui::SameLine();
+                typeBtnZone(lblKbZ,    ActionType::Keyboard); ImGui::SameLine();
+                typeBtnZone(lblMouseZ, ActionType::Mouse);    ImGui::SameLine();
+                typeBtnZone(lblBotZ,   ActionType::Bot);
+                ImGui::Spacing();
+
+                if (m_sel.actionType == ActionType::Xbox) {
+                    // No widget here, same as every other component's Gamepad/Xbox tab (button,
+                    // axis, gyro, trigger) — it's a silent "waiting for a virtual pad click" state.
+                    // See onVirtHitPhysButton's new touchpad branch for the region-specific
+                    // handling: button/dpad-direction/trigger target, keyed by
+                    // touchZoneActionEdits[regionSel] instead of buttonEdits.
+                } else if (m_sel.actionType == ActionType::Macro) {
+                    if (!m_macroNamesLoaded) {
+                        m_macroNames.clear(); m_macroLibrary.clear();
+                        try {
+                            std::ifstream f(Paths::userData("data/macros.json"));
+                            if (f.is_open()) {
+                                json j = json::parse(f);
+                                for (auto& [k, v] : j.items()) {
+                                    m_macroNames.push_back(k);
+                                    m_macroLibrary.emplace_back(k, v.get<std::string>());
+                                }
+                            }
+                        } catch (...) {}
+                        m_macroNamesLoaded = true;
+                    }
+                    if (m_sel.macroSel.empty()) {
+                        auto it = m_model.touchZoneActionEdits.find(regionSel);
+                        if (it != m_model.touchZoneActionEdits.end() && it->second.type == ButtonActionType::Macro)
+                            m_sel.macroSel = it->second.name;
+                    }
+                    if (ActionPanel::renderMacroCombo("macZone", m_sel.macroSel, m_macroNames, availW)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::Macro; act.physical = regionSel; act.name = m_sel.macroSel;
+                        m_model.touchZoneActionEdits[regionSel] = act;
+                        m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+                        m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
+                    }
+                } else if (m_sel.actionType == ActionType::Keyboard) {
+                    bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                    if (cancel) {
+                        m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
+                    } else if (ActionPanel::renderKeyboardCapture("kbZone", m_sel.captureKeys, availW, true)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::Keyboard; act.physical = regionSel;
+                        for (const auto& p : m_sel.captureKeys) act.keys.push_back(p.first);
+                        m_model.touchZoneActionEdits[regionSel] = act;
+                        m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+                        m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
+                    }
+                } else if (m_sel.actionType == ActionType::Mouse) {
+                    std::string mbResult;
+                    if (ActionPanel::renderMouseButtons("mbZone", mbResult, availW)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::MouseClick; act.physical = regionSel; act.mouseButton = mbResult;
+                        m_model.touchZoneActionEdits[regionSel] = act;
+                        m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+                        m_sel.actionType = ActionType::Xbox;
+                    }
+                } else if (m_sel.actionType == ActionType::Bot) {
+                    std::vector<std::string> availableBots = m_engine->getLoadedBotNames();
+                    if (m_sel.botSel.empty()) {
+                        auto it = m_model.touchZoneActionEdits.find(regionSel);
+                        if (it != m_model.touchZoneActionEdits.end() && it->second.type == ButtonActionType::Bot)
+                            m_sel.botSel = it->second.name;
+                    }
+                    if (ActionPanel::renderBotCombo("botZone", m_sel.botSel, availableBots, availW)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::Bot; act.physical = regionSel; act.name = m_sel.botSel;
+                        m_model.touchZoneActionEdits[regionSel] = act;
+                        m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+                        m_sel.actionType = ActionType::Xbox; m_sel.botSel.clear();
+                    }
+                }
+            }
         } else if (m_model.touchSurfaceMode != TouchpadSurfaceMode::Mouse) {
             ImGui::Spacing();
             ImGui::TextDisabled("%s", tr("action.touch_surface_wip"));
         }
 
-        // Explicit close, same "Asignar" pattern as every other capture panel in this editor
-        // (ActionPanel::renderKeyboardCapture/renderMacroCombo/renderBotCombo, MouseMove assign
-        // button) — mode/target choices above already commit into m_model the instant they're
-        // clicked (nothing staged), this button only ends the selection so the panel doesn't
-        // linger open until Guardar.
-        ImGui::Spacing();
-        float assignW  = 110.0f;
-        float assignOffX = (availW - assignW) * 0.5f;
-        if (assignOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + assignOffX);
-        if (ImGui::Button(tr("btn.assign"), { assignW, 0.0f })) {
-            m_sel.physComp = -1;
-            m_sel.touchSurfaceSelected = false;
+        // Explicit close button — only for action types with no self-committing widget of their
+        // own: Mando waits silently for a virtual-pad click, Ratón has no combo/capture step to
+        // commit through. Macro/Teclado/Bot already assign and close themselves via their own
+        // inner "Asignar" (ActionPanel::renderMacroCombo/renderKeyboardCapture/renderBotCombo) —
+        // a second button with the same label there would assign nothing, just close, so it's
+        // hidden to avoid two "Asignar" on screen at once.
+        if (m_sel.actionType == ActionType::Xbox || m_sel.actionType == ActionType::Mouse) {
+            ImGui::Spacing();
+            float assignW  = 110.0f;
+            float assignOffX = (availW - assignW) * 0.5f;
+            if (assignOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + assignOffX);
+            const char* closeLabel = (m_sel.actionType == ActionType::Mouse) ? tr("btn.back") : tr("btn.assign");
+            if (ImGui::Button(closeLabel, { assignW, 0.0f })) {
+                m_sel.physComp = -1;
+                m_sel.touchSurfaceSelected = false;
+                m_sel.touchZoneRegionSelected.clear();
+            }
         }
     } else if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
         // ── H5: botón seleccionado ─────────────────────────────────────────
@@ -1608,7 +1769,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
             if (cancel) {
                 m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
-            } else if (ActionPanel::renderKeyboardCapture("kbButton", m_sel.captureKeys, availW)) {
+            } else if (ActionPanel::renderKeyboardCapture("kbButton", m_sel.captureKeys, availW, true)) {
                 if (!physShortSel.empty()) {
                     ButtonAction act;
                     act.type = ButtonActionType::Keyboard; act.physical = physShortSel;
@@ -1763,7 +1924,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 } else if (m_sel.actionType == ActionType::Keyboard) {
                     bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
                     if (cancel) { m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear(); }
-                    else if (ActionPanel::renderKeyboardCapture("kbAxis", m_sel.captureKeys, availW)) {
+                    else if (ActionPanel::renderKeyboardCapture("kbAxis", m_sel.captureKeys, availW, true)) {
                         HalfAxisAction ha;
                         ha.type = HalfAxisActionType::Keyboard;
                         for (const auto& p : m_sel.captureKeys) ha.keys.push_back(p.first);
@@ -2023,7 +2184,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             } else if (m_sel.actionType == ActionType::Keyboard) {
                 bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
                 if (cancel) { m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear(); }
-                else if (ActionPanel::renderKeyboardCapture("kbGyro", m_sel.captureKeys, availW)) {
+                else if (ActionPanel::renderKeyboardCapture("kbGyro", m_sel.captureKeys, availW, true)) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::Keyboard;
                     for (const auto& p : m_sel.captureKeys) ha.keys.push_back(p.first);
@@ -2213,7 +2374,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         } else if (m_sel.actionType == ActionType::Keyboard) {
             bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
             if (cancel) { m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear(); }
-            else if (ActionPanel::renderKeyboardCapture("kbTrigger", m_sel.captureKeys, availW)) {
+            else if (ActionPanel::renderKeyboardCapture("kbTrigger", m_sel.captureKeys, availW, true)) {
                 ButtonAction act;
                 act.type = ButtonActionType::Keyboard; act.physical = m_sel.triggerSrc;
                 for (const auto& p : m_sel.captureKeys) act.keys.push_back(p.first);
@@ -2369,6 +2530,25 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
 
+    // Zonas: while a region is selected and waiting for an action, OTHER physical components
+    // (button/stick/dpad/gyro) must stop reacting — an accidental click there would otherwise
+    // silently abandon the in-progress zone assignment. The touchpad itself and the virtual pad
+    // both still need to react normally below: the touchpad to switch/deselect regions, the
+    // virtual pad because that's how the Gamepad/Xbox tab actually assigns anything (click a
+    // button/dpad-direction/trigger there -> onVirtHitTouchZone, reached via the normal dispatch
+    // further down). See ARCHITECTURE.md "Touchpad" -> "Zonas". Guarded on physComp still pointing
+    // at a real component as a second line of defense — activate()/activateProfile() now call
+    // m_sel.clear() as the primary fix for stale selection surviving a reset.
+    if (!m_sel.touchZoneRegionSelected.empty() && m_sel.physComp >= 0 &&
+        m_sel.physComp < (int)phys.getLayout().components.size()) {
+        int otherPhysHit = phys.hitTest(mouse, m_physOrigin);
+        if (otherPhysHit >= 0 && phys.getLayout().components[otherPhysHit].type != "touchpad")
+            return;
+        // Touchpad click, virtual pad click, or empty space — fall through to the normal
+        // dispatch below (the arrow hit-tests ahead of it target stick/gyro geometry the
+        // touchpad/virtual pad don't have, so they're harmless no-ops here).
+    }
+
     std::string arrowDir;
     int arrowComp = phys.hitTestStickArrow(mouse, m_physOrigin, arrowDir);
     if (arrowComp >= 0) { onArrowHit(arrowComp, arrowDir); return; }
@@ -2419,10 +2599,15 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
             else if (m_sel.stickDir.empty())
                 onVirtHitPhysStick(phys, virt, mouse);
         } else if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
-            // Superficie: no click-to-assign action from the virtual pad in any mode — Mouse has
-            // no target to assign, Analog is assigned via its own target-stick buttons in the
-            // action panel (whole surface -> whole stick, not per-arrow), and Gesture/Zones
-            // aren't implemented yet.
+            // Superficie: Mouse has no target to assign, Analog is assigned via its own
+            // target-stick buttons in the action panel (whole surface -> whole stick, not
+            // per-arrow), Gesture isn't implemented yet. Zones is the one case with a real
+            // click-to-assign target — a region on the Gamepad/Xbox tab, waiting for a virtual
+            // pad click (button/dpad-direction/trigger), same as any other component's Xbox tab.
+            if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
+                !m_sel.touchZoneRegionSelected.empty() && m_sel.actionType == ActionType::Xbox) {
+                onVirtHitTouchZone(virt, mouse);
+            }
         } else if (m_sel.actionType == ActionType::Xbox) {
             onVirtHitPhysButton(phys, virt, mouse);
         }
@@ -2543,6 +2728,27 @@ void MappingEditor::onPhysDpadHit(PadView& phys, int physHit, ImVec2 mouse) {
 // technique dpad already uses for its 4 directions (see dpadDirFromMouse).
 // ---------------------------------------------------------------------------
 void MappingEditor::onPhysTouchpadHit(PadView& phys, int physHit, ImVec2 mouse) {
+    // Zonas: a template is loaded, so the surface behaves like N buttons (one per region) instead
+    // of the Boton/Superficie left-right split below. Same toggle-select/deselect shape as that
+    // split, just keyed by region id instead of a bool half.
+    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones && !m_model.touchZones.empty()) {
+        std::string regionId;
+        int zoneHit = phys.hitTestZoneRegion(mouse, m_physOrigin, m_model.touchZones, regionId);
+        if (zoneHit < 0) return;  // clicked the touchpad but outside every region
+        if (zoneHit == m_sel.physComp && m_sel.touchZoneRegionSelected == regionId) {
+            m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+        } else {
+            m_sel.physComp = zoneHit; m_sel.triggerSrc.clear(); m_sel.dpadDir.clear();
+            // Zones lives inside the Superficie panel (same place surfaceMode itself is chosen) —
+            // route there like a normal Superficie selection, not the Boton/click-target side.
+            m_sel.touchSurfaceSelected = true;
+            m_sel.touchZoneRegionSelected = regionId;
+            m_sel.actionType = ActionType::Xbox;
+            m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+        }
+        return;
+    }
+
     const PadComponent& tc = phys.getLayout().components[physHit];
     bool surfaceHalf = mouse.x < (m_physOrigin.x + tc.cx);
     if (physHit == m_sel.physComp && m_sel.touchSurfaceSelected == surfaceHalf) {
@@ -2550,6 +2756,7 @@ void MappingEditor::onPhysTouchpadHit(PadView& phys, int physHit, ImVec2 mouse) 
     } else {
         m_sel.physComp = physHit; m_sel.triggerSrc.clear(); m_sel.dpadDir.clear();
         m_sel.touchSurfaceSelected = surfaceHalf;
+        m_sel.touchZoneRegionSelected.clear();
         m_sel.actionType = ActionType::Xbox;
         m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
     }
@@ -2613,6 +2820,56 @@ void MappingEditor::onVirtHitPhysButton(PadView& phys, PadView& virt, ImVec2 mou
         }
     }
     m_sel.physComp = -1; m_sel.stickAsButton = false; m_sel.dpadDir.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Virtual pad click when a Zonas region is selected (Gamepad/Xbox tab) — same virtShort
+// resolution as onVirtHitPhysButton (button / stick-click / dpad-direction / trigger), but the
+// "source" is the region id, not a physical component's state string, and the result goes into
+// touchZoneActionEdits instead of buttonEdits/actionEdits.
+// ---------------------------------------------------------------------------
+void MappingEditor::onVirtHitTouchZone(PadView& virt, ImVec2 mouse) {
+    int virtHit = virt.hitTest(mouse, m_virtOrigin);
+    if (virtHit < 0) return;
+
+    const std::string& regionSel = m_sel.touchZoneRegionSelected;
+    const auto& virtComp = virt.getLayout().components[virtHit];
+
+    std::string virtShort;
+    if (virtComp.type == "button")
+        virtShort = stateToShort(virtComp.state);
+    else if (virtComp.type == "stick" && !virtComp.stateClick.empty())
+        virtShort = stateToShort(virtComp.stateClick);
+    else if (virtComp.type == "dpad") {
+        std::string vdir = dpadDirFromMouse(mouse,
+            m_virtOrigin.x + virtComp.cx, m_virtOrigin.y + virtComp.cy);
+        virtShort = stateToShort(dpadDirToState(virtComp, vdir));
+    }
+    if (virtShort.empty()) return;
+
+    ButtonAction act;
+    act.physical = regionSel;
+    if (virtShort == "triggerL" || virtShort == "triggerR") {
+        act.type   = ButtonActionType::Trigger;
+        act.target = (virtShort == "triggerL") ? "l2" : "r2";
+    } else {
+        act.type = ButtonActionType::VirtualButton;
+        act.name = virtShort;
+    }
+
+    auto it = m_model.touchZoneActionEdits.find(regionSel);
+    bool alreadyAssigned = (it != m_model.touchZoneActionEdits.end() &&
+                             it->second.type == act.type &&
+                             ((act.type == ButtonActionType::Trigger && it->second.target == act.target) ||
+                              (act.type == ButtonActionType::VirtualButton && it->second.name == act.name)));
+    if (alreadyAssigned) {
+        m_model.touchZoneActionEdits.erase(regionSel);
+        m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+    } else {
+        m_model.touchZoneActionEdits[regionSel] = act;
+        m_sel.flashComp = virtHit; m_sel.flashTimer = 0.5f; m_sel.flashVirtShort = virtShort;
+    }
+    m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
 }
 
 // ---------------------------------------------------------------------------

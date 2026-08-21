@@ -35,6 +35,11 @@ struct TouchZoneRegion {
     float angleFromDeg = 0.0f, angleToDeg = 0.0f;
     // Circle, normalized radius from center (0.5, 0.5).
     float radius = 0.0f;
+    // Per-instance only (template regions are always enabled): explicit off switch so a disabled
+    // region can still occupy its slot in TouchpadConfig::zones instead of being deleted and
+    // losing its adjusted bounds/action — see ARCHITECTURE.md "Zonas", "never size==0 as a magic
+    // value".
+    bool enabled = true;
 };
 
 struct TouchZoneTemplate {
@@ -62,14 +67,18 @@ inline bool touchZoneAngleInRange(float angleDeg, float fromDeg, float toDeg) {
     return angleDeg >= fromDeg || angleDeg < toDeg;   // wraps through 0
 }
 
-// Finds which region of tmpl contains (x, y) (both normalized [0,1], same convention as
-// GamepadState::touch1X/Y). Returns nullptr if no region matches — shouldn't happen for a
-// well-formed template covering the full surface, but callers must handle it (a hand-edited
-// template, or a coordinate slightly outside [0,1] from raw sensor noise, could miss).
-inline const TouchZoneRegion* hitTestTouchZone(const TouchZoneTemplate& tmpl, float x, float y) {
+// Finds which region of regions contains (x, y) (both normalized [0,1], same convention as
+// GamepadState::touch1X/Y). Disabled regions (TouchZoneRegion::enabled == false) never match —
+// a touch that would have landed there simply hits nothing, same as landing outside the surface.
+// Returns nullptr if no region matches — shouldn't happen for a well-formed template covering the
+// full surface, but callers must handle it (a hand-edited template, a coordinate slightly outside
+// [0,1] from raw sensor noise, or every covering region disabled, could miss).
+inline const TouchZoneRegion* hitTestTouchZone(const std::vector<TouchZoneRegion>& regions,
+                                                 float x, float y) {
     float angle  = touchZoneAngleDeg(x, y);
     float radius = touchZoneRadius(x, y);
-    for (const auto& r : tmpl.regions) {
+    for (const auto& r : regions) {
+        if (!r.enabled) continue;
         switch (r.shape) {
             case TouchZoneShape::Rect:
                 if (x >= r.xMin && x <= r.xMax && y >= r.yMin && y <= r.yMax) return &r;
@@ -85,27 +94,59 @@ inline const TouchZoneRegion* hitTestTouchZone(const TouchZoneTemplate& tmpl, fl
     return nullptr;
 }
 
+inline const TouchZoneRegion* hitTestTouchZone(const TouchZoneTemplate& tmpl, float x, float y) {
+    return hitTestTouchZone(tmpl.regions, x, y);
+}
+
+// Parses one region — shared by the template catalog (data/touch_zone_templates.json) and
+// TouchpadConfig::zones' per-instance JSON (same field shapes, "enabled" only meaningful for the
+// latter since template regions are always enabled).
+inline TouchZoneRegion parseTouchZoneRegion(const nlohmann::json& rj) {
+    TouchZoneRegion r;
+    r.id = rj.value("id", std::string{});
+    std::string shape = rj.value("shape", std::string("rect"));
+    if      (shape == "wedge")  r.shape = TouchZoneShape::Wedge;
+    else if (shape == "circle") r.shape = TouchZoneShape::Circle;
+    else                        r.shape = TouchZoneShape::Rect;
+    r.xMin         = rj.value("x_min",     0.0f);
+    r.xMax         = rj.value("x_max",     1.0f);
+    r.yMin         = rj.value("y_min",     0.0f);
+    r.yMax         = rj.value("y_max",     1.0f);
+    r.angleFromDeg = rj.value("angle_from", 0.0f);
+    r.angleToDeg   = rj.value("angle_to",   0.0f);
+    r.radius       = rj.value("radius",     0.0f);
+    r.enabled      = rj.value("enabled",    true);
+    return r;
+}
+
+// Inverse of parseTouchZoneRegion — used to persist TouchpadConfig::zones (the catalog in
+// data/touch_zone_templates.json is read-only, never written back by the app).
+inline nlohmann::json touchZoneRegionToJson(const TouchZoneRegion& r) {
+    nlohmann::json rj;
+    rj["id"] = r.id;
+    switch (r.shape) {
+        case TouchZoneShape::Wedge:  rj["shape"] = "wedge";  break;
+        case TouchZoneShape::Circle: rj["shape"] = "circle"; break;
+        default:                     rj["shape"] = "rect";   break;
+    }
+    rj["x_min"]      = r.xMin;
+    rj["x_max"]      = r.xMax;
+    rj["y_min"]      = r.yMin;
+    rj["y_max"]      = r.yMax;
+    rj["angle_from"] = r.angleFromDeg;
+    rj["angle_to"]   = r.angleToDeg;
+    rj["radius"]     = r.radius;
+    rj["enabled"]    = r.enabled;
+    return rj;
+}
+
 // Parses one template from a JSON object shaped like data/touch_zone_templates.json's array
 // entries: {"id": "...", "regions": [{"id":"...", "shape":"rect"/"wedge"/"circle", ...}, ...]}.
 inline TouchZoneTemplate parseTouchZoneTemplate(const nlohmann::json& j) {
     TouchZoneTemplate t;
     t.id = j.value("id", std::string{});
-    for (const auto& rj : j.value("regions", nlohmann::json::array())) {
-        TouchZoneRegion r;
-        r.id = rj.value("id", std::string{});
-        std::string shape = rj.value("shape", std::string("rect"));
-        if      (shape == "wedge")  r.shape = TouchZoneShape::Wedge;
-        else if (shape == "circle") r.shape = TouchZoneShape::Circle;
-        else                        r.shape = TouchZoneShape::Rect;
-        r.xMin         = rj.value("x_min",     0.0f);
-        r.xMax         = rj.value("x_max",     1.0f);
-        r.yMin         = rj.value("y_min",     0.0f);
-        r.yMax         = rj.value("y_max",     1.0f);
-        r.angleFromDeg = rj.value("angle_from", 0.0f);
-        r.angleToDeg   = rj.value("angle_to",   0.0f);
-        r.radius       = rj.value("radius",     0.0f);
-        t.regions.push_back(std::move(r));
-    }
+    for (const auto& rj : j.value("regions", nlohmann::json::array()))
+        t.regions.push_back(parseTouchZoneRegion(rj));
     return t;
 }
 

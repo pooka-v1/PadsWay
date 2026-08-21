@@ -77,18 +77,33 @@ bool renderKeyboardCapture(const char* contextId,
     for (const auto& p : keys) { if (!dispStr.empty()) dispStr += " + "; dispStr += p.second; }
     if (dispStr.empty()) dispStr = tr("action.press_keys");
 
-    // Center the row: [text] [Asignar] [Limpiar]
-    float bAsigW = 100.0f, bLimpW = 80.0f;
-    float sp   = ImGui::GetStyle().ItemSpacing.x;
-    float textW = ImGui::CalcTextSize(dispStr.c_str()).x;
-    float rowW  = textW + sp + bAsigW + sp + bLimpW;
-    float offX  = (availW - rowW) * 0.5f;
-    if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
-
-    ImGui::TextColored({0.3f, 1.0f, 0.3f, 1.0f}, "%s", dispStr.c_str());
-    ImGui::SameLine();
-
     ImGui::PushID(contextId);
+
+    // Row 1: captured keys (or placeholder), centered on the panel.
+    float textW = ImGui::CalcTextSize(dispStr.c_str()).x;
+    float offX1 = (availW - textW) * 0.5f;
+    if (offX1 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX1);
+    ImGui::TextColored({0.3f, 1.0f, 0.3f, 1.0f}, "%s", dispStr.c_str());
+
+    // Row 2: underline mark, fixed width, centered on the panel independently of the text above
+    // — signals "a key goes here" without trying to track the text's variable width.
+    // 1/3 of the profile name field width (MappingEditor.cpp "profiles.name_label", 200.0f) —
+    // starting point, expect to tune once seen rendered.
+    const float kUnderlineW = 200.0f / 3.0f;
+    float lineX0 = ImGui::GetCursorScreenPos().x + (availW - kUnderlineW) * 0.5f;
+    float lineY  = ImGui::GetCursorScreenPos().y;
+    ImGui::GetWindowDrawList()->AddLine({lineX0, lineY}, {lineX0 + kUnderlineW, lineY},
+                                        ImGui::GetColorU32(ImGuiCol_Text), 1.5f);
+    ImGui::Dummy({kUnderlineW, 6.0f});
+    ImGui::Spacing();
+
+    // Row 2: [Asignar] [Limpiar]
+    float bAsigW = 100.0f, bLimpW = 80.0f;
+    float sp    = ImGui::GetStyle().ItemSpacing.x;
+    float rowW2 = bAsigW + sp + bLimpW;
+    float offX2 = (availW - rowW2) * 0.5f;
+    if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
+
     if (empty) ImGui::BeginDisabled();
     bool assigned = ImGui::Button(tr("btn.assign"), {bAsigW, 0.0f}) && !empty;
     if (empty) ImGui::EndDisabled();

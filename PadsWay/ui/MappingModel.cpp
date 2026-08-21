@@ -114,6 +114,14 @@ static json axisActionsToJson(const std::unordered_map<std::string, HalfAxisActi
     return j;
 }
 
+// Same shape as axisActionsToJson but for ButtonAction maps (touchZoneActions: region id -> action).
+static json buttonActionsToJson(const std::unordered_map<std::string, ButtonAction>& m) {
+    json j = json::object();
+    for (const auto& [key, act] : m)
+        j[key] = actionToJson(act);
+    return j;
+}
+
 // Trigger side from ranges: a single range collapses to its plain action,
 // multiple ranges serialize as { "ranges": [...] }. Returns null when empty.
 // Works on both RangeEdit and TriggerRange (same field shape).
@@ -240,6 +248,9 @@ void MappingModel::clear() {
     contextBotsEdits.clear();
     touchSurfaceMode = TouchpadSurfaceMode::Mouse;
     touchAnalogStickTarget.clear();
+    touchZoneTemplateId.clear();
+    touchZones.clear();
+    touchZoneActionEdits.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +319,10 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
 
     touchSurfaceMode = cfg.touchpad.surfaceMode;
     touchAnalogStickTarget = cfg.touchpad.analogStickTarget;
+    touchZoneTemplateId = cfg.touchpad.zoneTemplateId;
+    touchZones = cfg.touchpad.zones;
+    for (const auto& [regionId, action] : cfg.touchZoneActions)
+        touchZoneActionEdits[regionId] = action;
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +438,14 @@ bool MappingModel::saveProfile(const std::string& path, const std::string& profi
         json baseAcA  = axisActionsToJson(base.accel_actions);
         if (modelAcA == baseAcA) root.erase("accel_actions");
         else                     root["accel_actions"] = std::move(modelAcA);
+    }
+
+    // --- touch_zone_actions — whole-section diff against base ---
+    {
+        json modelTZA = buttonActionsToJson(touchZoneActionEdits);
+        json baseTZA  = buttonActionsToJson(base.touchZoneActions);
+        if (modelTZA == baseTZA) root.erase("touch_zone_actions");
+        else                     root["touch_zone_actions"] = std::move(modelTZA);
     }
 
     // --- axes (whole-axis remap) — per-key diff against base, keyed by stickId ---
@@ -621,6 +644,11 @@ void MappingModel::save(const std::string& path) {
                 ctrl["accel_actions"] = axisActionsToJson(accelActionEdits);
             else
                 ctrl.erase("accel_actions");
+
+            if (!touchZoneActionEdits.empty())
+                ctrl["touch_zone_actions"] = buttonActionsToJson(touchZoneActionEdits);
+            else
+                ctrl.erase("touch_zone_actions");
         }
 
         // --- Touchpad (Superficie channel mode) ---
@@ -644,6 +672,15 @@ void MappingModel::save(const std::string& path) {
                 tpJson["surface_mode"] = touchpadSurfaceModeToString(touchSurfaceMode);
                 if (touchAnalogStickTarget.empty()) tpJson.erase("analog_target");
                 else                                 tpJson["analog_target"] = touchAnalogStickTarget;
+                if (touchZoneTemplateId.empty()) tpJson.erase("zone_template_id");
+                else                              tpJson["zone_template_id"] = touchZoneTemplateId;
+                if (touchZones.empty()) {
+                    tpJson.erase("zones");
+                } else {
+                    json zonesJson = json::array();
+                    for (const auto& z : touchZones) zonesJson.push_back(touchZoneRegionToJson(z));
+                    tpJson["zones"] = std::move(zonesJson);
+                }
                 ctrl["touchpad"] = std::move(tpJson);
             }
         }

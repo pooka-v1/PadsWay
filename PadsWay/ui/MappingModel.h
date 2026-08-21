@@ -73,6 +73,15 @@ public:
     // Same precedent as touchSurfaceMode — Normal mode only, not per-profile.
     std::string touchAnalogStickTarget;
 
+    // Zones mode only. Same precedent as touchSurfaceMode/touchAnalogStickTarget — Normal mode
+    // only, not per-profile. touchZoneTemplateId/touchZones mirror TouchpadConfig::zoneTemplateId/
+    // zones (instance geometry); touchZoneActionEdits mirrors gyroActionEdits/accelActionEdits'
+    // shape (region id -> action) but ButtonAction instead of HalfAxisAction, one entry per region
+    // with an assigned action.
+    std::string touchZoneTemplateId;
+    std::vector<TouchZoneRegion> touchZones;
+    std::unordered_map<std::string, ButtonAction> touchZoneActionEdits;
+
     // Populate edits from the matching config entry (vid/pid must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 

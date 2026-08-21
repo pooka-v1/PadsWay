@@ -282,6 +282,25 @@ void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
                         0.5f, 0.5f);
         }
     }
+
+    // Zones channel: which region (if any) each finger currently sits in, resolved here so
+    // PadEngine's per-region action dispatch (VirtualButton/Trigger/Bot/Macro/Keyboard/MouseClick,
+    // reusing the same ButtonAction vocabulary as dpadActions) only has to read the result off
+    // GamepadState instead of re-running hit-testing itself. No action dispatch here — that stays
+    // out-of-band in PadEngine.cpp, same split as Boton's clickTarget (VirtualTarget, resolved
+    // inline above) vs Keyboard/Mouse/Macro/Bot touch actions (handled outside the Component
+    // System). See ARCHITECTURE.md "Touchpad" -> "Zonas".
+    out.activeTouchZone1.clear();
+    out.activeTouchZone2.clear();
+    if (cfg.surfaceMode == TouchpadSurfaceMode::Zones && !cfg.zones.empty()) {
+        auto zoneIdFor = [&](bool active, float x, float y) -> std::string {
+            if (!active) return {};
+            const TouchZoneRegion* r = hitTestTouchZone(cfg.zones, x, y);
+            return r ? r->id : std::string{};
+        };
+        out.activeTouchZone1 = zoneIdFor(physical.touch1Active, physical.touch1X, physical.touch1Y);
+        out.activeTouchZone2 = zoneIdFor(physical.touch2Active, physical.touch2X, physical.touch2Y);
+    }
 }
 
 // ─── PhysicalGyro ─────────────────────────────────────────────────────────────

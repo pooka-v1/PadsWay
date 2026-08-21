@@ -82,6 +82,20 @@
                 { "id": "n",  "shape": "wedge", "angle_from": 247.5, "angle_to": 292.5 },
                 { "id": "ne", "shape": "wedge", "angle_from": 292.5, "angle_to": 337.5 }
             ]
+        },
+        {
+            "id": "compass-8",
+            "_comment": "Same 8 wedges as compass-8-center, no center circle carved out — full 8-direction coverage from the middle outward, meant for d-pad-style mapping.",
+            "regions": [
+                { "id": "e",  "shape": "wedge", "angle_from": 337.5, "angle_to": 22.5 },
+                { "id": "se", "shape": "wedge", "angle_from": 22.5,  "angle_to": 67.5 },
+                { "id": "s",  "shape": "wedge", "angle_from": 67.5,  "angle_to": 112.5 },
+                { "id": "sw", "shape": "wedge", "angle_from": 112.5, "angle_to": 157.5 },
+                { "id": "w",  "shape": "wedge", "angle_from": 157.5, "angle_to": 202.5 },
+                { "id": "nw", "shape": "wedge", "angle_from": 202.5, "angle_to": 247.5 },
+                { "id": "n",  "shape": "wedge", "angle_from": 247.5, "angle_to": 292.5 },
+                { "id": "ne", "shape": "wedge", "angle_from": 292.5, "angle_to": 337.5 }
+            ]
         }
     ]
 }

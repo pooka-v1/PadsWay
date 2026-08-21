@@ -2,9 +2,11 @@
 #include <d3d11.h>
 #include <unordered_map>
 #include <string>
+#include <vector>
 #include "../GamepadState.h"
 #include "PadLayout.h"
 #include "../imgui/imgui.h"
+#include "../input/TouchZones.h"  // TouchZoneRegion — renderTouchZoneOverlay/hitTestZoneRegion
 
 // RAII wrapper for a single D3D11 shader resource view loaded from a PNG.
 struct PadTexture {
@@ -86,6 +88,23 @@ public:
     // click there too, which they can't. selectedComp/surfaceSelected: which half (if any) of
     // which touchpad component is currently selected, brightened over the other's dim default.
     void renderTouchpadHints(ImVec2 canvasOrigin, int selectedComp, bool surfaceSelected);
+
+    // Zonas surfaceMode only — draws zones' regions (Rect/Wedge/Circle, same shapes as
+    // TouchZones.h) as outlines over every touchpad component, so the template reads like the
+    // physical pad's own buttons instead of an invisible grid. selectedRegionId/hoveredRegionId
+    // ("" = none) get a brighter outline + fill, same dim/bright convention as renderTouchpadHints.
+    // Mapeador-only, called explicitly — same reasoning as renderTouchpadHints.
+    void renderTouchZoneOverlay(ImVec2 canvasOrigin, const std::vector<TouchZoneRegion>& zones,
+                                 const std::string& selectedRegionId,
+                                 const std::string& hoveredRegionId);
+
+    // Returns the touchpad component index if mousePos falls inside one of zones' regions (mapped
+    // through that component's on-screen rect, same cx/cy/w/h convention the finger dots use), and
+    // sets outRegionId to the hit region's id. Returns -1 if no touchpad component or no region was
+    // hit (finger/click outside every region, or off the touchpad entirely).
+    int hitTestZoneRegion(ImVec2 mousePos, ImVec2 canvasOrigin,
+                           const std::vector<TouchZoneRegion>& zones,
+                           std::string& outRegionId) const;
 
     static bool loadPng(ID3D11Device* device, const char* path, PadTexture& out);
 

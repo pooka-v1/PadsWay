@@ -253,6 +253,10 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         if (c.contains("accel_actions"))
             cfg.accel_actions = parseAxisActionsJson(c.at("accel_actions"));
 
+        if (c.contains("touch_zone_actions") && c["touch_zone_actions"].is_object())
+            for (const auto& [regionId, val] : c["touch_zone_actions"].items())
+                cfg.touchZoneActions[regionId] = parseButtonAction(val);
+
         if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
             std::unordered_map<std::string, std::string> dpadSlots;
             parseDpadRemapJson(c["dpad_remap"], cfg.dpadRemap, cfg.dpadActions, dpadSlots);
@@ -325,6 +329,11 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.touchpad.surfaceMode = touchpadSurfaceModeFromString(
                 tp.value("surface_mode", std::string("mouse")));
             cfg.touchpad.analogStickTarget = tp.value("analog_target", std::string{});
+            cfg.touchpad.zoneTemplateId    = tp.value("zone_template_id", std::string{});
+            cfg.touchpad.zones.clear();
+            if (tp.contains("zones") && tp["zones"].is_array())
+                for (const auto& zj : tp["zones"])
+                    cfg.touchpad.zones.push_back(parseTouchZoneRegion(zj));
         }
 
         if (c.contains("imu")) {
@@ -1165,6 +1174,10 @@ static PhysicalController parsePhysicalController(const json& c) {
             tpc.surfaceMode = touchpadSurfaceModeFromString(
                 tp.value("surface_mode", std::string("mouse")));
             tpc.analogStickTarget = tp.value("analog_target", std::string{});
+            tpc.zoneTemplateId    = tp.value("zone_template_id", std::string{});
+            if (tp.contains("zones") && tp["zones"].is_array())
+                for (const auto& zj : tp["zones"])
+                    tpc.zones.push_back(parseTouchZoneRegion(zj));
         }
         PhysicalTouchpad ptp{tpc};
         if (touchClickTarget) ptp.clickTarget = *touchClickTarget;

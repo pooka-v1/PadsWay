@@ -740,7 +740,7 @@
         },
         "14": {
           "physical": "touch_btn",
-          "virtual": "y"
+          "virtual": "left_y_neg"
         },
         "2": {
           "physical": "a",
@@ -813,13 +813,142 @@
           "max": 1.0
         }
       },
+      "touch_zone_actions": {
+        "e": {
+          "virtual": "dpad_right"
+        },
+        "n": {
+          "virtual": "dpad_up"
+        },
+        "ne": {
+          "name": "CrossUR",
+          "type": "macro"
+        },
+        "nw": {
+          "name": "CrossUL",
+          "type": "macro"
+        },
+        "s": {
+          "virtual": "dpad_down"
+        },
+        "se": {
+          "name": "CrossDR",
+          "type": "macro"
+        },
+        "sw": {
+          "name": "CrossDL",
+          "type": "macro"
+        },
+        "w": {
+          "virtual": "dpad_left"
+        }
+      },
       "touchpad": {
         "analog_target": "both",
         "data_offset": 35,
         "enabled": true,
         "max_x": 1919,
         "max_y": 942,
-        "surface_mode": "analog"
+        "surface_mode": "zones",
+        "zone_template_id": "compass-8",
+        "zones": [
+          {
+            "angle_from": 337.5,
+            "angle_to": 22.5,
+            "enabled": true,
+            "id": "e",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 22.5,
+            "angle_to": 67.5,
+            "enabled": true,
+            "id": "se",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 67.5,
+            "angle_to": 112.5,
+            "enabled": true,
+            "id": "s",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 112.5,
+            "angle_to": 157.5,
+            "enabled": true,
+            "id": "sw",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 157.5,
+            "angle_to": 202.5,
+            "enabled": true,
+            "id": "w",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 202.5,
+            "angle_to": 247.5,
+            "enabled": true,
+            "id": "nw",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 247.5,
+            "angle_to": 292.5,
+            "enabled": true,
+            "id": "n",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 292.5,
+            "angle_to": 337.5,
+            "enabled": true,
+            "id": "ne",
+            "radius": 0.0,
+            "shape": "wedge",
+            "x_max": 1.0,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.0
+          }
+        ]
       },
       "trigger_calibration": {
         "l2": {

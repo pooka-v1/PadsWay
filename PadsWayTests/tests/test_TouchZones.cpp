@@ -148,3 +148,40 @@ TEST_CASE("loadTouchZoneTemplates returns empty on a missing file", "[TouchZones
     auto templates = loadTouchZoneTemplates("this/path/does/not/exist.json");
     CHECK(templates.empty());
 }
+
+// ─── enabled — per-instance zones (TouchpadConfig::zones), not template regions ──────────────
+
+TEST_CASE("hitTestTouchZone skips a disabled region and falls through to the next match", "[TouchZones]") {
+    std::vector<TouchZoneRegion> zones;
+    TouchZoneRegion left{"left", TouchZoneShape::Rect, 0.0f, 0.5f, 0.0f, 1.0f};
+    left.enabled = false;
+    zones.push_back(left);
+    zones.push_back({"right", TouchZoneShape::Rect, 0.5f, 1.0f, 0.0f, 1.0f});
+    // Whole surface as a fallback behind the disabled "left" — proves a disabled region is
+    // skipped rather than matched-but-ignored (which would still return nullptr here).
+    zones.push_back({"all", TouchZoneShape::Rect, 0.0f, 1.0f, 0.0f, 1.0f});
+
+    CHECK(hitTestTouchZone(zones, 0.1f, 0.5f)->id == "all");  // "left" disabled, falls through
+    CHECK(hitTestTouchZone(zones, 0.9f, 0.5f)->id == "right");
+}
+
+TEST_CASE("parseTouchZoneRegion defaults enabled to true and honors an explicit false", "[TouchZones]") {
+    TouchZoneRegion implicit = parseTouchZoneRegion(nlohmann::json::parse(R"({"id":"a"})"));
+    CHECK(implicit.enabled == true);
+
+    TouchZoneRegion explicitOff = parseTouchZoneRegion(
+        nlohmann::json::parse(R"({"id":"b","enabled":false})"));
+    CHECK(explicitOff.enabled == false);
+}
+
+TEST_CASE("touchZoneRegionToJson round-trips through parseTouchZoneRegion", "[TouchZones]") {
+    TouchZoneRegion r{"n", TouchZoneShape::Wedge, 0,0,0,0, 225.0f, 315.0f};
+    r.enabled = false;
+
+    TouchZoneRegion roundTripped = parseTouchZoneRegion(touchZoneRegionToJson(r));
+    CHECK(roundTripped.id == "n");
+    CHECK(roundTripped.shape == TouchZoneShape::Wedge);
+    CHECK(roundTripped.angleFromDeg == Catch::Approx(225.0f));
+    CHECK(roundTripped.angleToDeg == Catch::Approx(315.0f));
+    CHECK(roundTripped.enabled == false);
+}

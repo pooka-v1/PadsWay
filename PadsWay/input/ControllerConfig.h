@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstdint>
+#include "TouchZones.h"  // TouchZoneRegion — TouchpadConfig::zones
 
 enum class ButtonActionType  { VirtualButton, Trigger, TriggerPassthrough, Bot, Macro, Keyboard, MouseClick };
 
@@ -116,6 +117,15 @@ struct TouchpadConfig {
     // property like surfaceMode itself, edited in Normal mode only, not per-profile — see
     // ARCHITECTURE.md "Touchpad" -> "Analogico".
     std::string analogStickTarget;
+
+    // Zones mode only. zoneTemplateId records which catalog template (data/touch_zone_templates.json)
+    // seeded this instance; zones is the actual per-instance region list, copied from that template
+    // and then adjustable (bounds dragged, regions disabled) — never just a read-only reference to
+    // the catalog. Empty zones = Zonas not configured yet on this device (surface reads but drives
+    // nothing, same inert state as an empty analogStickTarget). Device property like surfaceMode
+    // itself, edited in Normal mode only — see ARCHITECTURE.md "Touchpad" -> "Zonas".
+    std::string zoneTemplateId;
+    std::vector<TouchZoneRegion> zones;
 };
 
 struct ImuConfig {
@@ -201,6 +211,11 @@ struct ControllerConfig {
     std::unordered_map<std::string, HalfAxisAction> accel_actions;
     std::unordered_map<std::string, std::string>    dpadRemap;     // "up"/"down"/"left"/"right" -> virtual short name
     std::unordered_map<std::string, ButtonAction>   dpadActions;   // "up"/"down"/"left"/"right" -> keyboard/mouse/macro action
+    // Touchpad Zonas: region id (TouchZoneRegion::id, from touchpad.zones) -> action. Same
+    // ButtonAction vocabulary as dpadActions (VirtualButton/Trigger/Bot/Macro/Keyboard/MouseClick),
+    // dispatched the same way — a touch zone is just a digital source with a dynamic id set instead
+    // of dpadActions' fixed 4 directions. See ARCHITECTURE.md "Touchpad" -> "Zonas".
+    std::unordered_map<std::string, ButtonAction>   touchZoneActions;
     std::string    dpad;
     std::string    layout_id;  // references an entry in data/pad_layouts.json; empty = use defaults
     TouchpadConfig touchpad;
