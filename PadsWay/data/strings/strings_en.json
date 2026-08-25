@@ -245,7 +245,6 @@
         "touch_analog_right": "Right Stick",
         "touch_analog_both":  "Both",
         "touch_gestures_hint": "Pick one of the 14 gestures to preview it here.",
-        "touch_gesture_twist_wip": "Twist is a continuous signal (half-axis) and doesn't have action assignment yet.",
         "touch_gesture_up":           "Up",
         "touch_gesture_up_right":     "Diagonal up-right",
         "touch_gesture_right":        "Right",

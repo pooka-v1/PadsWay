@@ -824,13 +824,14 @@ std::string HIDInputSource::classifyTouchRelease(int finger, float x0, float y0,
                                                    bool concurrent) {
     float dx = (x1 - x0) * static_cast<float>(m_config.touchpad.maxX);
     float dy = (y1 - y0) * static_cast<float>(m_config.touchpad.maxY);
+    float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
 
     if (!concurrent) {
         // A stale pending release from the other finger (its partner never came) doesn't apply to
         // an unrelated, non-concurrent session — drop it so it can't be matched up later by
         // mistake once its deadline is (or isn't) checked elsewhere.
         m_pendingTwoFinger.valid = false;
-        return classifyLinearGesture(dx, dy, kGestureMinDist);
+        return classifyLinearGesture(dx, dy, kGestureMinDist, aspectRatio);
     }
 
     ULONGLONG now = GetTickCount64();
@@ -930,7 +931,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         if (m_touch1CommittedGesture.empty() && !m_touch1SessConcurrent) {
             float liveDx = (normX - m_touch1SessStartX) * static_cast<float>(m_config.touchpad.maxX);
             float liveDy = (normY - m_touch1SessStartY) * static_cast<float>(m_config.touchpad.maxY);
-            m_touch1CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist);
+            float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
+            m_touch1CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
         }
         if (!m_touch1CommittedGesture.empty()) state.touchGestureFired = m_touch1CommittedGesture;
 
@@ -994,7 +996,8 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             if (m_touch2CommittedGesture.empty() && !m_touch2SessConcurrent) {
                 float liveDx = (state.touch2X - m_touch2SessStartX) * static_cast<float>(m_config.touchpad.maxX);
                 float liveDy = (state.touch2Y - m_touch2SessStartY) * static_cast<float>(m_config.touchpad.maxY);
-                m_touch2CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist);
+                float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
+                m_touch2CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
             }
             if (!m_touch2CommittedGesture.empty()) state.touchGestureFired = m_touch2CommittedGesture;
 

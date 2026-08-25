@@ -153,9 +153,8 @@ private:
     // region id into MappingModel::touchZoneActionEdits instead of buttonEdits/actionEdits.
     void onVirtHitTouchZone(PadView& virt, ImVec2 mouse);
     // Same role as onVirtHitTouchZone, keyed by the selected gesture id into
-    // MappingModel::touchGestureActionEdits instead of touchZoneActionEdits. Only reached for the
-    // 12 discrete gestures (see MappingEditor.cpp's Gesture render block) — the 2 twist gestures
-    // don't have a Gamepad/Xbox tab yet (different mechanism, HalfAxisAction, not implemented).
+    // MappingModel::touchGestureActionEdits instead of touchZoneActionEdits. Reached for all 14
+    // gestures (see MappingEditor.cpp's Gesture render block), twist included.
     void onVirtHitTouchGesture(PadView& virt, ImVec2 mouse);
     void onVirtHitTriggerSrc(PadView& virt, ImVec2 mouse);
     void onVirtArrowHit(PadView& phys, PadView& virt, int virtComp, const std::string& dir);

@@ -217,11 +217,11 @@ struct ControllerConfig {
     // of dpadActions' fixed 4 directions. See ARCHITECTURE.md "Touchpad" -> "Zonas".
     std::unordered_map<std::string, ButtonAction>   touchZoneActions;
     // Touchpad Movimiento (Gestos): gesture id (see kGestureIcons in MappingEditor.cpp, e.g.
-    // "up"/"pinch_close"/...) -> action. Same ButtonAction vocabulary/dispatch as touchZoneActions
-    // above, but only the 12 discrete linear/parallel/pinch gestures use it — the 2 twist gestures
-    // ("twist_up_down"/"twist_down_up") are a continuous signal and belong in a HalfAxisAction map
-    // instead (mirroring gyro_actions' cw/ccw), not implemented yet. See ARCHITECTURE.md
-    // "Touchpad" -> "Movimiento".
+    // "up"/"pinch_close"/"twist_up_down"/...) -> action. Same ButtonAction vocabulary/dispatch as
+    // touchZoneActions above — all 14 gestures use it, including the 2 twist ones: a twist is a
+    // one-shot release classification too (two fingers moving in opposite vertical directions),
+    // not a continuous signal, see TouchGestures.h's classifyTwoFingerGesture(). See
+    // ARCHITECTURE.md "Touchpad" -> "Movimiento".
     std::unordered_map<std::string, ButtonAction>   touchGestureActions;
     std::string    dpad;
     std::string    layout_id;  // references an entry in data/pad_layouts.json; empty = use defaults

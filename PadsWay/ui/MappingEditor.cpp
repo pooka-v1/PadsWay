@@ -1842,8 +1842,9 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             ImGui::Spacing();
             // 14-icon grid, lazy-loaded once, same precedent as m_arrowTex/m_zoneTemplatesLoaded
             // above. Clicking a gesture opens the same 5-button action panel Zonas uses (see
-            // below) for the 12 discrete gestures; the 2 twist ones still need a HalfAxisAction
-            // map instead (not implemented). See ARCHITECTURE.md "Movimiento" for the full design.
+            // below) for all 14 discrete gestures, twist included (a twist is itself a one-shot
+            // release classification, not a continuous signal — see TouchGestures.h's
+            // classifyTwoFingerGesture()). See ARCHITECTURE.md "Movimiento" for the full design.
             if (!m_gestureIconsLoaded) {
                 m_gestureIconTex.resize(std::size(kGestureIcons));
                 for (size_t i = 0; i < std::size(kGestureIcons); ++i)
@@ -1884,17 +1885,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             gestureRow(kRow1Count, kRow2Count);
 
             ImGui::Spacing();
-            bool isTwist = m_sel.touchGestureSelected == "twist_up_down" ||
-                           m_sel.touchGestureSelected == "twist_down_up";
             if (m_sel.touchGestureSelected.empty()) {
                 ImGui::TextDisabled("%s", tr("action.touch_gestures_hint"));
-            } else if (isTwist) {
-                // The 2 twist gestures are a continuous signal (a growing angle), not a single
-                // discrete trigger — they need a HalfAxisAction map (like gyroActionEdits' cw/ccw)
-                // instead of this discrete 5-button panel. Not implemented yet — see
-                // ARCHITECTURE.md "Movimiento".
-                ImGui::Text("%s", touchGestureDisplayName(m_sel.touchGestureSelected).c_str());
-                ImGui::TextDisabled("%s", tr("action.touch_gesture_twist_wip"));
             } else {
                 const std::string& gestureSel = m_sel.touchGestureSelected;
                 ImGui::Text("%s", touchGestureDisplayName(gestureSel).c_str());
@@ -3247,9 +3239,8 @@ void MappingEditor::onVirtHitTouchZone(PadView& virt, ImVec2 mouse) {
 // ---------------------------------------------------------------------------
 // Virtual pad click when a Movimiento (Gestos) gesture is selected (Gamepad/Xbox tab) — same
 // virtShort resolution as onVirtHitTouchZone, but the "source" is the gesture id and the result
-// goes into touchGestureActionEdits instead of touchZoneActionEdits. Only ever reached for the 12
-// discrete gestures — see the Gesture render block above, which doesn't offer a Gamepad tab for
-// the 2 twist ones. Also checks the virtual stick arrows first — see onVirtHitTouchZone's comment,
+// goes into touchGestureActionEdits instead of touchZoneActionEdits. Reached for all 14 gestures,
+// twist included. Also checks the virtual stick arrows first — see onVirtHitTouchZone's comment,
 // same StickSlot-via-VirtualButton convention applies here.
 //
 // IMPORTANT: same H9 "Paso 2" caveat as onVirtHitTouchZone above — this is the mouse-click path

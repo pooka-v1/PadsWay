@@ -706,7 +706,7 @@ void PadEngine::threadFunc() {
         std::unordered_map<std::string, std::string> touchZoneBotNames;  // region id → bot name
         std::unordered_map<std::string, bool>        touchZoneBotPrev;   // region id → prev active state
 
-        // Touchpad Movimiento (Gestos) actions (keyed by gesture id, the 12 discrete entries of
+        // Touchpad Movimiento (Gestos) actions (keyed by gesture id, the 14 entries of
         // kGestureIcons — see MappingEditor.cpp). Same shape as the Zonas maps above, driven by
         // cfg->touchGestureActions instead of cfg->touchZoneActions — but "active" for a gesture
         // means state.touchGestureFired == gestureId THIS frame only (a 1-frame pulse from
@@ -1692,9 +1692,9 @@ void PadEngine::threadFunc() {
             // 1-frame pulse — see TouchGestures.h/HIDInputSource::classifyTouchRelease), not "a
             // finger is currently sitting here". The shared edge-triggered lambdas below turn that
             // single true frame into a press+release pulse on their own, exactly like a very quick
-            // button tap — no new dispatch mechanism needed. Only the 12 discrete gestures ever
-            // populate touchGestureActions/touchGestureFired; the 2 twist gestures are a separate,
-            // not-yet-implemented continuous mechanism (see ARCHITECTURE.md "Movimiento").
+            // button tap — no new dispatch mechanism needed. All 14 gestures, twist included,
+            // populate touchGestureActions/touchGestureFired the same way (see ARCHITECTURE.md
+            // "Movimiento").
             auto touchGestureActive = [&](const std::string& gestureId) -> bool {
                 return state.touchGestureFired == gestureId;
             };

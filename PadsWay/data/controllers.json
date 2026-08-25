@@ -913,13 +913,26 @@
           "type": "keyboard"
         },
         "twist_down_up": {
-          "virtual": "dpad_up"
+          "keys": [
+            "shift",
+            "d",
+            "u"
+          ],
+          "type": "keyboard"
         },
         "twist_up_down": {
-          "virtual": "dpad_down"
+          "keys": [
+            "shift",
+            "u",
+            "d"
+          ],
+          "type": "keyboard"
         },
         "up": {
-          "virtual": "dpad_up"
+          "keys": [
+            "u"
+          ],
+          "type": "keyboard"
         },
         "up_left": {
           "keys": [

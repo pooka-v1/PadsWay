@@ -76,8 +76,8 @@ struct GamepadState {
     std::string activeTouchZone2;
     // Movimiento (Gestos): gesture id (see kGestureIcons in MappingEditor.cpp) recognized on THIS
     // frame only — a one-shot pulse, reset every frame by HIDInputSource::applyTouchpad() before
-    // being (maybe) set again. Only ever one of the 12 discrete gesture ids, never the 2 twist
-    // ones (continuous signal, not a release-triggered classification — see TouchGestures.h).
+    // being (maybe) set again. Any of the 14 catalog ids, twist included — see TouchGestures.h's
+    // classifyLinearGesture()/classifyTwoFingerGesture().
     std::string touchGestureFired;
 
     // --- IMU (gyroscope) [-1.0 .. 1.0] ---

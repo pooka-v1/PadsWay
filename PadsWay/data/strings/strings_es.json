@@ -245,7 +245,6 @@
         "touch_analog_right": "Stick Der",
         "touch_analog_both":  "Ambos",
         "touch_gestures_hint": "Elige uno de los 14 gestos para verlo aqui.",
-        "touch_gesture_twist_wip": "El giro es una senal continua (medio-eje) y aun no tiene asignacion de accion.",
         "touch_gesture_up":           "Arriba",
         "touch_gesture_up_right":     "Diagonal arriba-derecha",
         "touch_gesture_right":        "Derecha",
