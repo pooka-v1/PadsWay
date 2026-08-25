@@ -251,6 +251,7 @@ void MappingModel::clear() {
     touchZoneTemplateId.clear();
     touchZones.clear();
     touchZoneActionEdits.clear();
+    touchGestureActionEdits.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +324,8 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
     touchZones = cfg.touchpad.zones;
     for (const auto& [regionId, action] : cfg.touchZoneActions)
         touchZoneActionEdits[regionId] = action;
+    for (const auto& [gestureId, action] : cfg.touchGestureActions)
+        touchGestureActionEdits[gestureId] = action;
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +449,14 @@ bool MappingModel::saveProfile(const std::string& path, const std::string& profi
         json baseTZA  = buttonActionsToJson(base.touchZoneActions);
         if (modelTZA == baseTZA) root.erase("touch_zone_actions");
         else                     root["touch_zone_actions"] = std::move(modelTZA);
+    }
+
+    // --- touch_gesture_actions — whole-section diff against base ---
+    {
+        json modelTGA = buttonActionsToJson(touchGestureActionEdits);
+        json baseTGA  = buttonActionsToJson(base.touchGestureActions);
+        if (modelTGA == baseTGA) root.erase("touch_gesture_actions");
+        else                     root["touch_gesture_actions"] = std::move(modelTGA);
     }
 
     // --- axes (whole-axis remap) — per-key diff against base, keyed by stickId ---
@@ -649,6 +660,11 @@ void MappingModel::save(const std::string& path) {
                 ctrl["touch_zone_actions"] = buttonActionsToJson(touchZoneActionEdits);
             else
                 ctrl.erase("touch_zone_actions");
+
+            if (!touchGestureActionEdits.empty())
+                ctrl["touch_gesture_actions"] = buttonActionsToJson(touchGestureActionEdits);
+            else
+                ctrl.erase("touch_gesture_actions");
         }
 
         // --- Touchpad (Superficie channel mode) ---

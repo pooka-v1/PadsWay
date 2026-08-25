@@ -123,6 +123,12 @@ private:
     // Arrow texture (lazy-loaded on first render)
     PadTexture m_arrowTex;
 
+    // Movimiento (Gestos) icon cache — 14 fixed glyphs (images/decorations/Move*.png), lazy-
+    // loaded once on first visit to Gesture mode, same precedent as m_arrowTex above. Order
+    // matches kGestureIcons in MappingEditor.cpp.
+    std::vector<PadTexture> m_gestureIconTex;
+    bool                    m_gestureIconsLoaded = false;
+
     // Canvas origins (set during render, used for hit testing)
     ImVec2 m_physOrigin = {};
     ImVec2 m_virtOrigin = {};
@@ -146,6 +152,11 @@ private:
     // button/dpad-direction/trigger target resolution as onVirtHitPhysButton, but keyed by the
     // region id into MappingModel::touchZoneActionEdits instead of buttonEdits/actionEdits.
     void onVirtHitTouchZone(PadView& virt, ImVec2 mouse);
+    // Same role as onVirtHitTouchZone, keyed by the selected gesture id into
+    // MappingModel::touchGestureActionEdits instead of touchZoneActionEdits. Only reached for the
+    // 12 discrete gestures (see MappingEditor.cpp's Gesture render block) — the 2 twist gestures
+    // don't have a Gamepad/Xbox tab yet (different mechanism, HalfAxisAction, not implemented).
+    void onVirtHitTouchGesture(PadView& virt, ImVec2 mouse);
     void onVirtHitTriggerSrc(PadView& virt, ImVec2 mouse);
     void onVirtArrowHit(PadView& phys, PadView& virt, int virtComp, const std::string& dir);
     void onVirtHitAxisAction(PadView& phys, PadView& virt, ImVec2 mouse);

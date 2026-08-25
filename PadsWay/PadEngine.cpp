@@ -706,6 +706,21 @@ void PadEngine::threadFunc() {
         std::unordered_map<std::string, std::string> touchZoneBotNames;  // region id → bot name
         std::unordered_map<std::string, bool>        touchZoneBotPrev;   // region id → prev active state
 
+        // Touchpad Movimiento (Gestos) actions (keyed by gesture id, the 12 discrete entries of
+        // kGestureIcons — see MappingEditor.cpp). Same shape as the Zonas maps above, driven by
+        // cfg->touchGestureActions instead of cfg->touchZoneActions — but "active" for a gesture
+        // means state.touchGestureFired == gestureId THIS frame only (a 1-frame pulse from
+        // HIDInputSource's classifier, see TouchGestures.h), not "held" like a zone region. The
+        // shared edge-triggered lambdas below (dispatchKeyboard/etc.) already turn a single true
+        // frame into a press+release pulse on their own, so no new dispatch mechanism is needed.
+        std::unordered_map<std::string, Macro>       touchGestureMacros;
+        std::unordered_map<std::string, bool>        touchGestureMacroPrev;
+        std::unordered_map<std::string, std::string> touchGestureMacroNames;
+        std::unordered_map<std::string, bool>        touchGestureKbPrev;
+        std::unordered_map<std::string, bool>        touchGestureMousePrev;
+        std::unordered_map<std::string, std::string> touchGestureBotNames;  // gesture id → bot name
+        std::unordered_map<std::string, bool>        touchGestureBotPrev;   // gesture id → prev active state
+
         // Trigger-as-source state
         float trigLPrev = 0.0f;           // previous frame physical trigger L value
         float trigRPrev = 0.0f;           // previous frame physical trigger R value
@@ -809,6 +824,158 @@ void PadEngine::threadFunc() {
             }
         };
 
+        // ── Shared edge-triggered dispatch mechanics ──────────────────────────────
+        // Every action-holder (button/dpad/axis/gyro/accel/touch zone/trigger) fires its
+        // Macro/Keyboard/MouseClick/Bot through one of these four, instead of each re-implementing
+        // the same press-edge/release-edge bookkeeping. All are gated by `editorOpen` (passed
+        // explicitly, not captured — same reason `state`/`botLoader` are parameters below: they're
+        // declared further down this function, after these lambdas): while the Mapeador is open,
+        // re-selecting an already-mapped source (e.g. holding H9 on a touch zone that already fires
+        // a macro) must not leak real keystrokes/clicks/macro starts to the OS mid-edit. Bailing out
+        // *before* touching `prev` (rather than updating it and only gating the dispatch) means a
+        // source held across the open→close transition still fires correctly once the editor
+        // closes, instead of the transition being silently missed.
+        //
+        // Keyboard/Mouse return the edge that just fired (1 = fresh press, -1 = fresh release, 0 =
+        // none/suppressed) for the rare caller that logs something source-specific beyond the
+        // shared pushEvent (buttons' debug traces). Macro returns whether it just started/toggled
+        // on an unsuppressed press edge, for callers with extra per-source bookkeeping (buttons'
+        // macro rotation-count reset) or a per-source log tag to react to.
+        auto dispatchKeyboard = [&](bool editorOpen, bool active, bool& prev,
+                                    const std::vector<std::string>& keys) -> int {
+            if (editorOpen) return 0;
+            int edge = 0;
+            if (active && !prev) {
+                sendKeyCombo(keys, true);
+                std::string combo;
+                for (const auto& k : keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                pushEvent({ PadEventType::KeyboardAction, combo, true });
+                edge = 1;
+            } else if (!active && prev) {
+                sendKeyCombo(keys, false);
+                edge = -1;
+            }
+            prev = active;
+            return edge;
+        };
+
+        auto dispatchMouse = [&](bool editorOpen, bool active, bool& prev,
+                                  const std::string& btn) -> int {
+            if (editorOpen || active == prev) return 0;
+            sendMouseButton(btn, active);
+            if (active) pushEvent({ PadEventType::MouseAction, btn + " click", true });
+            prev = active;
+            return active ? 1 : -1;
+        };
+
+        auto dispatchBot = [&](bool editorOpen, bool active, bool& prev,
+                                const std::string& botName, BotLoader& botLoader) {
+            if (editorOpen) return;
+            if (active && !prev) {
+                if (auto* b = botLoader.find(botName)) {
+                    b->toggle();
+                    spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
+                    pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
+                } else {
+                    spdlog::warn("[BOT] '{}' not loaded.", botName);
+                }
+            }
+            prev = active;
+        };
+
+        // Start/stop mechanic only — does NOT tick the macro. Most callers tick right after this
+        // returns (a plain `macro.tick(state);` inside the same loop); buttons keep their own
+        // separate tick pass (rotation-lap auto-off counting alongside the bot tick loop), so
+        // ticking here would double-tick for them.
+        auto dispatchMacro = [&](bool editorOpen, Macro& macro, bool active, bool& prev) -> bool {
+            if (editorOpen) return false;
+            bool freshPress = false;
+            if (active && !prev) {
+                if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
+                else macro.toggle();
+                freshPress = true;
+            } else if (!active && prev) {
+                if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
+            }
+            prev = active;
+            return freshPress;
+        };
+
+        // Shared "ranged" dispatch: exactly one action out of a keyed set of exclusive ranges can
+        // be active at a time (e.g. a stick axis or gyro/accel direction split into magnitude
+        // bands). Releases whichever action was previously active when the current one changes
+        // (including "went back to nothing"), then activates the new one. Shared by gyro/accel
+        // (IMU) and stick-axis ranges, which both use this unordered_map<string,
+        // optional<ButtonAction>> shape — trigger ranges use a plain vector<uint8_t> instead
+        // (ranges there are positions in a list, not named/keyed), so that block keeps its own
+        // shape rather than being forced into this one. Bails out before touching `prev` while
+        // editorOpen, same reasoning as the dispatch lambdas above, so the transition is detected
+        // correctly once the editor closes instead of being missed.
+        auto dispatchRangeAction = [&](bool editorOpen, const std::string& key,
+                                        std::optional<ButtonAction>& prev,
+                                        const std::unordered_map<std::string, ButtonAction>& activeRangeActions,
+                                        std::unordered_map<std::string, Macro>& rangeMacros,
+                                        std::unordered_map<std::string, bool>& rangeMacroOk,
+                                        GamepadState& state, BotLoader& botLoader) {
+            if (editorOpen) return;
+            auto it = activeRangeActions.find(key);
+            bool isActive = (it != activeRangeActions.end());
+            bool changed  = isActive
+                ? (!prev.has_value() ||
+                   prev->type        != it->second.type        ||
+                   prev->name        != it->second.name        ||
+                   prev->mouseButton != it->second.mouseButton ||
+                   prev->keys        != it->second.keys)
+                : prev.has_value();
+            if (!changed) return;
+
+            if (prev.has_value()) {
+                if (prev->type == ButtonActionType::Keyboard)
+                    sendKeyCombo(prev->keys, false);
+                else if (prev->type == ButtonActionType::MouseClick)
+                    sendMouseButton(prev->mouseButton, false);
+                else if (prev->type == ButtonActionType::Macro) {
+                    auto mit = rangeMacros.find(key + "|" + prev->name);
+                    if (mit != rangeMacros.end() && rangeMacroOk[key + "|" + prev->name])
+                        if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
+                            mit->second.stop();
+                }
+            }
+            if (isActive) {
+                const ButtonAction& cur = it->second;
+                if (cur.type == ButtonActionType::Keyboard) {
+                    sendKeyCombo(cur.keys, true);
+                    std::string combo;
+                    for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
+                    pushEvent({ PadEventType::KeyboardAction, combo, true });
+                } else if (cur.type == ButtonActionType::MouseClick) {
+                    sendMouseButton(cur.mouseButton, true);
+                    pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
+                } else if (cur.type == ButtonActionType::Macro) {
+                    std::string mkey = key + "|" + cur.name;
+                    auto mit = rangeMacros.find(mkey);
+                    if (mit != rangeMacros.end() && rangeMacroOk[mkey]) {
+                        if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
+                            mit->second.start();
+                        else
+                            mit->second.toggle();
+                        pushEvent({ PadEventType::MacroToggle, cur.name, mit->second.isActive() });
+                    }
+                } else if (cur.type == ButtonActionType::Bot) {
+                    if (auto* b = botLoader.find(cur.name)) {
+                        b->toggle();
+                        spdlog::info("[BOT] '{}' {}", cur.name, b->isActive() ? "ON" : "OFF");
+                        pushEvent({ PadEventType::BotToggle, cur.name, b->isActive() });
+                    } else {
+                        spdlog::warn("[BOT] '{}' not loaded.", cur.name);
+                    }
+                }
+                prev = cur;
+            } else {
+                prev = std::nullopt;
+            }
+        };
+
         // Ticks one ImuActionState for the current frame: edge-detects activeKeys/activeRangeActions
         // (as reported by HIDInputSource::getActive{Gyro,Accel}[Range]Actions()) and fires
         // Macro/Keyboard/MouseClick/Bot exactly like the axis-direction block below does for
@@ -816,7 +983,7 @@ void PadEngine::threadFunc() {
         // look up .keys/.mouseButton for the simple (non-Ranges) Keyboard/MouseClick case.
         // `state`/`botLoader` are taken by reference (not captured) because both are declared
         // further down this function, after this lambda — see their declarations below.
-        auto tickImuActionState = [&](ImuActionState& st,
+        auto tickImuActionState = [&](bool editorOpen, ImuActionState& st,
                                        const std::unordered_map<std::string, HalfAxisAction>& actions,
                                        const std::vector<std::string>& activeKeys,
                                        const std::unordered_map<std::string, ButtonAction>& activeRangeActions,
@@ -826,119 +993,32 @@ void PadEngine::threadFunc() {
             for (auto& [key, macro] : st.macros) {
                 bool active = activeSet.count(key) > 0;
                 bool& prev  = st.macroPrev[key];
-                if (active && !prev) {
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                        macro.start();
-                    else
-                        macro.toggle();
+                if (dispatchMacro(editorOpen, macro, active, prev)) {
                     if (macro.isActive())
                         spdlog::info("[MACRO][IMU] '{}' ON", st.macroNames[key]);
                     pushEvent({ PadEventType::MacroToggle, st.macroNames[key], macro.isActive() });
                 }
-                if (!active && prev)
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                        macro.stop();
-                prev = active;
                 macro.tick(state);
             }
 
             for (auto& [key, prev] : st.kbPrev) {
                 bool active = activeSet.count(key) > 0;
-                const HalfAxisAction& action = actions.at(key);
-                if (active && !prev) {
-                    sendKeyCombo(action.keys, true);
-                    std::string combo;
-                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                    pushEvent({ PadEventType::KeyboardAction, combo, true });
-                }
-                if (!active && prev) sendKeyCombo(action.keys, false);
-                prev = active;
+                dispatchKeyboard(editorOpen, active, prev, actions.at(key).keys);
             }
 
             for (auto& [key, prev] : st.mousePrev) {
                 bool active = activeSet.count(key) > 0;
-                if (active != prev) {
-                    const std::string& btn = actions.at(key).mouseButton;
-                    sendMouseButton(btn, active);
-                    if (active)
-                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
-                }
-                prev = active;
+                dispatchMouse(editorOpen, active, prev, actions.at(key).mouseButton);
             }
 
             for (auto& [key, prev] : st.botPrev) {
                 bool active = activeSet.count(key) > 0;
-                if (active && !prev) {
-                    const std::string& botName = st.botNames[key];
-                    if (auto* b = botLoader.find(botName)) {
-                        b->toggle();
-                        spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
-                        pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
-                    } else {
-                        spdlog::warn("[BOT] '{}' not loaded.", botName);
-                    }
-                }
-                prev = active;
+                dispatchBot(editorOpen, active, prev, st.botNames[key], botLoader);
             }
 
             for (auto& [key, prev] : st.rangePrev) {
-                auto it = activeRangeActions.find(key);
-                bool isActive = (it != activeRangeActions.end());
-                bool changed  = isActive
-                    ? (!prev.has_value() ||
-                       prev->type        != it->second.type        ||
-                       prev->name        != it->second.name        ||
-                       prev->mouseButton != it->second.mouseButton ||
-                       prev->keys        != it->second.keys)
-                    : prev.has_value();
-
-                if (!changed) continue;
-
-                if (prev.has_value()) {
-                    if (prev->type == ButtonActionType::Keyboard)
-                        sendKeyCombo(prev->keys, false);
-                    else if (prev->type == ButtonActionType::MouseClick)
-                        sendMouseButton(prev->mouseButton, false);
-                    else if (prev->type == ButtonActionType::Macro) {
-                        auto mit = st.rangeMacros.find(key + "|" + prev->name);
-                        if (mit != st.rangeMacros.end() && st.rangeMacroOk[key + "|" + prev->name])
-                            if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
-                                mit->second.stop();
-                    }
-                }
-                if (isActive) {
-                    const ButtonAction& cur = it->second;
-                    if (cur.type == ButtonActionType::Keyboard) {
-                        sendKeyCombo(cur.keys, true);
-                        std::string combo;
-                        for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                        pushEvent({ PadEventType::KeyboardAction, combo, true });
-                    } else if (cur.type == ButtonActionType::MouseClick) {
-                        sendMouseButton(cur.mouseButton, true);
-                        pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
-                    } else if (cur.type == ButtonActionType::Macro) {
-                        std::string mkey = key + "|" + cur.name;
-                        auto mit = st.rangeMacros.find(mkey);
-                        if (mit != st.rangeMacros.end() && st.rangeMacroOk[mkey]) {
-                            if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
-                                mit->second.start();
-                            else
-                                mit->second.toggle();
-                            pushEvent({ PadEventType::MacroToggle, cur.name, mit->second.isActive() });
-                        }
-                    } else if (cur.type == ButtonActionType::Bot) {
-                        if (auto* b = botLoader.find(cur.name)) {
-                            b->toggle();
-                            spdlog::info("[BOT] '{}' {}", cur.name, b->isActive() ? "ON" : "OFF");
-                            pushEvent({ PadEventType::BotToggle, cur.name, b->isActive() });
-                        } else {
-                            spdlog::warn("[BOT] '{}' not loaded.", cur.name);
-                        }
-                    }
-                    prev = cur;
-                } else {
-                    prev = std::nullopt;
-                }
+                dispatchRangeAction(editorOpen, key, prev, activeRangeActions,
+                                    st.rangeMacros, st.rangeMacroOk, state, botLoader);
             }
             for (auto& [mkey, macro] : st.rangeMacros)
                 macro.tick(state);
@@ -957,6 +1037,9 @@ void PadEngine::threadFunc() {
             touchZoneMacros.clear();  touchZoneMacroPrev.clear(); touchZoneMacroNames.clear();
             touchZoneKbPrev.clear();  touchZoneMousePrev.clear();
             touchZoneBotNames.clear(); touchZoneBotPrev.clear();
+            touchGestureMacros.clear();  touchGestureMacroPrev.clear(); touchGestureMacroNames.clear();
+            touchGestureKbPrev.clear();  touchGestureMousePrev.clear();
+            touchGestureBotNames.clear(); touchGestureBotPrev.clear();
             for (const auto& [bit, action] : cfg->buttons) {
                 if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
                 if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
@@ -968,6 +1051,10 @@ void PadEngine::threadFunc() {
             for (const auto& [regionId, action] : cfg->touchZoneActions) {
                 if (action.type == ButtonActionType::Keyboard)   touchZoneKbPrev[regionId]    = false;
                 if (action.type == ButtonActionType::MouseClick) touchZoneMousePrev[regionId] = false;
+            }
+            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
+                if (action.type == ButtonActionType::Keyboard)   touchGestureKbPrev[gestureId]    = false;
+                if (action.type == ButtonActionType::MouseClick) touchGestureMousePrev[gestureId] = false;
             }
             axisRangePrev.clear();
             axisRangeMacros.clear();
@@ -1022,6 +1109,12 @@ void PadEngine::threadFunc() {
                 touchZoneBotNames[regionId] = action.name;
                 touchZoneBotPrev[regionId]  = false;
                 spdlog::info("Bot '{}' assigned to touch zone '{}'.", action.name, regionId);
+            }
+            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
+                if (action.type != ButtonActionType::Bot) continue;
+                touchGestureBotNames[gestureId] = action.name;
+                touchGestureBotPrev[gestureId]  = false;
+                spdlog::info("Bot '{}' assigned to gesture '{}'.", action.name, gestureId);
             }
             for (const auto& [bit, action] : cfg->buttons) {
                 if (action.type != ButtonActionType::Macro) continue;
@@ -1090,6 +1183,29 @@ void PadEngine::threadFunc() {
                     touchZoneMacroPrev[regionId]  = false;
                     touchZoneMacroNames[regionId] = action.name;
                     spdlog::info("Macro '{}' assigned to touch zone '{}'.", action.name, regionId);
+                } catch (const std::exception& ex) {
+                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
+                }
+            }
+            // Touch gesture macros
+            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
+                if (action.type != ButtonActionType::Macro) continue;
+                std::string execution = action.execution;
+                if (execution.empty()) {
+                    auto it = macroLibrary.find(action.name);
+                    if (it == macroLibrary.end()) {
+                        spdlog::warn("Macro '{}' (gesture '{}') not found in library.", action.name, gestureId);
+                        continue;
+                    }
+                    execution = it->second;
+                }
+                try {
+                    Macro m;
+                    MacroParser::parse(execution, m);
+                    touchGestureMacros[gestureId]     = std::move(m);
+                    touchGestureMacroPrev[gestureId]  = false;
+                    touchGestureMacroNames[gestureId] = action.name;
+                    spdlog::info("Macro '{}' assigned to gesture '{}'.", action.name, gestureId);
                 } catch (const std::exception& ex) {
                     spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
                 }
@@ -1349,42 +1465,22 @@ void PadEngine::threadFunc() {
             for (auto& [bit, botName] : botBits) {
                 bool  pressed = (btns & (1u << (bit - 1))) != 0;
                 bool& prev    = botBtnPrev[bit];
-                if (pressed && !prev) {
-                    if (auto* b = botLoader.find(botName)) {
-                        b->toggle();
-                        spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
-                        pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
-                    } else {
-                        spdlog::warn("[BOT] '{}' not loaded.", botName);
-                    }
-                }
-                prev = pressed;
+                dispatchBot(editorOpen, pressed, prev, botName, botLoader);
             }
 
             for (auto& [bit, macro] : macros) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
                 bool& prev   = macroPrevBtn[bit];
-
-                if (!editorOpen) {
-                    if (pressed && !prev) {
-                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                            macro.start();
-                        else
-                            macro.toggle();
-                        if (macro.isActive()) {
-                            macroRotCount[bit] = 0;
-                            macroLastRX[bit]   = 0.0f;
-                            macroLastRY[bit]   = 0.0f;
-                        }
-                        spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
-                               macro.isActive() ? "ON" : "OFF");
-                        pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
+                if (dispatchMacro(editorOpen, macro, pressed, prev)) {
+                    if (macro.isActive()) {
+                        macroRotCount[bit] = 0;
+                        macroLastRX[bit]   = 0.0f;
+                        macroLastRY[bit]   = 0.0f;
                     }
-                    if (!pressed && prev)
-                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                            macro.stop();
+                    spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
+                           macro.isActive() ? "ON" : "OFF");
+                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
                 }
-                prev = pressed;
             }
 
             for (auto& botInst : botLoader.bots()) {
@@ -1420,29 +1516,16 @@ void PadEngine::threadFunc() {
             // --- Keyboard actions (edge-triggered) ---
             for (auto& [bit, prev] : kbPrevBtn) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
-                const auto& action = cfg->buttons.at(bit);
-                if (pressed && !prev) {
-                    sendKeyCombo(action.keys, true);
-                    spdlog::debug("[KB] button {} down", bit);
-                    std::string combo;
-                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                    pushEvent({ PadEventType::KeyboardAction, combo, true });
-                }
-                if (!pressed && prev) { sendKeyCombo(action.keys, false); spdlog::debug("[KB] button {} up", bit); }
-                prev = pressed;
+                int edge = dispatchKeyboard(editorOpen, pressed, prev, cfg->buttons.at(bit).keys);
+                if (edge == 1)  spdlog::debug("[KB] button {} down", bit);
+                if (edge == -1) spdlog::debug("[KB] button {} up", bit);
             }
 
             // --- Mouse click actions (edge-triggered) ---
             for (auto& [bit, prev] : mousePrevBtn) {
                 bool pressed = (btns & (1u << (bit - 1))) != 0;
-                if (pressed != prev) {
-                    const std::string& btn = cfg->buttons.at(bit).mouseButton;
-                    sendMouseButton(btn, pressed);
-                    spdlog::debug("[MOUSE] button {} {}", bit, pressed ? "down" : "up");
-                    if (pressed)
-                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
-                }
-                prev = pressed;
+                int edge = dispatchMouse(editorOpen, pressed, prev, cfg->buttons.at(bit).mouseButton);
+                if (edge != 0) spdlog::debug("[MOUSE] button {} {}", bit, edge > 0 ? "down" : "up");
             }
 
             // --- Axis-direction Macro / Keyboard / Mouse (edge-triggered) ---
@@ -1453,124 +1536,35 @@ void PadEngine::threadFunc() {
                 for (auto& [key, macro] : axisMacros) {
                     bool active = activeAASet.count(key) > 0;
                     bool& prev  = axisMacroPrev[key];
-                    if (active && !prev) {
-                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                            macro.start();
-                        else
-                            macro.toggle();
+                    if (dispatchMacro(editorOpen, macro, active, prev)) {
                         if (macro.isActive())
                             spdlog::info("[MACRO][AXIS] '{}' ON", axisMacroNames[key]);
                         pushEvent({ PadEventType::MacroToggle, axisMacroNames[key], macro.isActive() });
                     }
-                    if (!active && prev)
-                        if (macro.getMode() == MacroRepeatMode::UntilRelease)
-                            macro.stop();
-                    prev = active;
                     macro.tick(state);
                 }
 
                 for (auto& [key, prev] : axisKbPrev) {
                     bool active = activeAASet.count(key) > 0;
-                    const HalfAxisAction& action = cfg->axis_actions.at(key);
-                    if (active && !prev) {
-                        sendKeyCombo(action.keys, true);
-                        std::string combo;
-                        for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                        pushEvent({ PadEventType::KeyboardAction, combo, true });
-                    }
-                    if (!active && prev) sendKeyCombo(action.keys, false);
-                    prev = active;
+                    dispatchKeyboard(editorOpen, active, prev, cfg->axis_actions.at(key).keys);
                 }
 
                 for (auto& [key, prev] : axisMousePrev) {
                     bool active = activeAASet.count(key) > 0;
-                    if (active != prev) {
-                        const std::string& btn = cfg->axis_actions.at(key).mouseButton;
-                        sendMouseButton(btn, active);
-                        if (active)
-                            pushEvent({ PadEventType::MouseAction, btn + " click", true });
-                    }
-                    prev = active;
+                    dispatchMouse(editorOpen, active, prev, cfg->axis_actions.at(key).mouseButton);
                 }
 
                 for (auto& [key, prev] : axisBotPrev) {
                     bool active = activeAASet.count(key) > 0;
-                    if (active && !prev) {
-                        const std::string& botName = axisBotNames[key];
-                        if (auto* b = botLoader.find(botName)) {
-                            b->toggle();
-                            spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
-                            pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
-                        } else {
-                            spdlog::warn("[BOT] '{}' not loaded.", botName);
-                        }
-                    }
-                    prev = active;
+                    dispatchBot(editorOpen, active, prev, axisBotNames[key], botLoader);
                 }
 
                 // Axis Ranges: Keyboard / MouseClick / Macro edge-triggered per range action
                 {
                     const auto& rangeActions = input->getActiveAxisRangeActions();
                     for (auto& [key, prev] : axisRangePrev) {
-                        auto it = rangeActions.find(key);
-                        bool isActive = (it != rangeActions.end());
-                        bool changed  = isActive
-                            ? (!prev.has_value() ||
-                               prev->type        != it->second.type        ||
-                               prev->name        != it->second.name        ||
-                               prev->mouseButton != it->second.mouseButton ||
-                               prev->keys        != it->second.keys)
-                            : prev.has_value();
-
-                        if (!changed) continue;
-
-                        // Release previous action
-                        if (prev.has_value()) {
-                            if (prev->type == ButtonActionType::Keyboard)
-                                sendKeyCombo(prev->keys, false);
-                            else if (prev->type == ButtonActionType::MouseClick)
-                                sendMouseButton(prev->mouseButton, false);
-                            else if (prev->type == ButtonActionType::Macro) {
-                                auto mit = axisRangeMacros.find(key + "|" + prev->name);
-                                if (mit != axisRangeMacros.end() && axisRangeMacroOk[key + "|" + prev->name])
-                                    if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
-                                        mit->second.stop();
-                            }
-                        }
-                        // Activate new action
-                        if (isActive) {
-                            const ButtonAction& cur = it->second;
-                            if (cur.type == ButtonActionType::Keyboard) {
-                                sendKeyCombo(cur.keys, true);
-                                std::string combo;
-                                for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                                pushEvent({ PadEventType::KeyboardAction, combo, true });
-                            } else if (cur.type == ButtonActionType::MouseClick) {
-                                sendMouseButton(cur.mouseButton, true);
-                                pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
-                            } else if (cur.type == ButtonActionType::Macro) {
-                                std::string mkey = key + "|" + cur.name;
-                                auto mit = axisRangeMacros.find(mkey);
-                                if (mit != axisRangeMacros.end() && axisRangeMacroOk[mkey]) {
-                                    if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
-                                        mit->second.start();
-                                    else
-                                        mit->second.toggle();
-                                    pushEvent({ PadEventType::MacroToggle, cur.name, mit->second.isActive() });
-                                }
-                            } else if (cur.type == ButtonActionType::Bot) {
-                                if (auto* b = botLoader.find(cur.name)) {
-                                    b->toggle();
-                                    spdlog::info("[BOT] '{}' {}", cur.name, b->isActive() ? "ON" : "OFF");
-                                    pushEvent({ PadEventType::BotToggle, cur.name, b->isActive() });
-                                } else {
-                                    spdlog::warn("[BOT] '{}' not loaded.", cur.name);
-                                }
-                            }
-                            prev = cur;
-                        } else {
-                            prev = std::nullopt;
-                        }
+                        dispatchRangeAction(editorOpen, key, prev, rangeActions,
+                                            axisRangeMacros, axisRangeMacroOk, state, botLoader);
                     }
                     // Tick active axis range macros every frame
                     for (auto& [mkey, macro] : axisRangeMacros)
@@ -1583,10 +1577,10 @@ void PadEngine::threadFunc() {
             // *source* of a Keyboard/Macro/MouseClick/Bot assignment. PhysicalGyro/PhysicalAccel
             // (Component System) only resolve VirtualButton/Dpad/Trigger/StickSlot/MouseMove
             // targets into GamepadState directly; these marker targets need picking up here.
-            tickImuActionState(gyroActionState, cfg->gyro_actions,
+            tickImuActionState(editorOpen, gyroActionState, cfg->gyro_actions,
                                 input->getActiveGyroActions(), input->getActiveGyroRangeActions(),
                                 state, botLoader);
-            tickImuActionState(accelActionState, cfg->accel_actions,
+            tickImuActionState(editorOpen, accelActionState, cfg->accel_actions,
                                 input->getActiveAccelActions(), input->getActiveAccelRangeActions(),
                                 state, botLoader);
 
@@ -1602,80 +1596,39 @@ void PadEngine::threadFunc() {
                 if (dir == "right") return phys.dpadRight;
                 return false;
             };
+            // Consumes the raw dpad flag for `dir` once a remap on it fires, so it doesn't also
+            // pass through as a plain dpad press to the virtual output.
+            auto consumeDpadDir = [&](const std::string& dir) {
+                if (dir == "up")    state.dpadUp    = false;
+                if (dir == "down")  state.dpadDown  = false;
+                if (dir == "left")  state.dpadLeft  = false;
+                if (dir == "right") state.dpadRight = false;
+            };
             for (auto& [dir, macro] : dpadMacros) {
                 bool active = dpadActive(dir);
                 bool& prev  = dpadMacroPrev[dir];
-                if (active && !prev) {
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
-                    else macro.toggle();
+                if (dispatchMacro(editorOpen, macro, active, prev)) {
                     if (macro.isActive())
                         spdlog::info("[MACRO][DPAD] '{}' ON", dpadMacroNames[dir]);
                     pushEvent({ PadEventType::MacroToggle, dpadMacroNames[dir], macro.isActive() });
                 }
-                if (!active && prev)
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
-                prev = active;
                 macro.tick(state);
-                if (active) {
-                    if (dir == "up")    state.dpadUp    = false;
-                    if (dir == "down")  state.dpadDown  = false;
-                    if (dir == "left")  state.dpadLeft  = false;
-                    if (dir == "right") state.dpadRight = false;
-                }
+                if (active) consumeDpadDir(dir);
             }
             for (auto& [dir, prev] : dpadKbPrev) {
                 bool active = dpadActive(dir);
-                const ButtonAction& action = cfg->dpadActions.at(dir);
-                if (active && !prev) {
-                    sendKeyCombo(action.keys, true);
-                    std::string combo;
-                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                    pushEvent({ PadEventType::KeyboardAction, combo, true });
-                }
-                if (!active && prev) sendKeyCombo(action.keys, false);
-                prev = active;
-                if (active) {
-                    if (dir == "up")    state.dpadUp    = false;
-                    if (dir == "down")  state.dpadDown  = false;
-                    if (dir == "left")  state.dpadLeft  = false;
-                    if (dir == "right") state.dpadRight = false;
-                }
+                dispatchKeyboard(editorOpen, active, prev, cfg->dpadActions.at(dir).keys);
+                if (active) consumeDpadDir(dir);
             }
             for (auto& [dir, prev] : dpadMousePrev) {
                 bool active = dpadActive(dir);
-                if (active != prev) {
-                    const std::string& btn = cfg->dpadActions.at(dir).mouseButton;
-                    sendMouseButton(btn, active);
-                    if (active)
-                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
-                }
-                prev = active;
-                if (active) {
-                    if (dir == "up")    state.dpadUp    = false;
-                    if (dir == "down")  state.dpadDown  = false;
-                    if (dir == "left")  state.dpadLeft  = false;
-                    if (dir == "right") state.dpadRight = false;
-                }
+                dispatchMouse(editorOpen, active, prev, cfg->dpadActions.at(dir).mouseButton);
+                if (active) consumeDpadDir(dir);
             }
             for (auto& [dir, prev] : dpadBotPrev) {
                 bool active = dpadActive(dir);
-                if (active && !prev) {
-                    const std::string& botName = dpadBotNames[dir];
-                    if (auto* b = botLoader.find(botName)) {
-                        b->toggle();
-                        spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
-                        pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
-                    } else {
-                        spdlog::warn("[BOT] '{}' not loaded.", botName);
-                    }
-                }
-                prev = active;
-                if (active) {
-                    if (dir == "up")    state.dpadUp    = false;
-                    if (dir == "down")  state.dpadDown  = false;
-                    if (dir == "left")  state.dpadLeft  = false;
-                    if (dir == "right") state.dpadRight = false;
-                }
+                dispatchBot(editorOpen, active, prev, dpadBotNames[dir], botLoader);
+                if (active) consumeDpadDir(dir);
             }
             // Dpad direction → virtual trigger (L2/R2)
             for (const auto& [dir, action] : cfg->dpadActions) {
@@ -1684,10 +1637,7 @@ void PadEngine::threadFunc() {
                 if (active) {
                     if      (action.target == "l2") state.triggerL = 1.0f;
                     else if (action.target == "r2") state.triggerR = 1.0f;
-                    if (dir == "up")    state.dpadUp    = false;
-                    if (dir == "down")  state.dpadDown  = false;
-                    if (dir == "left")  state.dpadLeft  = false;
-                    if (dir == "right") state.dpadRight = false;
+                    consumeDpadDir(dir);
                 }
             }
 
@@ -1704,53 +1654,24 @@ void PadEngine::threadFunc() {
             for (auto& [regionId, macro] : touchZoneMacros) {
                 bool active = touchZoneActive(regionId);
                 bool& prev  = touchZoneMacroPrev[regionId];
-                if (active && !prev) {
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
-                    else macro.toggle();
+                if (dispatchMacro(editorOpen, macro, active, prev)) {
                     if (macro.isActive())
                         spdlog::info("[MACRO][TOUCHZONE] '{}' ON", touchZoneMacroNames[regionId]);
                     pushEvent({ PadEventType::MacroToggle, touchZoneMacroNames[regionId], macro.isActive() });
                 }
-                if (!active && prev)
-                    if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
-                prev = active;
                 macro.tick(state);
             }
             for (auto& [regionId, prev] : touchZoneKbPrev) {
                 bool active = touchZoneActive(regionId);
-                const ButtonAction& action = cfg->touchZoneActions.at(regionId);
-                if (active && !prev) {
-                    sendKeyCombo(action.keys, true);
-                    std::string combo;
-                    for (const auto& k : action.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                    pushEvent({ PadEventType::KeyboardAction, combo, true });
-                }
-                if (!active && prev) sendKeyCombo(action.keys, false);
-                prev = active;
+                dispatchKeyboard(editorOpen, active, prev, cfg->touchZoneActions.at(regionId).keys);
             }
             for (auto& [regionId, prev] : touchZoneMousePrev) {
                 bool active = touchZoneActive(regionId);
-                if (active != prev) {
-                    const std::string& btn = cfg->touchZoneActions.at(regionId).mouseButton;
-                    sendMouseButton(btn, active);
-                    if (active)
-                        pushEvent({ PadEventType::MouseAction, btn + " click", true });
-                }
-                prev = active;
+                dispatchMouse(editorOpen, active, prev, cfg->touchZoneActions.at(regionId).mouseButton);
             }
             for (auto& [regionId, prev] : touchZoneBotPrev) {
                 bool active = touchZoneActive(regionId);
-                if (active && !prev) {
-                    const std::string& botName = touchZoneBotNames[regionId];
-                    if (auto* b = botLoader.find(botName)) {
-                        b->toggle();
-                        spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
-                        pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
-                    } else {
-                        spdlog::warn("[BOT] '{}' not loaded.", botName);
-                    }
-                }
-                prev = active;
+                dispatchBot(editorOpen, active, prev, touchZoneBotNames[regionId], botLoader);
             }
             // VirtualButton/Trigger: level-based, no prev-state (applyVirtualBtnByName only ever
             // sets true — same OR-latch every other button source relies on; a plain trigger
@@ -1762,6 +1683,50 @@ void PadEngine::threadFunc() {
             for (const auto& [regionId, action] : cfg->touchZoneActions) {
                 if (action.type != ButtonActionType::Trigger) continue;
                 if (!touchZoneActive(regionId)) continue;
+                if      (action.target == "l2") state.triggerL = 1.0f;
+                else if (action.target == "r2") state.triggerR = 1.0f;
+            }
+
+            // --- Touchpad Movimiento (Gestos) actions — same vocabulary/dispatch shape as Zonas
+            // above, but "active" means state.touchGestureFired == gestureId THIS frame only (a
+            // 1-frame pulse — see TouchGestures.h/HIDInputSource::classifyTouchRelease), not "a
+            // finger is currently sitting here". The shared edge-triggered lambdas below turn that
+            // single true frame into a press+release pulse on their own, exactly like a very quick
+            // button tap — no new dispatch mechanism needed. Only the 12 discrete gestures ever
+            // populate touchGestureActions/touchGestureFired; the 2 twist gestures are a separate,
+            // not-yet-implemented continuous mechanism (see ARCHITECTURE.md "Movimiento").
+            auto touchGestureActive = [&](const std::string& gestureId) -> bool {
+                return state.touchGestureFired == gestureId;
+            };
+            for (auto& [gestureId, macro] : touchGestureMacros) {
+                bool active = touchGestureActive(gestureId);
+                bool& prev  = touchGestureMacroPrev[gestureId];
+                if (dispatchMacro(editorOpen, macro, active, prev)) {
+                    if (macro.isActive())
+                        spdlog::info("[MACRO][GESTURE] '{}' ON", touchGestureMacroNames[gestureId]);
+                    pushEvent({ PadEventType::MacroToggle, touchGestureMacroNames[gestureId], macro.isActive() });
+                }
+                macro.tick(state);
+            }
+            for (auto& [gestureId, prev] : touchGestureKbPrev) {
+                bool active = touchGestureActive(gestureId);
+                dispatchKeyboard(editorOpen, active, prev, cfg->touchGestureActions.at(gestureId).keys);
+            }
+            for (auto& [gestureId, prev] : touchGestureMousePrev) {
+                bool active = touchGestureActive(gestureId);
+                dispatchMouse(editorOpen, active, prev, cfg->touchGestureActions.at(gestureId).mouseButton);
+            }
+            for (auto& [gestureId, prev] : touchGestureBotPrev) {
+                bool active = touchGestureActive(gestureId);
+                dispatchBot(editorOpen, active, prev, touchGestureBotNames[gestureId], botLoader);
+            }
+            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
+                if (action.type != ButtonActionType::VirtualButton) continue;
+                if (touchGestureActive(gestureId)) applyVirtualBtnByName(state, action.name, true);
+            }
+            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
+                if (action.type != ButtonActionType::Trigger) continue;
+                if (!touchGestureActive(gestureId)) continue;
                 if      (action.target == "l2") state.triggerL = 1.0f;
                 else if (action.target == "r2") state.triggerR = 1.0f;
             }
@@ -1796,51 +1761,27 @@ void PadEngine::threadFunc() {
                     srcTrig = 0.0f;
                     break;
                 case ButtonActionType::Keyboard:
-                    if (active != kbPrev) {
-                        sendKeyCombo(act.keys, active);
-                        if (active) {
-                            std::string combo;
-                            for (const auto& k : act.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                            pushEvent({ PadEventType::KeyboardAction, combo, true });
-                        }
+                    dispatchKeyboard(editorOpen, active, kbPrev, act.keys);
+                    srcTrig = 0.0f;
+                    break;
+                case ButtonActionType::MouseClick:
+                    dispatchMouse(editorOpen, active, mousPrev, act.mouseButton);
+                    srcTrig = 0.0f;
+                    break;
+                case ButtonActionType::Macro:
+                    // Reuses kbPrev as macroPrev for trigger sources (mutually exclusive with the
+                    // Keyboard case above by construction — act.type is one or the other).
+                    if (macOk) {
+                        if (dispatchMacro(editorOpen, mac, active, kbPrev) && mac.isActive())
+                            pushEvent({ PadEventType::MacroToggle, act.name, true });
+                        if (mac.isActive()) mac.tick(state);
+                    } else {
                         kbPrev = active;
                     }
                     srcTrig = 0.0f;
                     break;
-                case ButtonActionType::MouseClick:
-                    if (active != mousPrev) {
-                        sendMouseButton(act.mouseButton, active);
-                        if (active) pushEvent({ PadEventType::MouseAction, act.mouseButton + " click", true });
-                        mousPrev = active;
-                    }
-                    srcTrig = 0.0f;
-                    break;
-                case ButtonActionType::Macro:
-                    if (active && !kbPrev) {  // reuse kbPrev as macroPrev for trigger
-                        if (macOk) {
-                            if (mac.getMode() == MacroRepeatMode::UntilRelease) mac.start();
-                            else mac.toggle();
-                            if (mac.isActive()) pushEvent({ PadEventType::MacroToggle, act.name, true });
-                        }
-                        kbPrev = true;
-                    } else if (!active && kbPrev) {
-                        if (macOk && mac.getMode() == MacroRepeatMode::UntilRelease) mac.stop();
-                        kbPrev = false;
-                    }
-                    if (macOk && mac.isActive()) mac.tick(state);
-                    srcTrig = 0.0f;
-                    break;
                 case ButtonActionType::Bot:
-                    if (active && !botPrev) {
-                        if (auto* b = botLoader.find(act.name)) {
-                            b->toggle();
-                            spdlog::info("[BOT] '{}' {}", act.name, b->isActive() ? "ON" : "OFF");
-                            pushEvent({ PadEventType::BotToggle, act.name, b->isActive() });
-                        } else {
-                            spdlog::warn("[BOT] '{}' not loaded.", act.name);
-                        }
-                    }
-                    botPrev = active;
+                    dispatchBot(editorOpen, active, botPrev, act.name, botLoader);
                     srcTrig = 0.0f;
                     break;
                 default: break;
@@ -1900,6 +1841,19 @@ void PadEngine::threadFunc() {
                     uint8_t& prev = rangePrev[i];
                     if (!r.hasAction) { prev = active; continue; }
                     const ButtonAction& act = r.action;
+                    if (editorOpen) {
+                        // Suppressed while the mapping editor is open — bail before touching
+                        // `prev` (not after dispatching) so a range entered/left mid-edit is still
+                        // caught correctly once the editor closes, same reasoning as
+                        // dispatchKeyboard/Mouse/Bot/Macro above. An already-running macro still
+                        // ticks though (so it finishes/keeps playing out instead of freezing
+                        // mid-sequence), matching every other block — its state mutations just
+                        // don't reach output while editorOpen (see output->update() below).
+                        if (act.type == ButtonActionType::Macro &&
+                            i < rangeMacs.size() && rangeMacOk[i] && rangeMacs[i].isActive())
+                            rangeMacs[i].tick(state);
+                        continue;
+                    }
                     switch (act.type) {
                     case ButtonActionType::VirtualButton:
                         applyVirtualBtnByName(state, act.name, active);

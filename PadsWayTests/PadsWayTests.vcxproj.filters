@@ -57,6 +57,9 @@
     <ClCompile Include="tests\test_MappingSelection.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="tests\test_TouchGestures.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="tests\test_TouchZones.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>

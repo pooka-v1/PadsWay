@@ -144,6 +144,38 @@ TEST_CASE("parseTouchZoneTemplate parses a compass-8-center-shaped template", "[
     CHECK(hitTestTouchZone(t, 0.5f, 0.0f)->id == "n");
 }
 
+TEST_CASE("parseTouchZoneTemplate parses compass-8 (no center) with full coverage", "[TouchZones]") {
+    nlohmann::json j = nlohmann::json::parse(R"({
+        "id": "compass-8",
+        "regions": [
+            { "id": "e",  "shape": "wedge", "angle_from": 337.5, "angle_to": 22.5 },
+            { "id": "se", "shape": "wedge", "angle_from": 22.5,  "angle_to": 67.5 },
+            { "id": "s",  "shape": "wedge", "angle_from": 67.5,  "angle_to": 112.5 },
+            { "id": "sw", "shape": "wedge", "angle_from": 112.5, "angle_to": 157.5 },
+            { "id": "w",  "shape": "wedge", "angle_from": 157.5, "angle_to": 202.5 },
+            { "id": "nw", "shape": "wedge", "angle_from": 202.5, "angle_to": 247.5 },
+            { "id": "n",  "shape": "wedge", "angle_from": 247.5, "angle_to": 292.5 },
+            { "id": "ne", "shape": "wedge", "angle_from": 292.5, "angle_to": 337.5 }
+        ]
+    })");
+
+    TouchZoneTemplate t = parseTouchZoneTemplate(j);
+    REQUIRE(t.id == "compass-8");
+    REQUIRE(t.regions.size() == 8);
+    for (const auto& r : t.regions) CHECK(r.id != "center");  // the whole point vs compass-8-center
+
+    // Cardinal directions land in their own wedge, same as compass-8-center.
+    CHECK(hitTestTouchZone(t, 1.0f, 0.5f)->id == "e");
+    CHECK(hitTestTouchZone(t, 0.5f, 1.0f)->id == "s");
+    CHECK(hitTestTouchZone(t, 0.0f, 0.5f)->id == "w");
+    CHECK(hitTestTouchZone(t, 0.5f, 0.0f)->id == "n");
+
+    // No center carved out: the exact geometric center still resolves to a wedge (whichever the
+    // angle convention picks at (0.5,0.5) itself), never nullptr -- this is the behavioral
+    // difference from compass-8-center, where the same point hits "center" instead.
+    CHECK(hitTestTouchZone(t, 0.5f, 0.5f) != nullptr);
+}
+
 TEST_CASE("loadTouchZoneTemplates returns empty on a missing file", "[TouchZones]") {
     auto templates = loadTouchZoneTemplates("this/path/does/not/exist.json");
     CHECK(templates.empty());

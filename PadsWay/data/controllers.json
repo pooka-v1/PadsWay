@@ -717,6 +717,11 @@
           "target": "right_x"
         }
       },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "r1"
+        }
+      },
       "buttons": {
         "1": {
           "physical": "x",
@@ -740,7 +745,7 @@
         },
         "14": {
           "physical": "touch_btn",
-          "virtual": "left_y_neg"
+          "virtual": "y"
         },
         "2": {
           "physical": "a",
@@ -769,6 +774,38 @@
       },
       "connection": "usb",
       "dpad": "hid_hat",
+      "dpad_remap": {
+        "down": {
+          "name": "LightningBot",
+          "physical": "dpad_down",
+          "type": "bot"
+        },
+        "left": {
+          "button": "middle",
+          "physical": "dpad_left",
+          "type": "mouse_click"
+        },
+        "right": {
+          "keys": [
+            "e"
+          ],
+          "physical": "dpad_right",
+          "type": "keyboard"
+        },
+        "up": {
+          "physical": "dpad_up",
+          "target": "l2",
+          "type": "trigger"
+        }
+      },
+      "gyro_actions": {
+        "x_neg": {
+          "virtual": "l1"
+        },
+        "y_neg": {
+          "virtual": "x"
+        }
+      },
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -813,34 +850,105 @@
           "max": 1.0
         }
       },
-      "touch_zone_actions": {
-        "e": {
-          "virtual": "dpad_right"
+      "touch_gesture_actions": {
+        "down": {
+          "keys": [
+            "d"
+          ],
+          "type": "keyboard"
         },
-        "n": {
+        "down_left": {
+          "keys": [
+            "d",
+            "l"
+          ],
+          "type": "keyboard"
+        },
+        "down_right": {
+          "keys": [
+            "d",
+            "r"
+          ],
+          "type": "keyboard"
+        },
+        "left": {
+          "keys": [
+            "l"
+          ],
+          "type": "keyboard"
+        },
+        "parallel_down": {
+          "keys": [
+            "d",
+            "o",
+            "w",
+            "n"
+          ],
+          "type": "keyboard"
+        },
+        "parallel_up": {
+          "keys": [
+            "u",
+            "p"
+          ],
+          "type": "keyboard"
+        },
+        "pinch_close": {
+          "keys": [
+            "c"
+          ],
+          "type": "keyboard"
+        },
+        "pinch_open": {
+          "keys": [
+            "e",
+            "x"
+          ],
+          "type": "keyboard"
+        },
+        "right": {
+          "keys": [
+            "r"
+          ],
+          "type": "keyboard"
+        },
+        "twist_down_up": {
           "virtual": "dpad_up"
         },
-        "ne": {
-          "name": "CrossUR",
-          "type": "macro"
-        },
-        "nw": {
-          "name": "CrossUL",
-          "type": "macro"
-        },
-        "s": {
+        "twist_up_down": {
           "virtual": "dpad_down"
         },
+        "up": {
+          "virtual": "dpad_up"
+        },
+        "up_left": {
+          "keys": [
+            "u",
+            "l"
+          ],
+          "type": "keyboard"
+        },
+        "up_right": {
+          "keys": [
+            "u",
+            "r"
+          ],
+          "type": "keyboard"
+        }
+      },
+      "touch_zone_actions": {
+        "ne": {
+          "virtual": "dpad_down"
+        },
+        "nw": {
+          "virtual": "y"
+        },
         "se": {
-          "name": "CrossDR",
-          "type": "macro"
+          "virtual": "right_x_pos"
         },
         "sw": {
-          "name": "CrossDL",
-          "type": "macro"
-        },
-        "w": {
-          "virtual": "dpad_left"
+          "target": "l2",
+          "type": "trigger"
         }
       },
       "touchpad": {
@@ -849,104 +957,56 @@
         "enabled": true,
         "max_x": 1919,
         "max_y": 942,
-        "surface_mode": "zones",
-        "zone_template_id": "compass-8",
+        "surface_mode": "gesture",
+        "zone_template_id": "cross-plus-4",
         "zones": [
           {
-            "angle_from": 337.5,
-            "angle_to": 22.5,
-            "enabled": true,
-            "id": "e",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 22.5,
-            "angle_to": 67.5,
-            "enabled": true,
-            "id": "se",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 67.5,
-            "angle_to": 112.5,
-            "enabled": true,
-            "id": "s",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 112.5,
-            "angle_to": 157.5,
-            "enabled": true,
-            "id": "sw",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 157.5,
-            "angle_to": 202.5,
-            "enabled": true,
-            "id": "w",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 202.5,
-            "angle_to": 247.5,
+            "angle_from": 0.0,
+            "angle_to": 0.0,
             "enabled": true,
             "id": "nw",
             "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
+            "shape": "rect",
+            "x_max": 0.5,
             "x_min": 0.0,
-            "y_max": 1.0,
+            "y_max": 0.5,
             "y_min": 0.0
           },
           {
-            "angle_from": 247.5,
-            "angle_to": 292.5,
-            "enabled": true,
-            "id": "n",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 292.5,
-            "angle_to": 337.5,
+            "angle_from": 0.0,
+            "angle_to": 0.0,
             "enabled": true,
             "id": "ne",
             "radius": 0.0,
-            "shape": "wedge",
+            "shape": "rect",
             "x_max": 1.0,
+            "x_min": 0.5,
+            "y_max": 0.5,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "sw",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.5,
             "x_min": 0.0,
             "y_max": 1.0,
-            "y_min": 0.0
+            "y_min": 0.5
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "se",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 1.0,
+            "x_min": 0.5,
+            "y_max": 1.0,
+            "y_min": 0.5
           }
         ]
       },

@@ -216,6 +216,13 @@ struct ControllerConfig {
     // dispatched the same way — a touch zone is just a digital source with a dynamic id set instead
     // of dpadActions' fixed 4 directions. See ARCHITECTURE.md "Touchpad" -> "Zonas".
     std::unordered_map<std::string, ButtonAction>   touchZoneActions;
+    // Touchpad Movimiento (Gestos): gesture id (see kGestureIcons in MappingEditor.cpp, e.g.
+    // "up"/"pinch_close"/...) -> action. Same ButtonAction vocabulary/dispatch as touchZoneActions
+    // above, but only the 12 discrete linear/parallel/pinch gestures use it — the 2 twist gestures
+    // ("twist_up_down"/"twist_down_up") are a continuous signal and belong in a HalfAxisAction map
+    // instead (mirroring gyro_actions' cw/ccw), not implemented yet. See ARCHITECTURE.md
+    // "Touchpad" -> "Movimiento".
+    std::unordered_map<std::string, ButtonAction>   touchGestureActions;
     std::string    dpad;
     std::string    layout_id;  // references an entry in data/pad_layouts.json; empty = use defaults
     TouchpadConfig touchpad;

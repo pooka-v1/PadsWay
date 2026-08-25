@@ -82,6 +82,13 @@ public:
     std::vector<TouchZoneRegion> touchZones;
     std::unordered_map<std::string, ButtonAction> touchZoneActionEdits;
 
+    // Movimiento (Gestos) mode only. Same shape/precedent as touchZoneActionEdits above (gesture
+    // id -> action), but keyed by the fixed 14-gesture catalog id instead of a data-driven region
+    // id — only the 12 discrete linear/parallel/pinch gestures use this map; the 2 twist gestures
+    // need a HalfAxisAction map instead (not implemented yet). Per-profile overridable, like
+    // touchZoneActionEdits.
+    std::unordered_map<std::string, ButtonAction> touchGestureActionEdits;
+
     // Populate edits from the matching config entry (vid/pid must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 

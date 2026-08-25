@@ -74,6 +74,11 @@ struct GamepadState {
     // surfaceMode isn't Zones — never sent to ViGEm, consumed by PadEngine's zone action dispatch.
     std::string activeTouchZone1;
     std::string activeTouchZone2;
+    // Movimiento (Gestos): gesture id (see kGestureIcons in MappingEditor.cpp) recognized on THIS
+    // frame only — a one-shot pulse, reset every frame by HIDInputSource::applyTouchpad() before
+    // being (maybe) set again. Only ever one of the 12 discrete gesture ids, never the 2 twist
+    // ones (continuous signal, not a release-triggered classification — see TouchGestures.h).
+    std::string touchGestureFired;
 
     // --- IMU (gyroscope) [-1.0 .. 1.0] ---
     bool  gyroActive = false;  // true when the device is reporting IMU data this frame

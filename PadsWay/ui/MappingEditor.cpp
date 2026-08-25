@@ -42,6 +42,7 @@ bool MappingEditor::pollConfigsSaved() {
 
 void MappingEditor::unload() {
     m_arrowTex.release();
+    for (auto& t : m_gestureIconTex) t.release();
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +262,49 @@ static std::string touchZoneTemplateDisplayName(const std::string& templateId) {
     return templateId;
 }
 
+// Movimiento (Gestos) catalog — 14 fixed entries, closed set (ARCHITECTURE.md "Movimiento
+// (catalogo de Gestos, cerrado 2026/08/15)"): 8 one-finger linear + 2 two-finger parallel +
+// 2 two-finger twist + 2 two-finger pinch. Unlike Zonas' templates this isn't data-driven —
+// the catalog doesn't change per instance/hardware, so it lives as a static table here instead
+// of a JSON file. Row order below matches the 2-row grid layout (8 + 6) picked for the panel.
+struct GestureIconDef { const char* id; const char* file; };
+static const GestureIconDef kGestureIcons[14] = {
+    // Row 1 - linear, 1 finger, clockwise from Up
+    { "up",         "images/decorations/MoveUp.png" },
+    { "up_right",   "images/decorations/MoveRightUp.png" },
+    { "right",      "images/decorations/MoveRight.png" },
+    { "down_right", "images/decorations/MoveRightDown.png" },
+    { "down",       "images/decorations/MoveDown.png" },
+    { "down_left",  "images/decorations/MoveLeftDown.png" },
+    { "left",       "images/decorations/MoveLeft.png" },
+    { "up_left",    "images/decorations/MoveLeftUp.png" },
+    // Row 2 - 2 fingers: parallel, twist, pinch
+    { "parallel_up",   "images/decorations/MoveDobleUp.png" },
+    { "parallel_down", "images/decorations/MoveDobleDown.png" },
+    { "twist_up_down", "images/decorations/MoveUpDown.png" },
+    { "twist_down_up", "images/decorations/MoveDownUp.png" },
+    { "pinch_close",   "images/decorations/MoveHorizontalClose.png" },
+    { "pinch_open",    "images/decorations/MoveHorizontalAway.png" },
+};
+
+static std::string touchGestureDisplayName(const std::string& gestureId) {
+    if (gestureId == "up")           return tr("action.touch_gesture_up");
+    if (gestureId == "up_right")     return tr("action.touch_gesture_up_right");
+    if (gestureId == "right")        return tr("action.touch_gesture_right");
+    if (gestureId == "down_right")   return tr("action.touch_gesture_down_right");
+    if (gestureId == "down")         return tr("action.touch_gesture_down");
+    if (gestureId == "down_left")    return tr("action.touch_gesture_down_left");
+    if (gestureId == "left")         return tr("action.touch_gesture_left");
+    if (gestureId == "up_left")      return tr("action.touch_gesture_up_left");
+    if (gestureId == "parallel_up")   return tr("action.touch_gesture_parallel_up");
+    if (gestureId == "parallel_down") return tr("action.touch_gesture_parallel_down");
+    if (gestureId == "twist_up_down") return tr("action.touch_gesture_twist_up_down");
+    if (gestureId == "twist_down_up") return tr("action.touch_gesture_twist_down_up");
+    if (gestureId == "pinch_close")   return tr("action.touch_gesture_pinch_close");
+    if (gestureId == "pinch_open")    return tr("action.touch_gesture_pinch_open");
+    return gestureId;
+}
+
 // ---------------------------------------------------------------------------
 // render — full mapping editor UI (called each frame when active)
 // ---------------------------------------------------------------------------
@@ -471,12 +515,14 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_sel.h9HoldComp = -1;
                     m_sel.h9HoldStickDir.clear();
                     m_sel.h9HoldDpadDir.clear();
+                    m_sel.h9HoldTouchZoneRegion.clear();
                     m_sel.h9HoldTimer = 0.0f;
                 } else {
                     int  activeComp          = -1;
                     bool activeIsStickBtn    = false;
                     bool activeIsTouchSurface = false;
                     std::string activeDpadDir;
+                    std::string activeTouchZoneRegion;
                     for (int i = 0; i < (int)physComps.size(); ++i) {
                         const PadComponent& c = physComps[i];
                         if (c.type == "button" && isStateActive(physNow, c.state)) {
@@ -505,7 +551,21 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                                 activeComp = i; activeIsTouchSurface = false; break;
                             }
                             if (physNow.touch1Active) {
-                                activeComp = i; activeIsTouchSurface = true; break;
+                                // Zonas: resolve which region the finger is over, same hit-test
+                                // onPhysTouchpadHit uses for the mouse-click path — a touch
+                                // outside every region (shouldn't happen for a full-coverage
+                                // template) counts as no touch for hold-selection purposes.
+                                if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
+                                    !m_model.touchZones.empty()) {
+                                    const TouchZoneRegion* hit =
+                                        hitTestTouchZone(m_model.touchZones, physNow.touch1X, physNow.touch1Y);
+                                    if (hit) {
+                                        activeComp = i; activeIsTouchSurface = true;
+                                        activeTouchZoneRegion = hit->id; break;
+                                    }
+                                } else {
+                                    activeComp = i; activeIsTouchSurface = true; break;
+                                }
                             }
                         }
                     }
@@ -513,24 +573,29 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         if (m_sel.h9HoldComp != activeComp) {
                             m_sel.h9HoldComp    = activeComp;
                             m_sel.h9HoldDpadDir = activeDpadDir;
+                            m_sel.h9HoldTouchZoneRegion = activeTouchZoneRegion;
                             m_sel.h9HoldTimer   = 0.0f;
                         } else {
                             m_sel.h9HoldDpadDir = activeDpadDir;
+                            m_sel.h9HoldTouchZoneRegion = activeTouchZoneRegion;
                             m_sel.h9HoldTimer += dt;
                             if (m_sel.h9HoldTimer >= 1.0f) {
                                 m_sel.physComp      = activeComp;
                                 m_sel.stickAsButton = activeIsStickBtn;
                                 m_sel.dpadDir        = activeDpadDir;
                                 m_sel.touchSurfaceSelected = activeIsTouchSurface;
+                                m_sel.touchZoneRegionSelected = activeTouchZoneRegion;
                                 m_sel.actionType    = ActionType::Xbox;
                                 m_sel.h9HoldComp    = -1;
                                 m_sel.h9HoldDpadDir.clear();
+                                m_sel.h9HoldTouchZoneRegion.clear();
                                 m_sel.h9HoldTimer   = 0.0f;
                             }
                         }
                     } else {
                         m_sel.h9HoldComp    = -1;
                         m_sel.h9HoldDpadDir.clear();
+                        m_sel.h9HoldTouchZoneRegion.clear();
                         m_sel.h9HoldTimer   = 0.0f;
                         // ── Paso 1c: gatillo al tope 2s → seleccionar como fuente ──
                         constexpr float kTrigSelThresh = 0.75f;
@@ -659,6 +724,23 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             // keyed by stick slot ids derived from selPhysComp.stateX, which gyro components
             // don't have. Mirrors the mouse-click path (onVirtHitGyroAction).
             bool isGyroSource = selPhysComp.type == "gyro";
+            // Touch zone/gesture source: target maps live in touchZoneActionEdits/
+            // touchGestureActionEdits, never in buttonEdits/actionEdits — keyed by region/gesture
+            // id (m_sel.touchZoneRegionSelected/touchGestureSelected), which selPhysComp.state
+            // (a "touchpad" component's own state, e.g. btnTouch) has no relation to. Mirrors the
+            // mouse-click path (onVirtHitTouchZone/onVirtHitTouchGesture in this same file).
+            // IMPORTANT — see also that comment: every H9 "Paso 2" site below (button/dpad target,
+            // trigger target, StickSlot target) needs its OWN touch branch, same as isGyroSource
+            // needed one in each when gyro was added (BITACORA.md, 2026/08/05, bugs 1/4/5) — the
+            // mouse-click path and this physical-press path are two independent implementations of
+            // the same assignment; a new source type must be wired into BOTH or one silently stops
+            // working while the other keeps compiling fine.
+            bool isTouchZoneSource = m_sel.touchSurfaceSelected &&
+                m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
+                !m_sel.touchZoneRegionSelected.empty();
+            bool isTouchGestureSource = m_sel.touchSurfaceSelected &&
+                m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
+                !m_sel.touchGestureSelected.empty();
             std::string selState;
             if (m_sel.stickAsButton)
                 selState = selPhysComp.stateClick;
@@ -690,6 +772,42 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::string virtShort = stateToShort(compState);
                 bool valid = false;
                 for (const auto& s : m_acceptedXbox) if (virtShort == s) { valid = true; break; }
+
+                // ── Touch zone/gesture source → VirtualButton target. Mirrors onVirtHitTouchZone/
+                // onVirtHitTouchGesture's plain-button branch — see the isTouchZoneSource comment
+                // above for why this can't share the buttonEdits/actionEdits path below. ──
+                if (isTouchZoneSource || isTouchGestureSource) {
+                    if (valid) {
+                        const std::string& srcId = isTouchZoneSource ? m_sel.touchZoneRegionSelected
+                                                                      : m_sel.touchGestureSelected;
+                        auto& editsMap = isTouchZoneSource ? m_model.touchZoneActionEdits
+                                                            : m_model.touchGestureActionEdits;
+                        auto it = editsMap.find(srcId);
+                        bool already = (it != editsMap.end() &&
+                                        it->second.type == ButtonActionType::VirtualButton &&
+                                        it->second.name == virtShort);
+                        if (already) {
+                            editsMap.erase(srcId);
+                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+                        } else {
+                            ButtonAction act;
+                            act.type = ButtonActionType::VirtualButton; act.physical = srcId; act.name = virtShort;
+                            editsMap[srcId] = act;
+                            int flashComp = findCompByState(virt.getLayout(), shortToState(virtShort));
+                            m_sel.flashComp      = flashComp;
+                            m_sel.flashTimer     = 0.5f;
+                            m_sel.flashVirtShort = virtShort;
+                        }
+                    } else {
+                        m_sel.h9ErrorTimer = 2.0f;
+                    }
+                    m_sel.physComp = -1;
+                    m_sel.touchSurfaceSelected = false;
+                    m_sel.touchZoneRegionSelected.clear();
+                    m_sel.touchGestureSelected.clear();
+                    m_sel.actionType = ActionType::Xbox;
+                    break;
+                }
 
                 // ── Axis-action mode: stick/gyro direction seleccionada → asignar VirtualButton/Dpad ──
                 if (!m_sel.stickDir.empty() && isGyroSource) {
@@ -865,6 +983,37 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
                 };
                 auto doTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
+                    // Touch zone/gesture source → Trigger target. Mirrors onVirtHitTouchZone/
+                    // onVirtHitTouchGesture's trigger branch — see isTouchZoneSource's comment
+                    // above; physShort is meaningless for a touchpad component, so this must be
+                    // handled before the physShort.empty() early-return below.
+                    if (isTouchZoneSource || isTouchGestureSource) {
+                        const std::string& srcId = isTouchZoneSource ? m_sel.touchZoneRegionSelected
+                                                                      : m_sel.touchGestureSelected;
+                        auto& editsMap = isTouchZoneSource ? m_model.touchZoneActionEdits
+                                                            : m_model.touchGestureActionEdits;
+                        auto it = editsMap.find(srcId);
+                        bool already = (it != editsMap.end() &&
+                                        it->second.type == ButtonActionType::Trigger &&
+                                        it->second.target == trigTarget);
+                        if (already) {
+                            editsMap.erase(srcId);
+                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+                        } else {
+                            ButtonAction act;
+                            act.type = ButtonActionType::Trigger; act.physical = srcId; act.target = trigTarget;
+                            editsMap[srcId] = act;
+                            m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
+                            m_sel.flashTimer     = 0.5f;
+                            m_sel.flashVirtShort = trigState;
+                        }
+                        m_sel.physComp = -1;
+                        m_sel.touchSurfaceSelected = false;
+                        m_sel.touchZoneRegionSelected.clear();
+                        m_sel.touchGestureSelected.clear();
+                        m_sel.actionType = ActionType::Xbox;
+                        return;
+                    }
                     if (physShort.empty()) return;
                     auto trigAssignIt = m_model.actionEdits.find(physShort);
                     bool already = (trigAssignIt != m_model.actionEdits.end() &&
@@ -895,8 +1044,10 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
 
             // Analog stick tilt → assign source to a stick slot destination.
-            // physShort is empty for stick sources (state field unused), so also check stickDir.
-            if (m_sel.physComp >= 0 && (!physShort.empty() || !m_sel.stickDir.empty())) {
+            // physShort is empty for stick and touch zone/gesture sources (state field unused for
+            // either), so also check stickDir/isTouchZoneSource/isTouchGestureSource.
+            if (m_sel.physComp >= 0 && (!physShort.empty() || !m_sel.stickDir.empty() ||
+                                         isTouchZoneSource || isTouchGestureSource)) {
                 const auto& virtComps = virt.getLayout().components;
                 for (int i = 0; i < (int)virtComps.size(); ++i) {
                     if (virtComps[i].type != "stick") continue;
@@ -970,6 +1121,30 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                             m_sel.physComp = -1; m_sel.stickDir.clear();
                             m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
                         }
+                    } else if (isTouchZoneSource || isTouchGestureSource) {
+                        // Touch zone/gesture source → StickSlot target. Mirrors
+                        // onVirtHitTouchZone/onVirtHitTouchGesture's arrow-hit branch — see
+                        // isTouchZoneSource's comment above.
+                        const std::string& srcId = isTouchZoneSource ? m_sel.touchZoneRegionSelected
+                                                                      : m_sel.touchGestureSelected;
+                        auto& editsMap = isTouchZoneSource ? m_model.touchZoneActionEdits
+                                                            : m_model.touchGestureActionEdits;
+                        auto it = editsMap.find(srcId);
+                        bool already = (it != editsMap.end() &&
+                                        it->second.type == ButtonActionType::VirtualButton &&
+                                        it->second.name == slotKey);
+                        if (already) {
+                            editsMap.erase(srcId);
+                        } else {
+                            ButtonAction act;
+                            act.type = ButtonActionType::VirtualButton; act.physical = srcId; act.name = slotKey;
+                            editsMap[srcId] = act;
+                        }
+                        m_sel.physComp = -1;
+                        m_sel.touchSurfaceSelected = false;
+                        m_sel.touchZoneRegionSelected.clear();
+                        m_sel.touchGestureSelected.clear();
+                        m_sel.actionType = ActionType::Xbox;
                     } else {
                         auto it = m_model.buttonEdits.find(physShort);
                         if (it != m_model.buttonEdits.end() && it->second == slotKey) {
@@ -1486,8 +1661,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
     if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
         // Superficie: surfaceMode selector. Mouse (pre-existing touchDelta->mouse routing) and
         // Analog (recentered touch position -> a chosen virtual stick, see below) have real
-        // behavior; Gesture/Zones are still visible placeholders — see ARCHITECTURE.md
-        // "Touchpad" for the full design.
+        // behavior; Gesture has the 14-icon grid but no action-assignment wiring yet; see
+        // ARCHITECTURE.md "Touchpad" for the full design.
         float btnW   = 110.0f;
         float totalW = btnW * 4 + ImGui::GetStyle().ItemSpacing.x * 3;
         float offX   = (availW - totalW) * 0.5f;
@@ -1512,7 +1687,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_analog"),  TouchpadSurfaceMode::Analog,  true);
         ImGui::SameLine();
-        modeBtn(tr("action.touch_mode_gesture"), TouchpadSurfaceMode::Gesture, false);
+        modeBtn(tr("action.touch_mode_gesture"), TouchpadSurfaceMode::Gesture, true);
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_zones"),   TouchpadSurfaceMode::Zones,   true);
 
@@ -1663,9 +1838,154 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     }
                 }
             }
-        } else if (m_model.touchSurfaceMode != TouchpadSurfaceMode::Mouse) {
+        } else if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture) {
             ImGui::Spacing();
-            ImGui::TextDisabled("%s", tr("action.touch_surface_wip"));
+            // 14-icon grid, lazy-loaded once, same precedent as m_arrowTex/m_zoneTemplatesLoaded
+            // above. Clicking a gesture opens the same 5-button action panel Zonas uses (see
+            // below) for the 12 discrete gestures; the 2 twist ones still need a HalfAxisAction
+            // map instead (not implemented). See ARCHITECTURE.md "Movimiento" for the full design.
+            if (!m_gestureIconsLoaded) {
+                m_gestureIconTex.resize(std::size(kGestureIcons));
+                for (size_t i = 0; i < std::size(kGestureIcons); ++i)
+                    PadView::loadPng(m_device, kGestureIcons[i].file, m_gestureIconTex[i]);
+                m_gestureIconsLoaded = true;
+            }
+
+            constexpr float kGestureIconSz = 24.0f;  // matches MacroStepGrid.cpp's kIconSz
+            constexpr int   kRow1Count = 8;           // linear, 1 finger
+            constexpr int   kRow2Count = 6;           // 2-finger: parallel, twist, pinch
+
+            auto gestureRow = [&](int startIdx, int count) {
+                float totalW = kGestureIconSz * count + ImGui::GetStyle().ItemSpacing.x * (count - 1);
+                float offX   = (availW - totalW) * 0.5f;
+                if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
+                for (int i = 0; i < count; ++i) {
+                    int idx = startIdx + i;
+                    const GestureIconDef& g = kGestureIcons[idx];
+                    bool sel = (m_sel.touchGestureSelected == g.id);
+                    ImGui::PushID(idx);
+                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                    const PadTexture& tex = m_gestureIconTex[idx];
+                    bool clicked;
+                    if (tex.valid())
+                        clicked = ImGui::ImageButton("##gicon", (ImTextureID)(uintptr_t)tex.srv,
+                                                      { kGestureIconSz, kGestureIconSz });
+                    else
+                        clicked = ImGui::Button("?", { kGestureIconSz, kGestureIconSz });
+                    if (clicked) m_sel.touchGestureSelected = g.id;
+                    if (sel) ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", touchGestureDisplayName(g.id).c_str());
+                    ImGui::PopID();
+                    if (i + 1 < count) ImGui::SameLine();
+                }
+            };
+            gestureRow(0, kRow1Count);
+            gestureRow(kRow1Count, kRow2Count);
+
+            ImGui::Spacing();
+            bool isTwist = m_sel.touchGestureSelected == "twist_up_down" ||
+                           m_sel.touchGestureSelected == "twist_down_up";
+            if (m_sel.touchGestureSelected.empty()) {
+                ImGui::TextDisabled("%s", tr("action.touch_gestures_hint"));
+            } else if (isTwist) {
+                // The 2 twist gestures are a continuous signal (a growing angle), not a single
+                // discrete trigger — they need a HalfAxisAction map (like gyroActionEdits' cw/ccw)
+                // instead of this discrete 5-button panel. Not implemented yet — see
+                // ARCHITECTURE.md "Movimiento".
+                ImGui::Text("%s", touchGestureDisplayName(m_sel.touchGestureSelected).c_str());
+                ImGui::TextDisabled("%s", tr("action.touch_gesture_twist_wip"));
+            } else {
+                const std::string& gestureSel = m_sel.touchGestureSelected;
+                ImGui::Text("%s", touchGestureDisplayName(gestureSel).c_str());
+                auto typeBtnGesture = [&](const char* label, ActionType type) {
+                    bool sel = (m_sel.actionType == type);
+                    if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+                    if (ImGui::Button(label, { 110.0f, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
+                    if (sel) ImGui::PopStyleColor();
+                };
+                char lblGamepadG[64], lblMacroG[64], lblKbG[64], lblMouseG[64], lblBotG[64];
+                snprintf(lblGamepadG, sizeof(lblGamepadG), "%s##btnGamepadG", tr("action.type_gamepad"));
+                snprintf(lblMacroG, sizeof(lblMacroG), "%s##btnMacroG", tr("action.type_macro"));
+                snprintf(lblKbG,    sizeof(lblKbG),    "%s##btnKbG",    tr("action.type_keyboard"));
+                snprintf(lblMouseG, sizeof(lblMouseG), "%s##btnMouseG", tr("action.type_mouse"));
+                snprintf(lblBotG,   sizeof(lblBotG),   "%s##btnBotG",   tr("action.type_bot"));
+                typeBtnGesture(lblGamepadG, ActionType::Xbox);   ImGui::SameLine();
+                typeBtnGesture(lblMacroG, ActionType::Macro);    ImGui::SameLine();
+                typeBtnGesture(lblKbG,    ActionType::Keyboard); ImGui::SameLine();
+                typeBtnGesture(lblMouseG, ActionType::Mouse);    ImGui::SameLine();
+                typeBtnGesture(lblBotG,   ActionType::Bot);
+                ImGui::Spacing();
+
+                if (m_sel.actionType == ActionType::Xbox) {
+                    // No widget here, same as every other component's Gamepad/Xbox tab — a silent
+                    // "waiting for a virtual pad click" state. See onVirtHitTouchGesture for the
+                    // button/dpad-direction/trigger target resolution, keyed by
+                    // touchGestureActionEdits[gestureSel] instead of buttonEdits.
+                } else if (m_sel.actionType == ActionType::Macro) {
+                    if (!m_macroNamesLoaded) {
+                        m_macroNames.clear(); m_macroLibrary.clear();
+                        try {
+                            std::ifstream f(Paths::userData("data/macros.json"));
+                            if (f.is_open()) {
+                                json j = json::parse(f);
+                                for (auto& [k, v] : j.items()) {
+                                    m_macroNames.push_back(k);
+                                    m_macroLibrary.emplace_back(k, v.get<std::string>());
+                                }
+                            }
+                        } catch (...) {}
+                        m_macroNamesLoaded = true;
+                    }
+                    if (m_sel.macroSel.empty()) {
+                        auto it = m_model.touchGestureActionEdits.find(gestureSel);
+                        if (it != m_model.touchGestureActionEdits.end() && it->second.type == ButtonActionType::Macro)
+                            m_sel.macroSel = it->second.name;
+                    }
+                    if (ActionPanel::renderMacroCombo("macGest", m_sel.macroSel, m_macroNames, availW)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::Macro; act.physical = gestureSel; act.name = m_sel.macroSel;
+                        m_model.touchGestureActionEdits[gestureSel] = act;
+                        m_sel.physComp = -1; m_sel.touchGestureSelected.clear();
+                        m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
+                    }
+                } else if (m_sel.actionType == ActionType::Keyboard) {
+                    bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                    if (cancel) {
+                        m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
+                    } else if (ActionPanel::renderKeyboardCapture("kbGest", m_sel.captureKeys, availW, true)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::Keyboard; act.physical = gestureSel;
+                        for (const auto& p : m_sel.captureKeys) act.keys.push_back(p.first);
+                        m_model.touchGestureActionEdits[gestureSel] = act;
+                        m_sel.physComp = -1; m_sel.touchGestureSelected.clear();
+                        m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
+                    }
+                } else if (m_sel.actionType == ActionType::Mouse) {
+                    std::string mbResult;
+                    if (ActionPanel::renderMouseButtons("mbGest", mbResult, availW)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::MouseClick; act.physical = gestureSel; act.mouseButton = mbResult;
+                        m_model.touchGestureActionEdits[gestureSel] = act;
+                        m_sel.physComp = -1; m_sel.touchGestureSelected.clear();
+                        m_sel.actionType = ActionType::Xbox;
+                    }
+                } else if (m_sel.actionType == ActionType::Bot) {
+                    std::vector<std::string> availableBots = m_engine->getLoadedBotNames();
+                    if (m_sel.botSel.empty()) {
+                        auto it = m_model.touchGestureActionEdits.find(gestureSel);
+                        if (it != m_model.touchGestureActionEdits.end() && it->second.type == ButtonActionType::Bot)
+                            m_sel.botSel = it->second.name;
+                    }
+                    if (ActionPanel::renderBotCombo("botGest", m_sel.botSel, availableBots, availW)) {
+                        ButtonAction act;
+                        act.type = ButtonActionType::Bot; act.physical = gestureSel; act.name = m_sel.botSel;
+                        m_model.touchGestureActionEdits[gestureSel] = act;
+                        m_sel.physComp = -1; m_sel.touchGestureSelected.clear();
+                        m_sel.actionType = ActionType::Xbox; m_sel.botSel.clear();
+                    }
+                }
+            }
         }
 
         // Explicit close button — only for action types with no self-committing widget of their
@@ -1684,6 +2004,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 m_sel.physComp = -1;
                 m_sel.touchSurfaceSelected = false;
                 m_sel.touchZoneRegionSelected.clear();
+                m_sel.touchGestureSelected.clear();
             }
         }
     } else if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
@@ -2530,17 +2851,18 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
 
-    // Zonas: while a region is selected and waiting for an action, OTHER physical components
-    // (button/stick/dpad/gyro) must stop reacting — an accidental click there would otherwise
-    // silently abandon the in-progress zone assignment. The touchpad itself and the virtual pad
-    // both still need to react normally below: the touchpad to switch/deselect regions, the
-    // virtual pad because that's how the Gamepad/Xbox tab actually assigns anything (click a
-    // button/dpad-direction/trigger there -> onVirtHitTouchZone, reached via the normal dispatch
-    // further down). See ARCHITECTURE.md "Touchpad" -> "Zonas". Guarded on physComp still pointing
-    // at a real component as a second line of defense — activate()/activateProfile() now call
-    // m_sel.clear() as the primary fix for stale selection surviving a reset.
-    if (!m_sel.touchZoneRegionSelected.empty() && m_sel.physComp >= 0 &&
-        m_sel.physComp < (int)phys.getLayout().components.size()) {
+    // Zonas/Gestos: while a region or gesture is selected and waiting for an action, OTHER
+    // physical components (button/stick/dpad/gyro) must stop reacting — an accidental click there
+    // would otherwise silently abandon the in-progress assignment. The touchpad itself and the
+    // virtual pad both still need to react normally below: the touchpad to switch/deselect
+    // regions/gestures, the virtual pad because that's how the Gamepad/Xbox tab actually assigns
+    // anything (click a button/dpad-direction/trigger there -> onVirtHitTouchZone/
+    // onVirtHitTouchGesture, reached via the normal dispatch further down). See ARCHITECTURE.md
+    // "Touchpad" -> "Zonas"/"Movimiento". Guarded on physComp still pointing at a real component
+    // as a second line of defense — activate()/activateProfile() now call m_sel.clear() as the
+    // primary fix for stale selection surviving a reset.
+    if ((!m_sel.touchZoneRegionSelected.empty() || !m_sel.touchGestureSelected.empty()) &&
+        m_sel.physComp >= 0 && m_sel.physComp < (int)phys.getLayout().components.size()) {
         int otherPhysHit = phys.hitTest(mouse, m_physOrigin);
         if (otherPhysHit >= 0 && phys.getLayout().components[otherPhysHit].type != "touchpad")
             return;
@@ -2601,12 +2923,15 @@ void MappingEditor::handleClick(PadView& phys, PadView& virt, ImVec2 mouse) {
         } else if (selType == "touchpad" && m_sel.touchSurfaceSelected) {
             // Superficie: Mouse has no target to assign, Analog is assigned via its own
             // target-stick buttons in the action panel (whole surface -> whole stick, not
-            // per-arrow), Gesture isn't implemented yet. Zones is the one case with a real
-            // click-to-assign target — a region on the Gamepad/Xbox tab, waiting for a virtual
-            // pad click (button/dpad-direction/trigger), same as any other component's Xbox tab.
+            // per-arrow). Zones and Gesture are the two cases with a real click-to-assign target
+            // — a region/gesture on the Gamepad/Xbox tab, waiting for a virtual pad click (button/
+            // dpad-direction/trigger), same as any other component's Xbox tab.
             if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
                 !m_sel.touchZoneRegionSelected.empty() && m_sel.actionType == ActionType::Xbox) {
                 onVirtHitTouchZone(virt, mouse);
+            } else if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
+                       !m_sel.touchGestureSelected.empty() && m_sel.actionType == ActionType::Xbox) {
+                onVirtHitTouchGesture(virt, mouse);
             }
         } else if (m_sel.actionType == ActionType::Xbox) {
             onVirtHitPhysButton(phys, virt, mouse);
@@ -2826,13 +3151,60 @@ void MappingEditor::onVirtHitPhysButton(PadView& phys, PadView& virt, ImVec2 mou
 // Virtual pad click when a Zonas region is selected (Gamepad/Xbox tab) — same virtShort
 // resolution as onVirtHitPhysButton (button / stick-click / dpad-direction / trigger), but the
 // "source" is the region id, not a physical component's state string, and the result goes into
-// touchZoneActionEdits instead of buttonEdits/actionEdits.
+// touchZoneActionEdits instead of buttonEdits/actionEdits. Also checks the virtual stick arrows
+// first, same convention onVirtHitAxisAction uses for a physical half-axis source: a region can
+// target a stick half-axis (StickSlot) too, stored as a VirtualButton action whose name is the
+// slot dir string (e.g. "left_x_pos") — the same encoding isStickSlotDir()/applyVirtualBtnByName
+// already handle generically, no touch-specific plumbing needed on the config/engine side.
+//
+// IMPORTANT: this is the MOUSE-click path only. There is a second, independent path for the same
+// assignment via H9 "Paso 2" (holding the source ~1s, then completing the target with a physical
+// button press instead of the mouse) — search this file for "isTouchZoneSource" inside render(),
+// a few hundred lines above this function (there is no separate handler function for it, it's
+// inline in the big per-frame H9 block). A touch zone/gesture went unassignable via Paso 2 for a
+// full day (2026/08/23-24) because only THIS mouse path got updated when Zonas/Gestos were added —
+// Paso 2 didn't know either map existed and silently wrote nothing (mirrors the exact same gap
+// gyro/accel had when first added, see BITACORA.md 2026/08/05, bugs 1/4/5). Whenever a NEW source
+// type is added to the Mando tab, update BOTH paths, not just this one — they don't share code, so
+// nothing forces the second one to be remembered.
 // ---------------------------------------------------------------------------
 void MappingEditor::onVirtHitTouchZone(PadView& virt, ImVec2 mouse) {
+    const std::string& regionSel = m_sel.touchZoneRegionSelected;
+
+    std::string virtArrowDir;
+    int virtArrowComp = virt.hitTestStickArrow(mouse, m_virtOrigin, virtArrowDir);
+    if (virtArrowComp >= 0) {
+        const auto& virtComps = virt.getLayout().components;
+        auto [vxId, vyId] = stickIdsFromStateX(virtComps[virtArrowComp].stateX);
+        if (!vxId.empty()) {
+            std::string slotKey;
+            if      (virtArrowDir == "up")    slotKey = vyId + "_pos";
+            else if (virtArrowDir == "down")  slotKey = vyId + "_neg";
+            else if (virtArrowDir == "right") slotKey = vxId + "_pos";
+            else if (virtArrowDir == "left")  slotKey = vxId + "_neg";
+            if (!slotKey.empty()) {
+                auto it = m_model.touchZoneActionEdits.find(regionSel);
+                bool already = (it != m_model.touchZoneActionEdits.end() &&
+                                it->second.type == ButtonActionType::VirtualButton &&
+                                it->second.name == slotKey);
+                if (already) {
+                    m_model.touchZoneActionEdits.erase(regionSel);
+                    m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f;
+                } else {
+                    ButtonAction act;
+                    act.type = ButtonActionType::VirtualButton; act.physical = regionSel; act.name = slotKey;
+                    m_model.touchZoneActionEdits[regionSel] = act;
+                    m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
+                }
+            }
+        }
+        m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+        return;
+    }
+
     int virtHit = virt.hitTest(mouse, m_virtOrigin);
     if (virtHit < 0) return;
 
-    const std::string& regionSel = m_sel.touchZoneRegionSelected;
     const auto& virtComp = virt.getLayout().components[virtHit];
 
     std::string virtShort;
@@ -2870,6 +3242,94 @@ void MappingEditor::onVirtHitTouchZone(PadView& virt, ImVec2 mouse) {
         m_sel.flashComp = virtHit; m_sel.flashTimer = 0.5f; m_sel.flashVirtShort = virtShort;
     }
     m_sel.physComp = -1; m_sel.touchZoneRegionSelected.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Virtual pad click when a Movimiento (Gestos) gesture is selected (Gamepad/Xbox tab) — same
+// virtShort resolution as onVirtHitTouchZone, but the "source" is the gesture id and the result
+// goes into touchGestureActionEdits instead of touchZoneActionEdits. Only ever reached for the 12
+// discrete gestures — see the Gesture render block above, which doesn't offer a Gamepad tab for
+// the 2 twist ones. Also checks the virtual stick arrows first — see onVirtHitTouchZone's comment,
+// same StickSlot-via-VirtualButton convention applies here.
+//
+// IMPORTANT: same H9 "Paso 2" caveat as onVirtHitTouchZone above — this is the mouse-click path
+// only, the physical-press path lives separately inside render()'s H9 block
+// (isTouchGestureSource). Update both when touching this.
+// ---------------------------------------------------------------------------
+void MappingEditor::onVirtHitTouchGesture(PadView& virt, ImVec2 mouse) {
+    const std::string& gestureSel = m_sel.touchGestureSelected;
+
+    std::string virtArrowDir;
+    int virtArrowComp = virt.hitTestStickArrow(mouse, m_virtOrigin, virtArrowDir);
+    if (virtArrowComp >= 0) {
+        const auto& virtComps = virt.getLayout().components;
+        auto [vxId, vyId] = stickIdsFromStateX(virtComps[virtArrowComp].stateX);
+        if (!vxId.empty()) {
+            std::string slotKey;
+            if      (virtArrowDir == "up")    slotKey = vyId + "_pos";
+            else if (virtArrowDir == "down")  slotKey = vyId + "_neg";
+            else if (virtArrowDir == "right") slotKey = vxId + "_pos";
+            else if (virtArrowDir == "left")  slotKey = vxId + "_neg";
+            if (!slotKey.empty()) {
+                auto it = m_model.touchGestureActionEdits.find(gestureSel);
+                bool already = (it != m_model.touchGestureActionEdits.end() &&
+                                it->second.type == ButtonActionType::VirtualButton &&
+                                it->second.name == slotKey);
+                if (already) {
+                    m_model.touchGestureActionEdits.erase(gestureSel);
+                    m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f;
+                } else {
+                    ButtonAction act;
+                    act.type = ButtonActionType::VirtualButton; act.physical = gestureSel; act.name = slotKey;
+                    m_model.touchGestureActionEdits[gestureSel] = act;
+                    m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
+                }
+            }
+        }
+        m_sel.physComp = -1; m_sel.touchGestureSelected.clear();
+        return;
+    }
+
+    int virtHit = virt.hitTest(mouse, m_virtOrigin);
+    if (virtHit < 0) return;
+
+    const auto& virtComp = virt.getLayout().components[virtHit];
+
+    std::string virtShort;
+    if (virtComp.type == "button")
+        virtShort = stateToShort(virtComp.state);
+    else if (virtComp.type == "stick" && !virtComp.stateClick.empty())
+        virtShort = stateToShort(virtComp.stateClick);
+    else if (virtComp.type == "dpad") {
+        std::string vdir = dpadDirFromMouse(mouse,
+            m_virtOrigin.x + virtComp.cx, m_virtOrigin.y + virtComp.cy);
+        virtShort = stateToShort(dpadDirToState(virtComp, vdir));
+    }
+    if (virtShort.empty()) return;
+
+    ButtonAction act;
+    act.physical = gestureSel;
+    if (virtShort == "triggerL" || virtShort == "triggerR") {
+        act.type   = ButtonActionType::Trigger;
+        act.target = (virtShort == "triggerL") ? "l2" : "r2";
+    } else {
+        act.type = ButtonActionType::VirtualButton;
+        act.name = virtShort;
+    }
+
+    auto it = m_model.touchGestureActionEdits.find(gestureSel);
+    bool alreadyAssigned = (it != m_model.touchGestureActionEdits.end() &&
+                             it->second.type == act.type &&
+                             ((act.type == ButtonActionType::Trigger && it->second.target == act.target) ||
+                              (act.type == ButtonActionType::VirtualButton && it->second.name == act.name)));
+    if (alreadyAssigned) {
+        m_model.touchGestureActionEdits.erase(gestureSel);
+        m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
+    } else {
+        m_model.touchGestureActionEdits[gestureSel] = act;
+        m_sel.flashComp = virtHit; m_sel.flashTimer = 0.5f; m_sel.flashVirtShort = virtShort;
+    }
+    m_sel.physComp = -1; m_sel.touchGestureSelected.clear();
 }
 
 // ---------------------------------------------------------------------------

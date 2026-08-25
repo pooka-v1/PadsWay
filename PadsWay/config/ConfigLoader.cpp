@@ -257,6 +257,10 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             for (const auto& [regionId, val] : c["touch_zone_actions"].items())
                 cfg.touchZoneActions[regionId] = parseButtonAction(val);
 
+        if (c.contains("touch_gesture_actions") && c["touch_gesture_actions"].is_object())
+            for (const auto& [gestureId, val] : c["touch_gesture_actions"].items())
+                cfg.touchGestureActions[gestureId] = parseButtonAction(val);
+
         if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
             std::unordered_map<std::string, std::string> dpadSlots;
             parseDpadRemapJson(c["dpad_remap"], cfg.dpadRemap, cfg.dpadActions, dpadSlots);

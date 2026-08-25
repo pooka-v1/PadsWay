@@ -135,6 +135,12 @@ struct MappingSelection {
     // click assigns into MappingModel::touchZoneActionEdits[touchZoneRegionSelected] instead of
     // the Botón/Superficie channels. Also only meaningful while physComp's type is "touchpad".
     std::string touchZoneRegionSelected;
+    // Movimiento (Gestos) only: which of the 14 catalog gesture ids is currently selected for
+    // editing ("" = none). Same role as touchZoneRegionSelected above, but keyed by a fixed
+    // gesture id instead of a data-driven region id — the 14-gesture catalog is closed
+    // (ARCHITECTURE.md "Movimiento"), not loaded from a template file like Zonas. Also only
+    // meaningful while physComp's type is "touchpad".
+    std::string touchGestureSelected;
 
     // --- Flash feedback on virtual pad ---
     int         flashComp       = -1;
@@ -201,6 +207,7 @@ struct MappingSelection {
         triggerSrc.clear();
         touchSurfaceSelected = false;
         touchZoneRegionSelected.clear();
+        touchGestureSelected.clear();
         flashComp     = -1;
         flashTimer    = 0.0f;
         flashVirtShort.clear();
