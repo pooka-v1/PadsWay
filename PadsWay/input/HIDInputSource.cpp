@@ -859,6 +859,7 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     m_physicalState.touchDeltaX = 0.0f;
     m_physicalState.touchDeltaY = 0.0f;
     state.touchGestureFired.clear();
+    m_physicalState.touchGestureFired.clear();
 
     if (!m_config.touchpad.enabled) return;
 
@@ -933,8 +934,20 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             float liveDy = (normY - m_touch1SessStartY) * static_cast<float>(m_config.touchpad.maxY);
             float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
             m_touch1CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
+            // TEMP diagnostic trace for the H9-Paso1-Gestos regression (2026/08/26 session
+            // pause) — logs the exact moment the live commit fires, how long into the session
+            // it took, and whether it actually classified to something. Remove once fixed.
+            if (!m_touch1CommittedGesture.empty()) {
+                spdlog::debug("[H9][gesture][commit] finger=1 gesture='{}' sinceStartMs={} "
+                               "liveDx={:.1f} liveDy={:.1f} concurrent={}",
+                               m_touch1CommittedGesture, GetTickCount64() - m_touch1SessStartMs,
+                               liveDx, liveDy, m_touch1SessConcurrent);
+            }
         }
-        if (!m_touch1CommittedGesture.empty()) state.touchGestureFired = m_touch1CommittedGesture;
+        if (!m_touch1CommittedGesture.empty()) {
+            state.touchGestureFired = m_touch1CommittedGesture;
+            m_physicalState.touchGestureFired = m_touch1CommittedGesture;
+        }
 
         m_lastTouchX = normX;
         m_lastTouchY = normY;
@@ -954,7 +967,15 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
                 std::string gesture = classifyTouchRelease(1, m_touch1SessStartX, m_touch1SessStartY,
                                                              m_lastTouchX, m_lastTouchY,
                                                              m_touch1SessConcurrent);
-                if (!gesture.empty()) state.touchGestureFired = gesture;
+                // TEMP diagnostic trace, see the live-commit one above. Never live-committed —
+                // this is the release-time fallback path, logged regardless of outcome (empty
+                // included) so a silently-dropped gesture shows up too.
+                spdlog::debug("[H9][gesture][release] finger=1 result='{}' concurrent={}",
+                               gesture, m_touch1SessConcurrent);
+                if (!gesture.empty()) {
+                    state.touchGestureFired = gesture;
+                    m_physicalState.touchGestureFired = gesture;
+                }
             }
             // else: already reported active every frame up to now; leaving touchGestureFired
             // cleared (this function's top) on this release frame is exactly the release edge the
@@ -999,7 +1020,10 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
                 float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
                 m_touch2CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
             }
-            if (!m_touch2CommittedGesture.empty()) state.touchGestureFired = m_touch2CommittedGesture;
+            if (!m_touch2CommittedGesture.empty()) {
+                state.touchGestureFired = m_touch2CommittedGesture;
+                m_physicalState.touchGestureFired = m_touch2CommittedGesture;
+            }
 
             m_lastTouch2X = state.touch2X;
             m_lastTouch2Y = state.touch2Y;
@@ -1018,7 +1042,10 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
                     std::string gesture = classifyTouchRelease(2, m_touch2SessStartX, m_touch2SessStartY,
                                                                  m_lastTouch2X, m_lastTouch2Y,
                                                                  m_touch2SessConcurrent);
-                    if (!gesture.empty()) state.touchGestureFired = gesture;
+                    if (!gesture.empty()) {
+                        state.touchGestureFired = gesture;
+                        m_physicalState.touchGestureFired = gesture;
+                    }
                 }
             }
         }

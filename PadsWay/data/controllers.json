@@ -745,7 +745,7 @@
         },
         "14": {
           "physical": "touch_btn",
-          "virtual": "y"
+          "virtual": "b"
         },
         "2": {
           "physical": "a",
@@ -800,7 +800,7 @@
       },
       "gyro_actions": {
         "x_neg": {
-          "virtual": "l1"
+          "virtual": "r1"
         },
         "y_neg": {
           "virtual": "x"
@@ -852,10 +852,7 @@
       },
       "touch_gesture_actions": {
         "down": {
-          "keys": [
-            "d"
-          ],
-          "type": "keyboard"
+          "virtual": "a"
         },
         "down_left": {
           "keys": [
@@ -865,11 +862,7 @@
           "type": "keyboard"
         },
         "down_right": {
-          "keys": [
-            "d",
-            "r"
-          ],
-          "type": "keyboard"
+          "virtual": "a"
         },
         "left": {
           "keys": [
@@ -878,13 +871,7 @@
           "type": "keyboard"
         },
         "parallel_down": {
-          "keys": [
-            "d",
-            "o",
-            "w",
-            "n"
-          ],
-          "type": "keyboard"
+          "virtual": "dpad_down"
         },
         "parallel_up": {
           "keys": [
@@ -900,11 +887,7 @@
           "type": "keyboard"
         },
         "pinch_open": {
-          "keys": [
-            "e",
-            "x"
-          ],
-          "type": "keyboard"
+          "virtual": "start"
         },
         "right": {
           "keys": [
@@ -929,10 +912,7 @@
           "type": "keyboard"
         },
         "up": {
-          "keys": [
-            "u"
-          ],
-          "type": "keyboard"
+          "virtual": "y"
         },
         "up_left": {
           "keys": [
@@ -951,17 +931,28 @@
       },
       "touch_zone_actions": {
         "ne": {
-          "virtual": "dpad_down"
+          "keys": [
+            "e"
+          ],
+          "type": "keyboard"
         },
         "nw": {
-          "virtual": "y"
+          "keys": [
+            "r"
+          ],
+          "type": "keyboard"
         },
         "se": {
-          "virtual": "right_x_pos"
+          "keys": [
+            "o"
+          ],
+          "type": "keyboard"
         },
         "sw": {
-          "target": "l2",
-          "type": "trigger"
+          "keys": [
+            "i"
+          ],
+          "type": "keyboard"
         }
       },
       "touchpad": {
@@ -970,7 +961,7 @@
         "enabled": true,
         "max_x": 1919,
         "max_y": 942,
-        "surface_mode": "gesture",
+        "surface_mode": "zones",
         "zone_template_id": "cross-plus-4",
         "zones": [
           {

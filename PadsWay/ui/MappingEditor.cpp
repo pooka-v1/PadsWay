@@ -468,6 +468,50 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
     // ── H9: lógica de mapping desde el mando ─────────────────────────────────
     GamepadState physNow = m_engine->getLastState();
+    // TEMP diagnostic trace for the H9-Paso1-Gestos regression (2026/08/26 session pause) —
+    // unconditional, before any H9 gating, so we can tell whether the gesture signal even
+    // reaches MappingEditor at all vs. gets gated out further down. Remove once fixed.
+    if (!physNow.touchGestureFired.empty()) {
+        spdlog::debug("[H9][gesture][raw] fired='{}' mode={} physComp={} triggerSrc='{}' "
+                       "h9HoldStickDir='{}'",
+                       physNow.touchGestureFired, (int)m_model.touchSurfaceMode,
+                       m_sel.physComp, m_sel.triggerSrc, m_sel.h9HoldStickDir);
+    }
+    // Movimiento (Gestos): pick the SPECIFIC gesture while already INSIDE the picker panel —
+    // covers every way the touchpad can already be the selected source (mouse click on the
+    // touchpad body, a prior gesture that only armed the surface, H9 Paso 1 below from a fresh
+    // -1 state, etc.), not just the "nothing selected yet" case the block below handles. Runs
+    // unconditionally, outside the `physComp < 0` H9 gate below — that gate exists to arbitrate
+    // WHICH physical thing becomes the source when nothing is picked yet; once the touchpad
+    // already IS the source, picking a specific gesture is a separate step (the 14-icon grid),
+    // and a real gesture should do exactly what clicking an icon does there. Found 2026/08/26:
+    // without this, any gesture made while the grid was already open (touchpad pre-selected via
+    // mouse) was silently ignored — confirmed with real hardware, dozens of gestures classified
+    // correctly by HIDInputSource but never reaching touchGestureSelected.
+    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
+        m_sel.physComp >= 0 && m_sel.touchSurfaceSelected &&
+        m_sel.touchGestureSelected.empty() && !physNow.touchGestureFired.empty()) {
+        m_sel.touchGestureSelected = physNow.touchGestureFired;
+        m_sel.actionType = ActionType::Xbox;
+        m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+    }
+    // Zonas: same gap, same fix — switch to whichever region the finger is currently over,
+    // INSTANTLY, while already inside the picker (physComp >= 0, touchSurfaceSelected), mirroring
+    // onPhysTouchpadHit's mouse-click behavior (which always re-picks on click, live in
+    // TouchZones.h below via hitTestTouchZone). Touch could only ever resolve a region through
+    // the physComp<0 hold gate further down, so once a region was already selected — by mouse OR
+    // by an earlier touch — touching a DIFFERENT region did nothing (found 2026/08/26, reported
+    // with real hardware: touched the top-left region while top-left was already selected from a
+    // previous run, top-right did nothing).
+    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones && !m_model.touchZones.empty() &&
+        m_sel.physComp >= 0 && m_sel.touchSurfaceSelected && physNow.touch1Active) {
+        const TouchZoneRegion* hit = hitTestTouchZone(m_model.touchZones, physNow.touch1X, physNow.touch1Y);
+        if (hit && hit->id != m_sel.touchZoneRegionSelected) {
+            m_sel.touchZoneRegionSelected = hit->id;
+            m_sel.actionType = ActionType::Xbox;
+            m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+        }
+    }
     {
         const auto& physComps = phys.getLayout().components;
 
@@ -542,6 +586,15 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                             if (activeComp >= 0) break;
                         }
                         if (c.type == "touchpad") {
+                            // TEMP diagnostic trace for the H9-Paso1-Gestos regression (2026/08/26
+                            // session pause) — remove once the regression is confirmed fixed.
+                            if (!physNow.touchGestureFired.empty()) {
+                                spdlog::debug("[H9][gesture] fired='{}' mode={} physComp={} "
+                                               "touchGestureSelected='{}' btnTouchClick={}",
+                                               physNow.touchGestureFired, (int)m_model.touchSurfaceMode,
+                                               m_sel.physComp, m_sel.touchGestureSelected,
+                                               isStateActive(physNow, c.state));
+                            }
                             // Botón (physical click, c.state == "btnTouch") takes priority over
                             // Superficie (just touching, touch1Active) — a real click implies the
                             // finger is already touching, so a firmer press is the more deliberate
@@ -549,6 +602,35 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                             // equivalent of this same left/right-half split.
                             if (isStateActive(physNow, c.state)) {
                                 activeComp = i; activeIsTouchSurface = false; break;
+                            }
+                            // Movimiento (Gestos): a recognized gesture commits INSTANTLY here,
+                            // fully (physComp + touchSurfaceSelected + touchGestureSelected all at
+                            // once) instead of going through the activeComp/h9HoldTimer arm-then-
+                            // wait dance below. Two reasons: (1) the classifier already requires a
+                            // deliberate minimum travel distance before firing at all, a stronger
+                            // intent filter than "sat still for 1s"; (2) the 6 two-finger gestures
+                            // only ever fire as a single-frame pulse AT RELEASE — by then
+                            // physNow.touch1Active is already false, so they could never satisfy a
+                            // hold gate anyway. Must NOT just set touchGestureSelected alone and
+                            // leave physComp untouched — that was tried first and found to be a
+                            // real bug with real hardware (2026/08/26): the generic touch1Active
+                            // branch right below kept running in parallel (nothing had closed the
+                            // outer physComp<0 guard), so its own independent 1s hold could commit
+                            // LATER and pop the panel open showing whatever gesture id happened to
+                            // be sitting in touchGestureSelected at that point — not necessarily
+                            // the one just performed. Setting physComp here closes that guard
+                            // immediately, so the branch below never gets a chance to race this.
+                            if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
+                                m_sel.touchGestureSelected.empty() &&
+                                !physNow.touchGestureFired.empty()) {
+                                m_sel.physComp = i;
+                                m_sel.touchSurfaceSelected = true;
+                                m_sel.touchGestureSelected = physNow.touchGestureFired;
+                                m_sel.actionType = ActionType::Xbox;
+                                m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+                                m_sel.h9HoldComp = -1; m_sel.h9HoldDpadDir.clear();
+                                m_sel.h9HoldTouchZoneRegion.clear(); m_sel.h9HoldTimer = 0.0f;
+                                break;
                             }
                             if (physNow.touch1Active) {
                                 // Zonas: resolve which region the finger is over, same hit-test

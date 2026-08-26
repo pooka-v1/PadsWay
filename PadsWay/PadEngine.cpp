@@ -1695,8 +1695,15 @@ void PadEngine::threadFunc() {
             // button tap — no new dispatch mechanism needed. All 14 gestures, twist included,
             // populate touchGestureActions/touchGestureFired the same way (see ARCHITECTURE.md
             // "Movimiento").
+            // Gated on surfaceMode, same as activeTouchZone1/2 is gated in ComponentTypes.cpp —
+            // HIDInputSource classifies gestures unconditionally regardless of surfaceMode (kept
+            // that way so the Mapeador's H9 gesture picker keeps working while live-editing an
+            // unsaved mode switch), so without this check a swipe that also happens to resolve to
+            // a valid gesture fires its gesture action ALONGSIDE the Zonas action while in Zones
+            // mode (found 2026/08/26 with real hardware).
             auto touchGestureActive = [&](const std::string& gestureId) -> bool {
-                return state.touchGestureFired == gestureId;
+                return cfg->touchpad.surfaceMode == TouchpadSurfaceMode::Gesture &&
+                       state.touchGestureFired == gestureId;
             };
             for (auto& [gestureId, macro] : touchGestureMacros) {
                 bool active = touchGestureActive(gestureId);
