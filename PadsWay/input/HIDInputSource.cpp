@@ -860,6 +860,12 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     m_physicalState.touchDeltaY = 0.0f;
     state.touchGestureFired.clear();
     m_physicalState.touchGestureFired.clear();
+    // Snapshot BEFORE either finger's release branch runs below — a 2-finger gesture already
+    // live-committed (see m_touchTwoFingerCommittedGesture near the end of this function) takes
+    // priority over each finger's OWN release-time fallback classification, so both finger
+    // blocks need to know this was true as of the START of this read, not after it's cleared at
+    // the end of this same call once a finger actually goes inactive.
+    const bool touchTwoFingerWasCommitted = !m_touchTwoFingerCommittedGesture.empty();
 
     if (!m_config.touchpad.enabled) return;
 
@@ -934,15 +940,6 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             float liveDy = (normY - m_touch1SessStartY) * static_cast<float>(m_config.touchpad.maxY);
             float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
             m_touch1CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
-            // TEMP diagnostic trace for the H9-Paso1-Gestos regression (2026/08/26 session
-            // pause) — logs the exact moment the live commit fires, how long into the session
-            // it took, and whether it actually classified to something. Remove once fixed.
-            if (!m_touch1CommittedGesture.empty()) {
-                spdlog::debug("[H9][gesture][commit] finger=1 gesture='{}' sinceStartMs={} "
-                               "liveDx={:.1f} liveDy={:.1f} concurrent={}",
-                               m_touch1CommittedGesture, GetTickCount64() - m_touch1SessStartMs,
-                               liveDx, liveDy, m_touch1SessConcurrent);
-            }
         }
         if (!m_touch1CommittedGesture.empty()) {
             state.touchGestureFired = m_touch1CommittedGesture;
@@ -960,18 +957,19 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         if (m_lastTouchActive) {
             logTouchSession(1, m_touch1SessStartX, m_touch1SessStartY,
                              m_lastTouchX, m_lastTouchY, m_touch1SessStartMs);
-            if (m_touch1CommittedGesture.empty()) {
+            if (touchTwoFingerWasCommitted) {
+                // A 2-finger gesture was already live-committed and sustained (see
+                // m_touchTwoFingerCommittedGesture near the end of this function) — this release
+                // is that gesture's release edge, already reported active every frame up to now.
+                // Nothing to (re)classify here; the fallback below is only for a session that
+                // never crossed the live-commit threshold at all.
+            } else if (m_touch1CommittedGesture.empty()) {
                 // Never crossed the threshold live (stayed too short the whole time, or the
                 // session went concurrent before committing) — fall back to the release-time
                 // classifier, same as before this held-gesture change.
                 std::string gesture = classifyTouchRelease(1, m_touch1SessStartX, m_touch1SessStartY,
                                                              m_lastTouchX, m_lastTouchY,
                                                              m_touch1SessConcurrent);
-                // TEMP diagnostic trace, see the live-commit one above. Never live-committed —
-                // this is the release-time fallback path, logged regardless of outcome (empty
-                // included) so a silently-dropped gesture shows up too.
-                spdlog::debug("[H9][gesture][release] finger=1 result='{}' concurrent={}",
-                               gesture, m_touch1SessConcurrent);
                 if (!gesture.empty()) {
                     state.touchGestureFired = gesture;
                     m_physicalState.touchGestureFired = gesture;
@@ -1036,7 +1034,10 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             if (m_lastTouch2Active) {
                 logTouchSession(2, m_touch2SessStartX, m_touch2SessStartY,
                                  m_lastTouch2X, m_lastTouch2Y, m_touch2SessStartMs);
-                if (!m_touch2CommittedGesture.empty()) {
+                if (touchTwoFingerWasCommitted) {
+                    // Same release edge as finger 1's symmetric check above — already reported,
+                    // nothing to (re)classify.
+                } else if (!m_touch2CommittedGesture.empty()) {
                     m_touch2CommittedGesture.clear();
                 } else {
                     std::string gesture = classifyTouchRelease(2, m_touch2SessStartX, m_touch2SessStartY,
@@ -1059,6 +1060,31 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         state.touch2X = state.touch2Y = 0.0f;
         m_physicalState.touch2Active = false;
         m_physicalState.touch2X = m_physicalState.touch2Y = 0.0f;
+    }
+
+    // --- Movimiento (Gestos), 2 fingers: live commit while BOTH are down ---
+    // Same idea as m_touch1CommittedGesture above, but needs both fingers' CURRENT displacement
+    // together, so it can only run here — after both finger blocks above have finished updating
+    // state.touch1X/Y and state.touch2X/Y for this read. Previously the 6 two-finger gestures
+    // only ever fired as a single, easy-to-miss frame pulse at release (classifyTouchRelease's
+    // m_pendingTwoFinger correlation, still used below as a fallback for a pairing that never
+    // crosses the live threshold before one finger lets go).
+    if (state.touch1Active && state.touch2Active) {
+        if (m_touchTwoFingerCommittedGesture.empty()) {
+            float liveDx1 = (state.touch1X - m_touch1SessStartX) * static_cast<float>(m_config.touchpad.maxX);
+            float liveDy1 = (state.touch1Y - m_touch1SessStartY) * static_cast<float>(m_config.touchpad.maxY);
+            float liveDx2 = (state.touch2X - m_touch2SessStartX) * static_cast<float>(m_config.touchpad.maxX);
+            float liveDy2 = (state.touch2Y - m_touch2SessStartY) * static_cast<float>(m_config.touchpad.maxY);
+            m_touchTwoFingerCommittedGesture = classifyTwoFingerGesture(
+                liveDx1, liveDy1, liveDx2, liveDy2,
+                m_touch1SessStartX, m_touch2SessStartX, kGestureMinDist);
+        }
+        if (!m_touchTwoFingerCommittedGesture.empty()) {
+            state.touchGestureFired = m_touchTwoFingerCommittedGesture;
+            m_physicalState.touchGestureFired = m_touchTwoFingerCommittedGesture;
+        }
+    } else {
+        m_touchTwoFingerCommittedGesture.clear();
     }
 }
 

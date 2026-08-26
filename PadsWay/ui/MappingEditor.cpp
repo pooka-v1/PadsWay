@@ -468,15 +468,6 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
     // ── H9: lógica de mapping desde el mando ─────────────────────────────────
     GamepadState physNow = m_engine->getLastState();
-    // TEMP diagnostic trace for the H9-Paso1-Gestos regression (2026/08/26 session pause) —
-    // unconditional, before any H9 gating, so we can tell whether the gesture signal even
-    // reaches MappingEditor at all vs. gets gated out further down. Remove once fixed.
-    if (!physNow.touchGestureFired.empty()) {
-        spdlog::debug("[H9][gesture][raw] fired='{}' mode={} physComp={} triggerSrc='{}' "
-                       "h9HoldStickDir='{}'",
-                       physNow.touchGestureFired, (int)m_model.touchSurfaceMode,
-                       m_sel.physComp, m_sel.triggerSrc, m_sel.h9HoldStickDir);
-    }
     // Movimiento (Gestos): pick the SPECIFIC gesture while already INSIDE the picker panel —
     // covers every way the touchpad can already be the selected source (mouse click on the
     // touchpad body, a prior gesture that only armed the surface, H9 Paso 1 below from a fresh
@@ -586,15 +577,6 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                             if (activeComp >= 0) break;
                         }
                         if (c.type == "touchpad") {
-                            // TEMP diagnostic trace for the H9-Paso1-Gestos regression (2026/08/26
-                            // session pause) — remove once the regression is confirmed fixed.
-                            if (!physNow.touchGestureFired.empty()) {
-                                spdlog::debug("[H9][gesture] fired='{}' mode={} physComp={} "
-                                               "touchGestureSelected='{}' btnTouchClick={}",
-                                               physNow.touchGestureFired, (int)m_model.touchSurfaceMode,
-                                               m_sel.physComp, m_sel.touchGestureSelected,
-                                               isStateActive(physNow, c.state));
-                            }
                             // Botón (physical click, c.state == "btnTouch") takes priority over
                             // Superficie (just touching, touch1Active) — a real click implies the
                             // finger is already touching, so a firmer press is the more deliberate
@@ -823,6 +805,18 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             bool isTouchGestureSource = m_sel.touchSurfaceSelected &&
                 m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
                 !m_sel.touchGestureSelected.empty();
+            // Touch editor's own mode navigator: at the TOP level only (Superficie selected, no
+            // specific zone/gesture drilled into yet — the 4 mode buttons are the only thing
+            // showing), the A button cycles Ratón -> Analógico -> Gestos -> Zonas -> Ratón instead
+            // of falling into the generic Botón-channel assignment below (which would otherwise
+            // bind the touchpad's click to A and close the editor — physShort there is always
+            // "btnTouch", unrelated to which half was picked). The moment a specific zone/gesture
+            // is selected, A goes back to being a normal assignable target — same physical button,
+            // different meaning depending on how deep into the touch editor you are. User's idea,
+            // 2026/08/27 (see SESSION_CONTEXT.md "selector físico").
+            bool isTouchTopLevelNav = m_sel.touchSurfaceSelected &&
+                selPhysComp.type == "touchpad" &&
+                m_sel.touchZoneRegionSelected.empty() && m_sel.touchGestureSelected.empty();
             std::string selState;
             if (m_sel.stickAsButton)
                 selState = selPhysComp.stateClick;
@@ -854,6 +848,24 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::string virtShort = stateToShort(compState);
                 bool valid = false;
                 for (const auto& s : m_acceptedXbox) if (virtShort == s) { valid = true; break; }
+
+                // ── Touch editor mode navigator — see isTouchTopLevelNav above. Checked before
+                // the touch zone/gesture and generic Botón paths below, so A never falls into
+                // either while at the top level. ──
+                if (isTouchTopLevelNav && virtShort == "a") {
+                    static const TouchpadSurfaceMode kTouchModeCycle[] = {
+                        TouchpadSurfaceMode::Mouse, TouchpadSurfaceMode::Analog,
+                        TouchpadSurfaceMode::Gesture, TouchpadSurfaceMode::Zones,
+                    };
+                    int cycleIdx = 0;
+                    for (int k = 0; k < 4; ++k)
+                        if (kTouchModeCycle[k] == m_model.touchSurfaceMode) { cycleIdx = k; break; }
+                    m_model.touchSurfaceMode = kTouchModeCycle[(cycleIdx + 1) % 4];
+                    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog &&
+                        m_model.touchAnalogStickTarget.empty())
+                        m_model.touchAnalogStickTarget = "left";
+                    break;
+                }
 
                 // ── Touch zone/gesture source → VirtualButton target. Mirrors onVirtHitTouchZone/
                 // onVirtHitTouchGesture's plain-button branch — see the isTouchZoneSource comment
@@ -1755,6 +1767,21 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
             if (!enabled) ImGui::BeginDisabled();
             if (ImGui::Button(label, { btnW, 0.0f })) {
+                if (m_model.touchSurfaceMode != mode) {
+                    // Switching to a different mode: clear any leftover sub-selection from a
+                    // previous visit this same Mapeador session, so re-entering a mode never
+                    // starts pre-armed with a stale region/gesture and its action panel already
+                    // showing — e.g. picking a Zonas region, switching to Gestos, then back to
+                    // Zonas used to leave that old region selected. Found 2026/08/27 while
+                    // designing the physical mode-selector idea (see SESSION_CONTEXT.md): a
+                    // pre-armed Zonas selection would also make its physical-press destination
+                    // (H9 Paso 2) compete with a future mode-cycle trigger — but it was already
+                    // a real UX papercut on its own, independent of that.
+                    m_sel.touchZoneRegionSelected.clear();
+                    m_sel.touchGestureSelected.clear();
+                    m_sel.actionType = ActionType::Xbox;
+                    m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
+                }
                 m_model.touchSurfaceMode = mode;
                 // Analog is meaningless with no stick target — default to Left the moment the
                 // mode is picked instead of showing an empty/"none" resting state (there's no

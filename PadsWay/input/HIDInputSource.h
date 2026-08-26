@@ -79,6 +79,13 @@ private:
     // becomes concurrent defers to the 2-finger release-correlation path instead (unaffected).
     std::string      m_touch1CommittedGesture;
     std::string      m_touch2CommittedGesture;
+    // Live commit for the 6 two-finger gestures (parallel/pinch/twist) — same idea as
+    // m_touch1CommittedGesture/m_touch2CommittedGesture above, but needs BOTH fingers' current
+    // displacement together, so it's evaluated once per read after both fingers' individual
+    // blocks have updated state.touch1X/Y and state.touch2X/Y, not inside either finger's own
+    // block. Empty = not committed yet for the current pairing (both fingers down together);
+    // cleared as soon as either finger releases, so a fresh pairing starts clean.
+    std::string      m_touchTwoFingerCommittedGesture;
     // One finger's release, stashed while waiting for the other (concurrent) finger to also
     // release within kTwoFingerWindowMs — see classifyTouchRelease().
     struct PendingTwoFingerRelease {

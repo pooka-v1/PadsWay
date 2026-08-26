@@ -871,7 +871,7 @@
           "type": "keyboard"
         },
         "parallel_down": {
-          "virtual": "dpad_down"
+          "virtual": "r1"
         },
         "parallel_up": {
           "keys": [
@@ -890,10 +890,7 @@
           "virtual": "start"
         },
         "right": {
-          "keys": [
-            "r"
-          ],
-          "type": "keyboard"
+          "virtual": "l1"
         },
         "twist_down_up": {
           "keys": [
@@ -912,7 +909,7 @@
           "type": "keyboard"
         },
         "up": {
-          "virtual": "y"
+          "virtual": "a"
         },
         "up_left": {
           "keys": [
@@ -931,10 +928,7 @@
       },
       "touch_zone_actions": {
         "ne": {
-          "keys": [
-            "e"
-          ],
-          "type": "keyboard"
+          "virtual": "a"
         },
         "nw": {
           "keys": [
