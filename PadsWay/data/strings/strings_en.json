@@ -58,7 +58,12 @@
         "default_name": "HID Device",
         "imu_title":       "Gyro/Accel (IMU)",
         "imu_detecting":   "Detecting... %d%%",
-        "imu_not_found":   "No gyro/accel block detected on this device."
+        "imu_not_found":   "No gyro/accel block detected on this device.",
+        "touch_title":     "Touch",
+        "touch_offset":    "Offset",
+        "touch_no_data":   "No touch data at this offset",
+        "touch_none":      "No active touches",
+        "raw_title":       "Raw bytes"
     },
     "mapper": {
         "title":       "Mapper",
@@ -179,6 +184,7 @@
         "add_stick":      "+ Stick",
         "add_deco":       "+ Decoration",
         "add_gyro":       "+ Gyro",
+        "add_touchpad":   "+ Touchpad",
         "discard":        "Discard changes",
         "delete_layout":  "Delete layout",
         "pair":           "Pair controller",

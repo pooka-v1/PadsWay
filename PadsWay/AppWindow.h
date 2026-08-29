@@ -114,6 +114,10 @@ private:
     std::vector<std::pair<float,float>> m_scanImuMinMax; // per raw byte offset, min/max seen this window
     std::vector<int>             m_scanImuOffsets;       // up to 6 offsets found; empty = not (yet) detected
 
+    // --- Scanner: live touch block (manual offset, no auto-detection — see SESSION_CONTEXT.md
+    // "Wizard") ---
+    int m_scanTouchOffset = -1; // manually-tuned offset; -1 = not yet initialised for this device
+
     // --- Pad layouts ---
     std::vector<PadLayout> m_padLayouts;
     std::string            m_currentLayoutId;   // last layout applied to m_padView
