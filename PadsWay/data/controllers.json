@@ -620,7 +620,7 @@
       "mode": "hid",
       "pid": "3230",
       "product_name": "8BitDo Zero 2 gamepad",
-      "source_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 D-mode",
       "vid": "2DC8"
     },
     {
@@ -701,7 +701,7 @@
           "target": "trigger_r"
         },
         "hid_rz": {
-          "invert": false,
+          "invert": true,
           "target": "right_y"
         },
         "hid_x": {
@@ -715,11 +715,6 @@
         "hid_z": {
           "invert": false,
           "target": "right_x"
-        }
-      },
-      "axis_actions": {
-        "left_x_neg": {
-          "virtual": "r1"
         }
       },
       "buttons": {
@@ -744,8 +739,7 @@
           "virtual": "home"
         },
         "14": {
-          "physical": "touch_btn",
-          "virtual": "b"
+          "physical": "touch_btn"
         },
         "2": {
           "physical": "a",
@@ -774,38 +768,6 @@
       },
       "connection": "usb",
       "dpad": "hid_hat",
-      "dpad_remap": {
-        "down": {
-          "name": "LightningBot",
-          "physical": "dpad_down",
-          "type": "bot"
-        },
-        "left": {
-          "button": "middle",
-          "physical": "dpad_left",
-          "type": "mouse_click"
-        },
-        "right": {
-          "keys": [
-            "e"
-          ],
-          "physical": "dpad_right",
-          "type": "keyboard"
-        },
-        "up": {
-          "physical": "dpad_up",
-          "target": "l2",
-          "type": "trigger"
-        }
-      },
-      "gyro_actions": {
-        "x_neg": {
-          "virtual": "r1"
-        },
-        "y_neg": {
-          "virtual": "x"
-        }
-      },
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -824,22 +786,22 @@
         "gyro_scale": 3.0517578125e-05,
         "gyro_x_deadzone": 0.0,
         "gyro_x_invert": true,
-        "gyro_x_max": 0.44999998807907104,
+        "gyro_x_max": 0.41999998688697815,
         "gyro_x_offset": 13,
-        "gyro_y_deadzone": 0.0,
+        "gyro_y_deadzone": 0.009999999776482582,
         "gyro_y_invert": true,
         "gyro_y_max": 0.41999998688697815,
         "gyro_y_offset": 15,
         "gyro_z_deadzone": 0.0,
         "gyro_z_invert": true,
-        "gyro_z_max": 0.41999998688697815,
+        "gyro_z_max": 0.4399999976158142,
         "gyro_z_offset": 17
       },
       "layout_id": "dualshock4",
       "mode": "hid",
       "pid": "09CC",
       "product_name": "Wireless Controller",
-      "source_name": "Wireless Controller",
+      "source_name": "Dualshock 4 (USB)",
       "stick_calibration": {
         "left": {
           "deadzone": 0.03999999910593033,
@@ -926,29 +888,6 @@
           "type": "keyboard"
         }
       },
-      "touch_zone_actions": {
-        "ne": {
-          "virtual": "a"
-        },
-        "nw": {
-          "keys": [
-            "r"
-          ],
-          "type": "keyboard"
-        },
-        "se": {
-          "keys": [
-            "o"
-          ],
-          "type": "keyboard"
-        },
-        "sw": {
-          "keys": [
-            "i"
-          ],
-          "type": "keyboard"
-        }
-      },
       "touchpad": {
         "analog_target": "both",
         "data_offset": 35,
@@ -956,55 +895,55 @@
         "max_x": 1919,
         "max_y": 942,
         "surface_mode": "zones",
-        "zone_template_id": "cross-plus-4",
+        "zone_template_id": "cross-x-4",
         "zones": [
           {
-            "angle_from": 0.0,
-            "angle_to": 0.0,
+            "angle_from": 315.0,
+            "angle_to": 45.0,
             "enabled": true,
-            "id": "nw",
+            "id": "e",
             "radius": 0.0,
-            "shape": "rect",
-            "x_max": 0.5,
+            "shape": "wedge",
+            "x_max": 1.0,
             "x_min": 0.0,
-            "y_max": 0.5,
+            "y_max": 1.0,
             "y_min": 0.0
           },
           {
-            "angle_from": 0.0,
-            "angle_to": 0.0,
+            "angle_from": 45.0,
+            "angle_to": 135.0,
             "enabled": true,
-            "id": "ne",
+            "id": "s",
             "radius": 0.0,
-            "shape": "rect",
+            "shape": "wedge",
             "x_max": 1.0,
-            "x_min": 0.5,
-            "y_max": 0.5,
+            "x_min": 0.0,
+            "y_max": 1.0,
             "y_min": 0.0
           },
           {
-            "angle_from": 0.0,
-            "angle_to": 0.0,
+            "angle_from": 135.0,
+            "angle_to": 225.0,
             "enabled": true,
-            "id": "sw",
+            "id": "w",
             "radius": 0.0,
-            "shape": "rect",
-            "x_max": 0.5,
+            "shape": "wedge",
+            "x_max": 1.0,
             "x_min": 0.0,
             "y_max": 1.0,
-            "y_min": 0.5
+            "y_min": 0.0
           },
           {
-            "angle_from": 0.0,
-            "angle_to": 0.0,
+            "angle_from": 225.0,
+            "angle_to": 315.0,
             "enabled": true,
-            "id": "se",
+            "id": "n",
             "radius": 0.0,
-            "shape": "rect",
+            "shape": "wedge",
             "x_max": 1.0,
-            "x_min": 0.5,
+            "x_min": 0.0,
             "y_max": 1.0,
-            "y_min": 0.5
+            "y_min": 0.0
           }
         ]
       },
@@ -1197,6 +1136,142 @@
         }
       },
       "vid": "2DC8"
+    },
+    {
+      "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "trigger_l"
+        },
+        "hid_ry": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_rz": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "right_x"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "x",
+          "virtual": "x"
+        },
+        "10": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "11": {
+          "physical": "l3",
+          "virtual": "l3"
+        },
+        "12": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "14": {
+          "physical": "touch_btn"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "a"
+        },
+        "3": {
+          "physical": "b",
+          "virtual": "b"
+        },
+        "4": {
+          "physical": "y",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "9": {
+          "physical": "select",
+          "virtual": "select"
+        }
+      },
+      "connection": "usb",
+      "dpad": "hid_hat",
+      "imu": {
+        "accel_scale": 3.0517578125e-05,
+        "accel_x_deadzone": 0.0,
+        "accel_x_invert": true,
+        "accel_x_max": 0.23999999463558197,
+        "accel_x_offset": 22,
+        "accel_y_deadzone": 0.0,
+        "accel_y_invert": false,
+        "accel_y_max": 0.23999999463558197,
+        "accel_y_offset": 26,
+        "accel_z_deadzone": 0.0,
+        "accel_z_invert": false,
+        "accel_z_max": 0.23999999463558197,
+        "accel_z_offset": 24,
+        "enabled": true,
+        "gyro_scale": 3.0517578125e-05,
+        "gyro_x_deadzone": 0.0,
+        "gyro_x_invert": true,
+        "gyro_x_max": 0.4399999976158142,
+        "gyro_x_offset": 16,
+        "gyro_y_deadzone": 0.0,
+        "gyro_y_invert": true,
+        "gyro_y_max": 0.41999998688697815,
+        "gyro_y_offset": 18,
+        "gyro_z_deadzone": 0.0,
+        "gyro_z_invert": true,
+        "gyro_z_max": 0.41999998688697815,
+        "gyro_z_offset": 20
+      },
+      "layout_id": "Dual Sense",
+      "mode": "hid",
+      "pid": "0CE6",
+      "product_name": "DualSense Wireless Controller",
+      "source_name": "DualSense (USB)",
+      "stick_calibration": {
+        "left": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "right": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
+      "touchpad": {
+        "data_offset": 33,
+        "enabled": true,
+        "max_x": 1919,
+        "max_y": 1079
+      },
+      "trigger_calibration": {
+        "l2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "r2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
+      "vid": "054C"
     }
   ]
 }

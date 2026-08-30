@@ -150,7 +150,20 @@
         "gyro_start":        "Get into position, then press any button on the controller to start.",
         "gyro_capturing":    "Capturing motion... %d%%",
         "gyro_confidence":   "Confidence: %d%%",
-        "gyro_ready_hint":   "Ready whenever you are: press any button on the controller or Continue."
+        "gyro_ready_hint":   "Ready whenever you are: press any button on the controller or Continue.",
+        "review_touch_ok":     "Touchpad: calibrated (offset %d, %d x %d)",
+        "review_touch_failed": "Touchpad: could not auto-detect the surface - repeat the step",
+        "touch_surface_lift":       "Lift your finger off the touchpad and keep it off for a moment.",
+        "touch_surface_confirm":    "Now tap the touchpad 5 times, each tap at a CLEARLY different spot than the last - for example along a diagonal, from one corner toward the opposite one. Tap and fully release each time, no dragging or holding down, with a clear pause between taps.",
+        "touch_surface_confirm_taps": "Clean taps detected so far: %d (aiming for 5, each at a different spot)",
+        "touch_surface_range_x":    "Slide your finger, touching the pad, into the RIGHT edge - do it several times, there's no rush. Watch the number below: once it stops growing, press any controller button (except the touchpad's own click) or Continue.",
+        "touch_surface_range_y":    "Same gesture, but sliding down into the BOTTOM edge. Once the number stops growing, press any controller button (except the touchpad's own click) or Continue.",
+        "touch_surface_start":      "Get into position, then press any button on the controller to start.",
+        "touch_surface_capturing":  "Reading touchpad... %d%%",
+        "touch_surface_range_live": "Max detected so far: %d",
+        "touch_surface_lift_failed": "Couldn't find a stable byte while your finger was off the pad - make sure you're really not touching it, then press Continue to skip this step, or Back to try again.",
+        "touch_surface_confirm_failed": "None of the candidates showed a reliable tap count - press Continue to skip this step, or Back to redo it (5 well-separated taps, each at a DIFFERENT spot on the pad, not always the same spot).",
+        "touch_surface_continue":   "Done, next phase"
     },
     "ranges": {
         "title":        "Trigger Ranges",

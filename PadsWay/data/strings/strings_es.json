@@ -150,7 +150,20 @@
         "gyro_start":        "Colocate en posicion y pulsa cualquier boton del mando para empezar.",
         "gyro_capturing":    "Capturando movimiento... %d%%",
         "gyro_confidence":   "Confianza: %d%%",
-        "gyro_ready_hint":   "Listo cuando quieras: pulsa cualquier boton del mando o Continuar."
+        "gyro_ready_hint":   "Listo cuando quieras: pulsa cualquier boton del mando o Continuar.",
+        "review_touch_ok":     "Touchpad: calibrado (offset %d, %d x %d)",
+        "review_touch_failed": "Touchpad: no se pudo detectar la superficie - repite el paso",
+        "touch_surface_lift":       "Levanta el dedo del touchpad y mantenlo separado un momento.",
+        "touch_surface_confirm":    "Ahora toca el touchpad 5 veces, cada toque en un punto CLARAMENTE distinto del anterior - por ejemplo en diagonal, de una esquina hacia la contraria. Toca y suelta del todo cada vez, sin arrastrar ni mantener pulsado, dejando una pausa clara entre cada toque.",
+        "touch_surface_confirm_taps": "Toques limpios detectados hasta ahora: %d (buscamos 5, cada uno en un sitio distinto)",
+        "touch_surface_range_x":    "Desliza el dedo, tocando, hasta el borde DERECHO - hazlo varias veces, sin prisa. Mira el numero de abajo: cuando deje de subir, pulsa cualquier boton del mando (menos el propio click del touchpad) o Continuar.",
+        "touch_surface_range_y":    "Mismo gesto, pero deslizando hacia el borde INFERIOR. Cuando el numero deje de subir, pulsa cualquier boton del mando (menos el propio click del touchpad) o Continuar.",
+        "touch_surface_start":      "Colocate en posicion y pulsa cualquier boton del mando para empezar.",
+        "touch_surface_capturing":  "Leyendo touchpad... %d%%",
+        "touch_surface_range_live": "Maximo detectado hasta ahora: %d",
+        "touch_surface_lift_failed": "No se ha encontrado ningun byte estable con el dedo fuera del touchpad - asegurate de no estar tocandolo, y pulsa Continuar para saltar este paso, o Atras para repetirlo.",
+        "touch_surface_confirm_failed": "Ningun candidato dio un numero de toques fiable - pulsa Continuar para saltar este paso, o Atras para repetirlo (5 toques bien separados, cada uno en un punto DISTINTO del touchpad, no siempre en el mismo sitio).",
+        "touch_surface_continue":   "Listo, siguiente fase"
     },
     "ranges": {
         "title":        "Rangos de gatillo",

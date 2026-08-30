@@ -4539,6 +4539,624 @@
                 }
             ],
             "id": "8BitDo-Zero2"
+        },
+        {
+            "canvas": {
+                "FrontH": 200.0,
+                "TopH": 320.0,
+                "W": 480.0
+            },
+            "components": [
+                {
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 240.0,
+                    "cy": 100.0,
+                    "h": 200.0,
+                    "id": "body_front",
+                    "image": "templates/TempalteFrontDualSense.png",
+                    "type": "template",
+                    "view": "front",
+                    "w": 480.0
+                },
+                {
+                    "color": [
+                        0.5370370149612427,
+                        0.11735252290964127,
+                        0.22926847636699677,
+                        1.0
+                    ],
+                    "cx": 240.0,
+                    "cy": 360.0,
+                    "h": 320.0,
+                    "id": "body_top",
+                    "image": "templates/TempalteTopDualSense.png",
+                    "type": "template",
+                    "view": "top",
+                    "w": 480.0
+                },
+                {
+                    "color": [
+                        0.10370367765426636,
+                        0.10024688392877579,
+                        0.10024688392877579,
+                        1.0
+                    ],
+                    "cx": 239.0,
+                    "cy": 343.0,
+                    "h": 270.0,
+                    "id": "decoration",
+                    "image": "decorations/TopDualSenseDecorator.png",
+                    "type": "decoration",
+                    "view": "top",
+                    "w": 349.5
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 365.0,
+                    "cy": 246.0,
+                    "h": 35.0,
+                    "id": "btnY",
+                    "image": "buttons/CircularButton.png",
+                    "overlay": "decorations/Triangle.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "overlay_scale": [
+                        0.75,
+                        0.7450000047683716
+                    ],
+                    "state": "btnY",
+                    "type": "button",
+                    "view": "top",
+                    "w": 35.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 395.0,
+                    "cy": 277.0,
+                    "h": 35.0,
+                    "id": "btnB",
+                    "image": "buttons/CircularButton.png",
+                    "overlay": "decorations/Circle.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "overlay_scale": 0.75,
+                    "state": "btnB",
+                    "type": "button",
+                    "view": "top",
+                    "w": 35.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 365.0,
+                    "cy": 308.0,
+                    "h": 35.0,
+                    "id": "btnA",
+                    "image": "buttons/CircularButton.png",
+                    "overlay": "decorations/Cross.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "overlay_scale": 0.6499999761581421,
+                    "state": "btnA",
+                    "type": "button",
+                    "view": "top",
+                    "w": 35.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 333.0,
+                    "cy": 277.0,
+                    "h": 35.0,
+                    "id": "btnX",
+                    "image": "buttons/CircularButton.png",
+                    "overlay": "decorations/Square.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "overlay_scale": 0.6499999761581421,
+                    "state": "btnX",
+                    "type": "button",
+                    "view": "top",
+                    "w": 35.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "color": [
+                        0.12156862765550613,
+                        0.12156862765550613,
+                        0.12156862765550613,
+                        1.0
+                    ],
+                    "cx": 171.0,
+                    "cy": 329.0,
+                    "id": "leftStick",
+                    "image": "analogics/Alalogic.png",
+                    "max_offset": 20.0,
+                    "size": 55.0,
+                    "state_click": "btnL3",
+                    "state_x": "leftX",
+                    "state_y": "leftY",
+                    "type": "stick",
+                    "view": "top"
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "color": [
+                        0.12222224473953247,
+                        0.11995887011289597,
+                        0.11995887011289597,
+                        1.0
+                    ],
+                    "cx": 307.0,
+                    "cy": 329.0,
+                    "id": "rightStick",
+                    "image": "analogics/Alalogic.png",
+                    "max_offset": 20.0,
+                    "size": 55.0,
+                    "state_click": "btnR3",
+                    "state_x": "rightX",
+                    "state_y": "rightY",
+                    "type": "stick",
+                    "view": "top"
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 140.0,
+                    "cy": 235.0,
+                    "h": 22.0,
+                    "id": "btnBack",
+                    "image": "buttons/DSCreate.png",
+                    "overlay_color": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.8999999761581421
+                    ],
+                    "state": "btnBack",
+                    "type": "button",
+                    "view": "top",
+                    "w": 22.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 335.0,
+                    "cy": 235.0,
+                    "h": 22.0,
+                    "id": "btnStart",
+                    "image": "buttons/DSOption.png",
+                    "overlay_color": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.8999999761581421
+                    ],
+                    "state": "btnStart",
+                    "type": "button",
+                    "view": "top",
+                    "w": 22.0
+                },
+                {
+                    "active_color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "color": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0
+                    ],
+                    "cx": 238.0,
+                    "cy": 332.0,
+                    "h": 35.0,
+                    "id": "btnHome",
+                    "image": "decorations/PSLogo.png",
+                    "overlay_color": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.8999999761581421
+                    ],
+                    "type": "button",
+                    "view": "top",
+                    "w": 35.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "cx": 376.0,
+                    "cy": 48.0,
+                    "h": 59.0,
+                    "id": "triggerR",
+                    "image": "buttons/R2DualSenseButton.png",
+                    "overlay": "decorations/CharactersR2.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.8999999761581421
+                    ],
+                    "overlay_scale": [
+                        0.8799999952316284,
+                        0.550000011920929
+                    ],
+                    "state": "triggerR",
+                    "type": "button",
+                    "view": "front",
+                    "w": 64.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "cx": 101.0,
+                    "cy": 49.0,
+                    "h": 59.0,
+                    "id": "triggerL",
+                    "image": "buttons/L2DualSenseButton.png",
+                    "overlay": "decorations/CharactersL2.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.8999999761581421
+                    ],
+                    "overlay_scale": [
+                        0.8799999952316284,
+                        0.550000011920929
+                    ],
+                    "state": "triggerL",
+                    "type": "button",
+                    "view": "front",
+                    "w": 64.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "cx": 375.0,
+                    "cy": 102.0,
+                    "h": 55.0,
+                    "id": "btnRB",
+                    "image": "buttons/L1DualSenseButton.png",
+                    "overlay": "decorations/CharactersR1.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.8999999761581421
+                    ],
+                    "overlay_scale": [
+                        1.0,
+                        0.44999998807907104
+                    ],
+                    "state": "btnRB",
+                    "type": "button",
+                    "view": "front",
+                    "w": 66.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "active_overlay_color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "color": [
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        0.10196078568696976,
+                        1.0
+                    ],
+                    "cx": 100.0,
+                    "cy": 102.0,
+                    "h": 55.0,
+                    "id": "btnLB",
+                    "image": "buttons/L1DualSenseButton.png",
+                    "overlay": "decorations/CharactersL1.png",
+                    "overlay_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "overlay_scale": [
+                        1.0,
+                        0.44999998807907104
+                    ],
+                    "state": "btnLB",
+                    "type": "button",
+                    "view": "front",
+                    "w": 66.0
+                },
+                {
+                    "color": [
+                        0.8074073791503906,
+                        0.33107030391693115,
+                        0.04186557978391647,
+                        1.0
+                    ],
+                    "cx": 238.0,
+                    "cy": 253.0,
+                    "h": 77.0,
+                    "id": "decoration_new",
+                    "image": "decorations/DualSenseLight1.png",
+                    "type": "decoration",
+                    "view": "top",
+                    "w": 178.0
+                },
+                {
+                    "color": [
+                        0.18699584901332855,
+                        0.2568778097629547,
+                        0.7111110687255859,
+                        1.0
+                    ],
+                    "cx": 238.0,
+                    "cy": 288.0,
+                    "h": 9.0,
+                    "id": "decoration_new",
+                    "image": "decorations/DualSenseLight2.png",
+                    "type": "decoration",
+                    "view": "top",
+                    "w": 121.0
+                },
+                {
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 238.0,
+                    "cy": 247.0,
+                    "h": 84.5,
+                    "id": "btnTouchpad",
+                    "image": "buttons/TouchDualSense.png",
+                    "state": "btnTouch",
+                    "type": "touchpad",
+                    "view": "top",
+                    "w": 167.0
+                },
+                {
+                    "active_color": [
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "color": [
+                        0.5372549295425415,
+                        0.11764705926179886,
+                        0.22745098173618317,
+                        1.0
+                    ],
+                    "cx": 111.0,
+                    "cy": 277.0,
+                    "id": "dpad",
+                    "image_down": "cross/CrossDownPS.png",
+                    "image_left": "cross/CrossLeftPS.png",
+                    "image_right": "cross/CrossRightPS.png",
+                    "image_up": "cross/CrossUpPS.png",
+                    "size": 1.0,
+                    "state_down": "dpadDown",
+                    "state_left": "dpadLeft",
+                    "state_right": "dpadRight",
+                    "state_up": "dpadUp",
+                    "type": "dpad",
+                    "view": "top"
+                },
+                {
+                    "color": [
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        0.3799999952316284,
+                        1.0
+                    ],
+                    "cx": 237.0,
+                    "cy": 439.0,
+                    "id": "gyro",
+                    "max_offset": 20.0,
+                    "size": 60.0,
+                    "state_x": "gyroZ",
+                    "state_y": "gyroX",
+                    "state_z": "gyroY",
+                    "type": "gyro",
+                    "view": "top"
+                }
+            ],
+            "id": "Dual Sense"
         }
     ]
 }
