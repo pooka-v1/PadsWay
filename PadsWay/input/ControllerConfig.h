@@ -108,22 +108,27 @@ struct TouchpadConfig {
     int  maxX         = 1919;  // DS4 touchpad horizontal resolution
     int  maxY         = 942;   // DS4 touchpad vertical resolution
     // Sustituye al bool mouseEnabled: route surface movement -> mouse (delta-based) is now just
-    // the Mouse case of this enum.
+    // the Mouse case of this enum. Device default; per-profile overridable via applyProfile()
+    // (reverted 2026-08-31, see ARCHITECTURE.md "Touchpad") — a profile that doesn't declare its
+    // own surface_mode simply inherits whatever this device default already is.
     TouchpadSurfaceMode surfaceMode = TouchpadSurfaceMode::Mouse;
     // Analog mode only: which virtual stick the recentered touch position drives directly,
     // "left"/"right"/"both"/"" (empty = unassigned — surface reads but drives nothing). "both"
     // splits the surface left/right (split-lr-2): whichever finger is on each half drives that
-    // half's stick, each recentered on its own half rather than the whole surface. Device
-    // property like surfaceMode itself, edited in Normal mode only, not per-profile — see
-    // ARCHITECTURE.md "Touchpad" -> "Analogico".
+    // half's stick, each recentered on its own half rather than the whole surface. Per-profile
+    // overridable, same as surfaceMode above — see ARCHITECTURE.md "Touchpad" -> "Analogico".
     std::string analogStickTarget;
 
     // Zones mode only. zoneTemplateId records which catalog template (data/touch_zone_templates.json)
     // seeded this instance; zones is the actual per-instance region list, copied from that template
     // and then adjustable (bounds dragged, regions disabled) — never just a read-only reference to
     // the catalog. Empty zones = Zonas not configured yet on this device (surface reads but drives
-    // nothing, same inert state as an empty analogStickTarget). Device property like surfaceMode
-    // itself, edited in Normal mode only — see ARCHITECTURE.md "Touchpad" -> "Zonas".
+    // nothing, same inert state as an empty analogStickTarget). Per-profile overridable, same as
+    // surfaceMode/analogStickTarget above (reverted 2026-09-01) — a profile's touchZoneActions are
+    // keyed by region id, which only means something against whatever template/geometry was active
+    // when the profile was built, so letting a profile pin its own zoneTemplateId/zones keeps its
+    // region-id actions from orphaning if Normal mode's template changes later — see
+    // ARCHITECTURE.md "Touchpad" -> "Zonas".
     std::string zoneTemplateId;
     std::vector<TouchZoneRegion> zones;
 };

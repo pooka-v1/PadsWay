@@ -104,6 +104,18 @@ void saveVirtualPadOutputType(const std::string& path, VirtualOutputType outputT
 //                               absent keys mean default behaviour.
 //   trigger_actions           — per-side replace ("l2"/"r2"); a JSON null side
 //                               resets that trigger to default behaviour.
+//   touch_zone_actions / touch_gesture_actions — whole-section replace, same as axis_actions.
+//   touchpad.surface_mode / touchpad.analog_target / touchpad.zone_template_id / touchpad.zones —
+//                               independent per-field replace; a profile's "touchpad" object may
+//                               contain only these four keys, never the device's calibration
+//                               fields (dataOffset/maxX/maxY/enabled stay Normal-mode-only —
+//                               those are a hardware trait, not a per-game choice). zone_template_id
+//                               and zones are declared/merged independently but in practice always
+//                               travel together: a profile's zone action ids (touch_zone_actions)
+//                               only make sense against the zone geometry active at the same time,
+//                               so a profile that overrides its own zone_template_id/zones is not
+//                               at the mercy of whatever template happens to be active in Normal
+//                               mode (see ARCHITECTURE.md "Touchpad", decision reverted 2026-09-01).
 struct GameProfile {
     std::string profile_name;
     std::unordered_map<std::string, ButtonAction> buttons;  // virtual Xbox name -> action
@@ -128,6 +140,26 @@ struct GameProfile {
     bool triggerLHasAction = false, triggerRHasAction = false;
     std::vector<TriggerRange> triggerLRanges, triggerRRanges;
 
+    bool hasTouchZoneActions = false;
+    std::unordered_map<std::string, ButtonAction> touch_zone_actions;    // region id -> action
+
+    bool hasTouchGestureActions = false;
+    std::unordered_map<std::string, ButtonAction> touch_gesture_actions; // gesture id -> action
+
+    // Touchpad Superficie mode override — per-field, not the whole "touchpad" section: a
+    // profile's "touchpad" object may contain only these two keys, never geometry/calibration.
+    bool hasTouchSurfaceMode = false;
+    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Mouse;
+
+    bool hasTouchAnalogTarget = false;
+    std::string touchAnalogStickTarget;
+
+    bool hasTouchZoneTemplate = false;
+    std::string touchZoneTemplateId;
+
+    bool hasTouchZones = false;
+    std::vector<TouchZoneRegion> touchZones;
+
     std::vector<std::string> context_bots;                  // bots to start when this profile is active
 };
 
@@ -141,7 +173,8 @@ GameProfile loadGameProfile(const std::string& path);
 ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& profile);
 
 // Rebuilds pc's base layer (buttons, dpad, triggers, analog dirs, gyro, accel) from cfg.
-// Touchpad is left as parsed (not profile-overridable).
+// Touchpad surface_mode/analogStickTarget ARE profile-overridable (via applyProfile()); this
+// function just copies whatever cfg.touchpad already has, base or profile-merged.
 // Call after applyProfile() to ensure the Component System reflects profile overrides.
 void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const ControllerConfig& cfg);
 

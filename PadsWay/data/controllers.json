@@ -739,7 +739,9 @@
           "virtual": "home"
         },
         "14": {
-          "physical": "touch_btn"
+          "button": "left",
+          "physical": "touch_btn",
+          "type": "mouse_click"
         },
         "2": {
           "physical": "a",
@@ -812,140 +814,11 @@
           "max": 1.0
         }
       },
-      "touch_gesture_actions": {
-        "down": {
-          "virtual": "a"
-        },
-        "down_left": {
-          "keys": [
-            "d",
-            "l"
-          ],
-          "type": "keyboard"
-        },
-        "down_right": {
-          "virtual": "a"
-        },
-        "left": {
-          "keys": [
-            "l"
-          ],
-          "type": "keyboard"
-        },
-        "parallel_down": {
-          "virtual": "r1"
-        },
-        "parallel_up": {
-          "keys": [
-            "u",
-            "p"
-          ],
-          "type": "keyboard"
-        },
-        "pinch_close": {
-          "keys": [
-            "c"
-          ],
-          "type": "keyboard"
-        },
-        "pinch_open": {
-          "virtual": "start"
-        },
-        "right": {
-          "virtual": "l1"
-        },
-        "twist_down_up": {
-          "keys": [
-            "shift",
-            "d",
-            "u"
-          ],
-          "type": "keyboard"
-        },
-        "twist_up_down": {
-          "keys": [
-            "shift",
-            "u",
-            "d"
-          ],
-          "type": "keyboard"
-        },
-        "up": {
-          "virtual": "a"
-        },
-        "up_left": {
-          "keys": [
-            "u",
-            "l"
-          ],
-          "type": "keyboard"
-        },
-        "up_right": {
-          "keys": [
-            "u",
-            "r"
-          ],
-          "type": "keyboard"
-        }
-      },
       "touchpad": {
-        "analog_target": "both",
         "data_offset": 35,
         "enabled": true,
         "max_x": 1919,
-        "max_y": 942,
-        "surface_mode": "zones",
-        "zone_template_id": "cross-x-4",
-        "zones": [
-          {
-            "angle_from": 315.0,
-            "angle_to": 45.0,
-            "enabled": true,
-            "id": "e",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 45.0,
-            "angle_to": 135.0,
-            "enabled": true,
-            "id": "s",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 135.0,
-            "angle_to": 225.0,
-            "enabled": true,
-            "id": "w",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          },
-          {
-            "angle_from": 225.0,
-            "angle_to": 315.0,
-            "enabled": true,
-            "id": "n",
-            "radius": 0.0,
-            "shape": "wedge",
-            "x_max": 1.0,
-            "x_min": 0.0,
-            "y_max": 1.0,
-            "y_min": 0.0
-          }
-        ]
+        "max_y": 942
       },
       "trigger_calibration": {
         "l2": {

@@ -639,6 +639,40 @@ GameProfile loadGameProfile(const std::string& path) {
         profile.hasAccelActions = true;
         profile.accel_actions   = parseAxisActionsJson(root["accel_actions"]);
     }
+    if (root.contains("touch_zone_actions") && root["touch_zone_actions"].is_object()) {
+        profile.hasTouchZoneActions = true;
+        for (const auto& [regionId, val] : root["touch_zone_actions"].items())
+            profile.touch_zone_actions[regionId] = parseButtonAction(val);
+    }
+    if (root.contains("touch_gesture_actions") && root["touch_gesture_actions"].is_object()) {
+        profile.hasTouchGestureActions = true;
+        for (const auto& [gestureId, val] : root["touch_gesture_actions"].items())
+            profile.touch_gesture_actions[gestureId] = parseButtonAction(val);
+    }
+    if (root.contains("touchpad") && root["touchpad"].is_object()) {
+        const auto& tp = root["touchpad"];
+        // Only set the has* flag when the specific sub-key is present — a profile's "touchpad"
+        // object must never imply calibration (dataOffset/maxX/maxY/enabled stay Normal-mode-only,
+        // unlike controllers.json's).
+        if (tp.contains("surface_mode")) {
+            profile.hasTouchSurfaceMode = true;
+            profile.touchSurfaceMode = touchpadSurfaceModeFromString(
+                tp.value("surface_mode", std::string("mouse")));
+        }
+        if (tp.contains("analog_target")) {
+            profile.hasTouchAnalogTarget = true;
+            profile.touchAnalogStickTarget = tp.value("analog_target", std::string{});
+        }
+        if (tp.contains("zone_template_id")) {
+            profile.hasTouchZoneTemplate = true;
+            profile.touchZoneTemplateId = tp.value("zone_template_id", std::string{});
+        }
+        if (tp.contains("zones") && tp["zones"].is_array()) {
+            profile.hasTouchZones = true;
+            for (const auto& zj : tp["zones"])
+                profile.touchZones.push_back(parseTouchZoneRegion(zj));
+        }
+    }
     if (root.contains("dpad_remap") && root["dpad_remap"].is_object()) {
         profile.hasDpadRemap = true;
         parseDpadRemapJson(root["dpad_remap"],
@@ -742,6 +776,22 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
         result.gyro_actions = profile.gyro_actions;
     if (profile.hasAccelActions)
         result.accel_actions = profile.accel_actions;
+
+    // ── Touch zone / gesture actions (whole-section replace) ─────────────────
+    if (profile.hasTouchZoneActions)
+        result.touchZoneActions = profile.touch_zone_actions;
+    if (profile.hasTouchGestureActions)
+        result.touchGestureActions = profile.touch_gesture_actions;
+
+    // ── Touchpad surface mode / analog target / zone template+geometry (independent per-field) ─
+    if (profile.hasTouchSurfaceMode)
+        result.touchpad.surfaceMode = profile.touchSurfaceMode;
+    if (profile.hasTouchAnalogTarget)
+        result.touchpad.analogStickTarget = profile.touchAnalogStickTarget;
+    if (profile.hasTouchZoneTemplate)
+        result.touchpad.zoneTemplateId = profile.touchZoneTemplateId;
+    if (profile.hasTouchZones)
+        result.touchpad.zones = profile.touchZones;
 
     // ── Dpad (whole-section replace) ─────────────────────────────────────────
     if (profile.hasDpadRemap) {
@@ -1232,15 +1282,16 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
         return false;
     };
 
-    // Surface cfg (dataOffset/maxX/maxY/surfaceMode/analogStickTarget) is edited in Normal mode
-    // only (not per-profile) but still needs refreshing here on every rebuild — same treatment as
-    // the gyro/accel calibration above. Skipping it (as this used to do) left a live edit+save in
-    // the Mapeador invisible to the already-running PhysicalController until the app restarted and
-    // loadPhysicalControllers() re-parsed controllers.json from scratch: Mouse mode never showed
-    // the gap because PadEngine's touchDelta->mouse routing reads cfg->touchpad.surfaceMode
-    // directly every frame (PadEngine.cpp, outside the Component System) instead of through this
-    // struct, but Analog mode's routing lives inside PhysicalTouchpad::process() and does read it
-    // from here.
+    // Surface cfg (dataOffset/maxX/maxY are Normal-mode-only; surfaceMode/analogStickTarget are
+    // profile-overridable via applyProfile(), see ConfigLoader.h) still needs refreshing here on
+    // every rebuild — same treatment as the gyro/accel calibration above, and cfg here is already
+    // the profile-merged effectiveCfg when a profile is active. Skipping it (as this used to do)
+    // left a live edit+save in the Mapeador invisible to the already-running PhysicalController
+    // until the app restarted and loadPhysicalControllers() re-parsed controllers.json from
+    // scratch: Mouse mode never showed the gap because PadEngine's touchDelta->mouse routing
+    // reads cfg->touchpad.surfaceMode directly every frame (PadEngine.cpp, outside the Component
+    // System) instead of through this struct, but Analog mode's routing lives inside
+    // PhysicalTouchpad::process() and does read it from here.
     if (auto& touchSlot = pc.baseLayer[static_cast<size_t>(ComponentId::Touchpad)];
         touchSlot && std::holds_alternative<PhysicalTouchpad>(*touchSlot)) {
         std::get<PhysicalTouchpad>(*touchSlot).cfg = cfg.touchpad;

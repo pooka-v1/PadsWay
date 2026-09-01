@@ -459,6 +459,30 @@ bool MappingModel::saveProfile(const std::string& path, const std::string& profi
         else                     root["touch_gesture_actions"] = std::move(modelTGA);
     }
 
+    // --- touchpad surface_mode / analog_target / zone_template_id / zones — per-field diff against base ---
+    {
+        json tpJson = json::object();
+        if (touchSurfaceMode != base.touchpad.surfaceMode)
+            tpJson["surface_mode"] = touchpadSurfaceModeToString(touchSurfaceMode);
+        if (touchAnalogStickTarget != base.touchpad.analogStickTarget)
+            tpJson["analog_target"] = touchAnalogStickTarget;
+        if (touchZoneTemplateId != base.touchpad.zoneTemplateId)
+            tpJson["zone_template_id"] = touchZoneTemplateId;
+
+        // Zones has no operator==, and a profile only needs to declare it when it actually
+        // differs from base — compare via the same JSON serializer save()/saveProfile() both
+        // already use to persist it, same style as buttonActionsToJson comparisons above.
+        json modelZones = json::array();
+        for (const auto& z : touchZones) modelZones.push_back(touchZoneRegionToJson(z));
+        json baseZones = json::array();
+        for (const auto& z : base.touchpad.zones) baseZones.push_back(touchZoneRegionToJson(z));
+        if (modelZones != baseZones)
+            tpJson["zones"] = std::move(modelZones);
+
+        if (tpJson.empty()) root.erase("touchpad");
+        else                root["touchpad"] = std::move(tpJson);
+    }
+
     // --- axes (whole-axis remap) — per-key diff against base, keyed by stickId ---
     if (!axisEdits.empty()) {
         std::unordered_map<std::string, const AxisMapping*> baseByStick;

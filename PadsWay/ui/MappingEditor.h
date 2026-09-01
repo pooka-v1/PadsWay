@@ -46,7 +46,13 @@ public:
     // Enter normal mapping mode. m_sel.clear() so no selection (touch zone, dpad direction,
     // capture keys, ...) survives from whatever was left mid-edit the last time the editor was
     // active — previously only physComp got reset ad hoc in a few places, never the whole struct.
-    void activate() { m_mode = Mode::kNormal; m_active = true; m_sel.clear(); }
+    // reload() re-populates m_model from the actual device config — required here (found
+    // 2026-09-01): without it, m_model kept whatever a previous activateProfile() session had left
+    // in it (e.g. touchGestureActionEdits/touchZoneTemplateId/touchZones merged from a profile),
+    // and a subsequent Normal-mode save() would write that stale profile-inherited data straight
+    // into controllers.json. activateProfile() already called reload() at the end; this one never
+    // did.
+    void activate() { m_mode = Mode::kNormal; m_active = true; m_sel.clear(); reload(); }
 
     // Enter profile editing mode. profilePaths/Names: full list for the selector.
     // preselectedIdx: index to pre-load (-1 = no selection / new profile).
