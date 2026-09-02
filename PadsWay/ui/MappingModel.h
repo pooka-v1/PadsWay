@@ -67,7 +67,7 @@ public:
     // ARCHITECTURE.md "Touchpad"), like touchGestureActionEdits below. reloadFromConfig() picks it
     // up from whatever ControllerConfig it's given (base or profile-applied via applyProfile()),
     // and saveProfile() now writes a per-field diff against base (MappingModel.cpp).
-    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Mouse;
+    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Unassigned;
 
     // Analog mode only: which virtual stick the surface drives, "left"/"right"/"" (none).
     // Per-profile overridable, same as touchSurfaceMode above.

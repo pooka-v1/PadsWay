@@ -108,6 +108,25 @@ struct ImuAxisCalibration {
     float max      = 1.0f;
 };
 
+// Reshapes one touch axis position (touch1X/Y's own [0,1] scale) through that axis's max,
+// expressed as magnitude-from-pad-center — same convention as TouchpadConfig::xMax/yMax (see its
+// comment in ControllerConfig.h): recenters on 0.5, runs the signed offset through
+// applyDeadzoneMaxSigned() with no deadzone, maps back to [0,1]. max=1 (the default) is a no-op.
+inline float applyTouchAxisCalib(float pos01, float max) {
+    float offset = (pos01 - 0.5f) * 2.0f;
+    float shaped = applyDeadzoneMaxSigned(offset, 0.0f, max);
+    return std::clamp(shaped * 0.5f + 0.5f, 0.0f, 1.0f);
+}
+
+// True if this touch axis position's raw magnitude-from-center already exceeds max — used to
+// gate Raton mode (PadEngine.cpp): a touch resting past the calibrated edge (e.g. an accidental
+// grip contact near the physical border) generates no cursor movement at all, rather than being
+// silently clamped to the edge like Analogico/Zonas do via applyTouchAxisCalib() above.
+inline bool touchAxisBeyondMax(float pos01, float max) {
+    float offset = std::fabs((pos01 - 0.5f) * 2.0f);
+    return offset > max;
+}
+
 // ─── Accumulators ─────────────────────────────────────────────────────────────
 
 struct StickAccumulator {

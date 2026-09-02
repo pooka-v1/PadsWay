@@ -246,7 +246,7 @@ void MappingModel::clear() {
     trigRRangeEdits.clear();
     stickSlotEdits.clear();
     contextBotsEdits.clear();
-    touchSurfaceMode = TouchpadSurfaceMode::Mouse;
+    touchSurfaceMode = TouchpadSurfaceMode::Unassigned;
     touchAnalogStickTarget.clear();
     touchZoneTemplateId.clear();
     touchZones.clear();

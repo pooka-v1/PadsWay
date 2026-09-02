@@ -331,13 +331,15 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.touchpad.maxX        = tp.value("max_x",         1919);
             cfg.touchpad.maxY        = tp.value("max_y",         942);
             cfg.touchpad.surfaceMode = touchpadSurfaceModeFromString(
-                tp.value("surface_mode", std::string("mouse")));
+                tp.value("surface_mode", std::string("unassigned")));
             cfg.touchpad.analogStickTarget = tp.value("analog_target", std::string{});
             cfg.touchpad.zoneTemplateId    = tp.value("zone_template_id", std::string{});
             cfg.touchpad.zones.clear();
             if (tp.contains("zones") && tp["zones"].is_array())
                 for (const auto& zj : tp["zones"])
                     cfg.touchpad.zones.push_back(parseTouchZoneRegion(zj));
+            cfg.touchpad.xMax = tp.value("x_max", 1.0f);
+            cfg.touchpad.yMax = tp.value("y_max", 1.0f);
         }
 
         if (c.contains("imu")) {
@@ -435,7 +437,7 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
 void saveCalibration(const std::string& path, const std::string& sourceName,
                      const StickCalibration& leftStick, const StickCalibration& rightStick,
                      const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
-                     const ImuConfig& imu,
+                     const ImuConfig& imu, const TouchpadConfig& touchpad,
                      const std::vector<std::pair<std::string, bool>>& axisInverts) {
     nlohmann::ordered_json root;
     {
@@ -484,6 +486,14 @@ void saveCalibration(const std::string& path, const std::string& sourceName,
         im["accel_x_invert"]   = imu.accelXInvert;
         im["accel_y_invert"]   = imu.accelYInvert;
         im["accel_z_invert"]   = imu.accelZInvert;
+
+        // Only into a device that already has a "touchpad" section — a no-touch controller
+        // never gets one created just from opening Calibracion (mirrors the axes guard below).
+        if (ctrl.contains("touchpad")) {
+            auto& tpj = ctrl["touchpad"];
+            tpj["x_max"] = touchpad.xMax;
+            tpj["y_max"] = touchpad.yMax;
+        }
 
         // Stick axis invert lives on the whole-axis `axes` map (keyed by HID source name), not
         // on StickCalibration — see this function's declaration comment. Skip any HID key this
@@ -657,7 +667,7 @@ GameProfile loadGameProfile(const std::string& path) {
         if (tp.contains("surface_mode")) {
             profile.hasTouchSurfaceMode = true;
             profile.touchSurfaceMode = touchpadSurfaceModeFromString(
-                tp.value("surface_mode", std::string("mouse")));
+                tp.value("surface_mode", std::string("unassigned")));
         }
         if (tp.contains("analog_target")) {
             profile.hasTouchAnalogTarget = true;
@@ -1226,12 +1236,14 @@ static PhysicalController parsePhysicalController(const json& c) {
             tpc.maxX        = tp.value("max_x",         1919);
             tpc.maxY        = tp.value("max_y",         942);
             tpc.surfaceMode = touchpadSurfaceModeFromString(
-                tp.value("surface_mode", std::string("mouse")));
+                tp.value("surface_mode", std::string("unassigned")));
             tpc.analogStickTarget = tp.value("analog_target", std::string{});
             tpc.zoneTemplateId    = tp.value("zone_template_id", std::string{});
             if (tp.contains("zones") && tp["zones"].is_array())
                 for (const auto& zj : tp["zones"])
                     tpc.zones.push_back(parseTouchZoneRegion(zj));
+            tpc.xMax = tp.value("x_max", 1.0f);
+            tpc.yMax = tp.value("y_max", 1.0f);
         }
         PhysicalTouchpad ptp{tpc};
         if (touchClickTarget) ptp.clickTarget = *touchClickTarget;

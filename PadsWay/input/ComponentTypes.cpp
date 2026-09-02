@@ -215,16 +215,28 @@ void PhysicalAnalogDir::process(float value, GamepadState& out,
 void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
                                 StickAccumulator& left, StickAccumulator& right,
                                 GyroAccumulator& gyro) const {
-    // Pass touchpad state through unchanged.
+    // Shaped once here, through this device's own xMax/yMax (see TouchpadConfig's comment in
+    // ControllerConfig.h) — everything below (passthrough, Analog, Zones) reads these instead of
+    // physical.touch1X/Y directly, same "shape once, consume everywhere" pattern
+    // PhysicalGyro/PhysicalAccel use for shapedPhysical in process() above. physical.touch1X/Y
+    // itself stays raw — Scanner/PadView's physical-side display and the Calibracion widget still
+    // need the unshaped reading.
+    float t1x = applyTouchAxisCalib(physical.touch1X, cfg.xMax);
+    float t1y = applyTouchAxisCalib(physical.touch1Y, cfg.yMax);
+    float t2x = applyTouchAxisCalib(physical.touch2X, cfg.xMax);
+    float t2y = applyTouchAxisCalib(physical.touch2Y, cfg.yMax);
+
+    // Pass touchpad state through (shaped).
     // Mouse-mode routing (touchDelta -> mouse movement) is handled by the input source's
-    // applyTouchpad(); Analog-mode routing (stick accumulator) is handled below.
+    // applyTouchpad(), on the raw reading — unaffected by this shaping. Analog-mode routing
+    // (stick accumulator) is handled below.
     out.btnTouch    = physical.btnTouch;
     out.touch1Active = physical.touch1Active;
-    out.touch1X     = physical.touch1X;
-    out.touch1Y     = physical.touch1Y;
+    out.touch1X     = t1x;
+    out.touch1Y     = t1y;
     out.touch2Active = physical.touch2Active;
-    out.touch2X     = physical.touch2X;
-    out.touch2Y     = physical.touch2Y;
+    out.touch2X     = t2x;
+    out.touch2Y     = t2y;
     out.touchDeltaX = physical.touchDeltaX;
     out.touchDeltaY = physical.touchDeltaY;
 
@@ -272,13 +284,13 @@ void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
                 applyFinger(true, rawX, rawY, onRightHalf ? right : left,
                             onRightHalf ? 0.75f : 0.25f, 0.25f);
             };
-            applyBothFinger(physical.touch1Active, physical.touch1X, physical.touch1Y,
+            applyBothFinger(physical.touch1Active, t1x, t1y,
                             touch1SessionActive, touch1OnRightHalf);
-            applyBothFinger(physical.touch2Active, physical.touch2X, physical.touch2Y,
+            applyBothFinger(physical.touch2Active, t2x, t2y,
                             touch2SessionActive, touch2OnRightHalf);
         } else {
             StickAccumulator& target = (cfg.analogStickTarget == "right") ? right : left;
-            applyFinger(physical.touch1Active, physical.touch1X, physical.touch1Y, target,
+            applyFinger(physical.touch1Active, t1x, t1y, target,
                         0.5f, 0.5f);
         }
     }
@@ -293,13 +305,22 @@ void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
     out.activeTouchZone1.clear();
     out.activeTouchZone2.clear();
     if (cfg.surfaceMode == TouchpadSurfaceMode::Zones && !cfg.zones.empty()) {
-        auto zoneIdFor = [&](bool active, float x, float y) -> std::string {
+        // A finger past the calibrated xMax/yMax edge on either axis sits in the dead border
+        // outside the usable rectangle — no region match at all, not saturated into whichever
+        // region the pad's physical edge happens to land in (that's what t1x/t1y's clamp inside
+        // applyTouchAxisCalib would otherwise do). Matches the design agreed for Zonas (see
+        // TouchpadConfig's xMax/yMax comment): "reparte las regiones en menos espacio, con un
+        // borde muerto fuera" — a real dead zone, same treatment Raton mode already gets via
+        // touchAxisBeyondMax() in PadEngine.cpp. Checked against the RAW physical position (the
+        // literal physical border), same reasoning as that call site.
+        auto zoneIdFor = [&](bool active, float rawX, float rawY, float x, float y) -> std::string {
             if (!active) return {};
+            if (touchAxisBeyondMax(rawX, cfg.xMax) || touchAxisBeyondMax(rawY, cfg.yMax)) return {};
             const TouchZoneRegion* r = hitTestTouchZone(cfg.zones, x, y);
             return r ? r->id : std::string{};
         };
-        out.activeTouchZone1 = zoneIdFor(physical.touch1Active, physical.touch1X, physical.touch1Y);
-        out.activeTouchZone2 = zoneIdFor(physical.touch2Active, physical.touch2X, physical.touch2Y);
+        out.activeTouchZone1 = zoneIdFor(physical.touch1Active, physical.touch1X, physical.touch1Y, t1x, t1y);
+        out.activeTouchZone2 = zoneIdFor(physical.touch2Active, physical.touch2X, physical.touch2Y, t2x, t2y);
     }
 }
 

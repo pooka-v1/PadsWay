@@ -32,10 +32,14 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
 // vid+pid which duplicate across compat-mode fallbacks — see findConfig's productName/connection
 // discriminators).
 // Throws std::runtime_error if the file can't be written or sourceName isn't found.
+// touchpad: only its xDeadzone/xMax/yDeadzone/yMax fields are written (rest of the struct is the
+// caller's already-loaded snapshot, round-tripped untouched, same reasoning as imu above) — and
+// only into a controller that already has a "touchpad" JSON section, so a device with no
+// touchpad never gets one created just from opening Calibracion.
 void saveCalibration(const std::string& path, const std::string& sourceName,
                      const StickCalibration& leftStick, const StickCalibration& rightStick,
                      const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
-                     const ImuConfig& imu,
+                     const ImuConfig& imu, const TouchpadConfig& touchpad,
                      const std::vector<std::pair<std::string, bool>>& axisInverts);
 
 // Loads macro library from a JSON file (name -> execution string).
@@ -149,7 +153,7 @@ struct GameProfile {
     // Touchpad Superficie mode override — per-field, not the whole "touchpad" section: a
     // profile's "touchpad" object may contain only these two keys, never geometry/calibration.
     bool hasTouchSurfaceMode = false;
-    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Mouse;
+    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Unassigned;
 
     bool hasTouchAnalogTarget = false;
     std::string touchAnalogStickTarget;

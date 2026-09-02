@@ -83,23 +83,30 @@ struct AxisMapping {
 // Superficie channel mode — see ARCHITECTURE.md "Touchpad" section for the full design.
 // Mouse (pre-existing delta-to-mouse routing) and Analog (recentered touch position -> a chosen
 // virtual stick, TouchpadConfig::analogStickTarget) have real behavior; Gesture/Zones are still
-// selectable placeholders until their own implementation tasks land.
-enum class TouchpadSurfaceMode { Mouse, Analog, Gesture, Zones };
+// selectable placeholders until their own implementation tasks land. Unassigned is the device
+// default (see TouchpadConfig::surfaceMode's comment) — none of the per-mode routing below ever
+// matches it (every one of them is an explicit == check against a specific mode, never a "not
+// Unassigned" catch-all), so an unassigned touchpad drives nothing: no cursor movement, no stick,
+// no zone/gesture dispatch. The Boton channel (clickTarget) is untouched by this — it isn't
+// gated on surfaceMode at all, by design (see PhysicalTouchpad::process()'s comment).
+enum class TouchpadSurfaceMode { Unassigned, Mouse, Analog, Gesture, Zones };
 
 inline const char* touchpadSurfaceModeToString(TouchpadSurfaceMode m) {
     switch (m) {
+        case TouchpadSurfaceMode::Mouse:   return "mouse";
         case TouchpadSurfaceMode::Analog:  return "analog";
         case TouchpadSurfaceMode::Gesture: return "gesture";
         case TouchpadSurfaceMode::Zones:   return "zones";
-        default:                           return "mouse";
+        default:                           return "unassigned";
     }
 }
 
 inline TouchpadSurfaceMode touchpadSurfaceModeFromString(const std::string& s) {
+    if (s == "mouse")   return TouchpadSurfaceMode::Mouse;
     if (s == "analog")  return TouchpadSurfaceMode::Analog;
     if (s == "gesture") return TouchpadSurfaceMode::Gesture;
     if (s == "zones")   return TouchpadSurfaceMode::Zones;
-    return TouchpadSurfaceMode::Mouse;
+    return TouchpadSurfaceMode::Unassigned;
 }
 
 struct TouchpadConfig {
@@ -111,7 +118,10 @@ struct TouchpadConfig {
     // the Mouse case of this enum. Device default; per-profile overridable via applyProfile()
     // (reverted 2026-08-31, see ARCHITECTURE.md "Touchpad") — a profile that doesn't declare its
     // own surface_mode simply inherits whatever this device default already is.
-    TouchpadSurfaceMode surfaceMode = TouchpadSurfaceMode::Mouse;
+    // Defaults to Unassigned, not Mouse (changed 2026-09-02, see BITACORA.md that date) — Mouse
+    // was only ever the default because it used to be the sole mode that existed; an accidental
+    // brush of the pad shouldn't move the cursor mid-game before the user has chosen a mode.
+    TouchpadSurfaceMode surfaceMode = TouchpadSurfaceMode::Unassigned;
     // Analog mode only: which virtual stick the recentered touch position drives directly,
     // "left"/"right"/"both"/"" (empty = unassigned — surface reads but drives nothing). "both"
     // splits the surface left/right (split-lr-2): whichever finger is on each half drives that
@@ -131,6 +141,22 @@ struct TouchpadConfig {
     // ARCHITECTURE.md "Touchpad" -> "Zonas".
     std::string zoneTemplateId;
     std::vector<TouchZoneRegion> zones;
+
+    // Calibration for the raw touch position (Calibracion panel), independent per axis — the
+    // pad has no radial shape to speak of (even a round one, e.g. Steam Controller, is read as
+    // two independent linear axes internally). Values are magnitude-from-pad-center (0.5, 0.5 in
+    // the normalized [0,1] touch1X/touch1Y space): 1 = edge. No deadzone — deliberately, unlike
+    // ImuConfig's per-axis pairs: a "dead center" only ever makes sense for Zonas, and a zone
+    // template with an unassigned central region already gives exactly that (see BITACORA.md
+    // 2026/09/02) without a second mechanism doing the same job. max can exceed 1 (same headroom
+    // the gyro/accel widgets allow) to compensate for a wizard maxX/maxY that landed a few % short
+    // of the true physical edge — a raw reading past the nominal edge is harmless, it only means
+    // the calibrated range now reaches all the way out. Consumers: Analogico/Zonas remap position
+    // through this (ComponentTypes.cpp), Raton refuses to move the cursor past it (PadEngine.cpp),
+    // Gestos divides its raw travel by it so a smaller usable range reads as more sensitive
+    // (HIDInputSource.cpp).
+    float xMax = 1.0f;
+    float yMax = 1.0f;
 };
 
 struct ImuConfig {

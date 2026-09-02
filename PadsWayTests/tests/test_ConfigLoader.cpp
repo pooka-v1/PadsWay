@@ -939,7 +939,7 @@ TEST_CASE("saveCalibration round-trips stick, trigger and imu deadzone/max", "[C
     imu.gyroXDeadzone = 0.12f; imu.gyroXMax = 0.9f;
     imu.accelZDeadzone = 0.02f; imu.accelZMax = 0.98f;
 
-    saveCalibration(path, "TestController", left, right, trigL, trigR, imu, {});
+    saveCalibration(path, "TestController", left, right, trigL, trigR, imu, TouchpadConfig{}, {});
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -956,6 +956,41 @@ TEST_CASE("saveCalibration round-trips stick, trigger and imu deadzone/max", "[C
     REQUIRE(cfg.imu.accelZMax            == Catch::Approx(0.98f));
 }
 
+TEST_CASE("saveCalibration round-trips touch max", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_touch.json";
+    { std::ofstream f(path); f << R"({
+        "controllers": [{
+            "vid": "0x1234",
+            "pid": "0x5678",
+            "source_name": "TestController",
+            "mode": "gamepad",
+            "buttons": {},
+            "axes": {},
+            "axis_actions": {},
+            "dpad_remap": {},
+            "dpad_actions": {},
+            "stick_slots": {},
+            "touchpad": { "enabled": true, "data_offset": 35, "max_x": 1919, "max_y": 942 }
+        }]
+    })"; }
+
+    TouchpadConfig touch;
+    touch.xMax = 1.15f;
+    touch.yMax = 1.1f;
+
+    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, touch, {});
+
+    auto configs = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(configs.size() == 1);
+    REQUIRE(configs[0].touchpad.xMax == Catch::Approx(1.15f));
+    REQUIRE(configs[0].touchpad.yMax == Catch::Approx(1.1f));
+    // data_offset/max_x/max_y round-trip untouched — saveCalibration only ever writes the
+    // max keys into the existing "touchpad" object.
+    REQUIRE(configs[0].touchpad.dataOffset == 35);
+    REQUIRE(configs[0].touchpad.maxX       == 1919);
+}
+
 TEST_CASE("saveCalibration writes per-axis invert flags", "[ConfigLoader]") {
     const std::string path = "test_tmp_savecalib_invert.json";
     writeBaseControllerFile(path);
@@ -964,7 +999,7 @@ TEST_CASE("saveCalibration writes per-axis invert flags", "[ConfigLoader]") {
     imu.gyroYInvert  = true;
     imu.accelXInvert = true;
 
-    saveCalibration(path, "TestController", {}, {}, {}, {}, imu, {});
+    saveCalibration(path, "TestController", {}, {}, {}, {}, imu, TouchpadConfig{}, {});
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -981,7 +1016,7 @@ TEST_CASE("saveCalibration merges axis invert only for HID keys present in the f
         {"hid_x", true},          // present in the file
         {"hid_nonexistent", true} // absent — must be silently skipped, not throw
     };
-    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, inverts);
+    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, inverts);
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -1001,7 +1036,7 @@ TEST_CASE("saveCalibration preserves other controllers' entries in the same file
         ]
     })"; }
 
-    saveCalibration(path, "TestController", {0.3f, 1.0f}, {}, {}, {}, ImuConfig{}, {});
+    saveCalibration(path, "TestController", {0.3f, 1.0f}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {});
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -1016,7 +1051,7 @@ TEST_CASE("saveCalibration throws when the file has no controllers array", "[Con
     { std::ofstream f(path); f << R"({"not_controllers": []})"; }
 
     REQUIRE_THROWS_AS(
-        saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, {}),
+        saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {}),
         std::runtime_error);
     std::remove(path.c_str());
 }
@@ -1026,7 +1061,7 @@ TEST_CASE("saveCalibration throws when sourceName is not found", "[ConfigLoader]
     writeBaseControllerFile(path);
 
     REQUIRE_THROWS_AS(
-        saveCalibration(path, "NoSuchController", {}, {}, {}, {}, ImuConfig{}, {}),
+        saveCalibration(path, "NoSuchController", {}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {}),
         std::runtime_error);
     std::remove(path.c_str());
 }

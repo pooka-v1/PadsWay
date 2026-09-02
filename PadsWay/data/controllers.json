@@ -186,10 +186,50 @@
         }
       },
       "dpad": "hid_hat",
+      "imu": {
+        "accel_scale": 3.0517578125e-05,
+        "accel_x_deadzone": 0.0,
+        "accel_x_invert": false,
+        "accel_x_max": 1.0,
+        "accel_x_offset": 17,
+        "accel_y_deadzone": 0.0,
+        "accel_y_invert": true,
+        "accel_y_max": 1.0,
+        "accel_y_offset": 15,
+        "accel_z_deadzone": 0.0,
+        "accel_z_invert": false,
+        "accel_z_max": 0.12999999523162842,
+        "accel_z_offset": 19,
+        "enabled": true,
+        "gyro_scale": 3.0517578125e-05,
+        "gyro_x_deadzone": 0.0,
+        "gyro_x_invert": false,
+        "gyro_x_max": 0.4399999976158142,
+        "gyro_x_offset": 23,
+        "gyro_y_deadzone": 0.0,
+        "gyro_y_invert": true,
+        "gyro_y_max": 0.44999998807907104,
+        "gyro_y_offset": 25,
+        "gyro_z_deadzone": 0.0,
+        "gyro_z_invert": false,
+        "gyro_z_max": 0.41999998688697815,
+        "gyro_z_offset": 21
+      },
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
       "pid": "6006",
+      "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (D-mode)",
+      "stick_calibration": {
+        "left": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "right": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
       "trigger_actions": {
         "l2": {
           "target": "l2",
@@ -198,6 +238,16 @@
         "r2": {
           "target": "r2",
           "type": "trigger_passthrough"
+        }
+      },
+      "trigger_calibration": {
+        "l2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "r2": {
+          "deadzone": 0.0,
+          "max": 1.0
         }
       },
       "vid": "2DC8"
@@ -790,7 +840,7 @@
         "gyro_x_invert": true,
         "gyro_x_max": 0.41999998688697815,
         "gyro_x_offset": 13,
-        "gyro_y_deadzone": 0.009999999776482582,
+        "gyro_y_deadzone": 0.0,
         "gyro_y_invert": true,
         "gyro_y_max": 0.41999998688697815,
         "gyro_y_offset": 15,
@@ -811,14 +861,97 @@
         },
         "right": {
           "deadzone": 0.03999999910593033,
-          "max": 1.0
+          "max": 0.9900000095367432
+        }
+      },
+      "touch_gesture_actions": {
+        "down": {
+          "virtual": "a"
+        },
+        "left": {
+          "virtual": "x"
+        },
+        "right": {
+          "virtual": "b"
+        },
+        "up": {
+          "virtual": "y"
+        }
+      },
+      "touch_zone_actions": {
+        "ne": {
+          "virtual": "y"
+        },
+        "nw": {
+          "virtual": "x"
+        },
+        "se": {
+          "virtual": "b"
+        },
+        "sw": {
+          "virtual": "a"
         }
       },
       "touchpad": {
+        "analog_target": "left",
         "data_offset": 35,
         "enabled": true,
         "max_x": 1919,
-        "max_y": 942
+        "max_y": 942,
+        "surface_mode": "unassigned",
+        "x_max": 1.0099999904632568,
+        "y_max": 1.0099999904632568,
+        "zone_template_id": "cross-plus-4",
+        "zones": [
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "nw",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.5,
+            "x_min": 0.0,
+            "y_max": 0.5,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "ne",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 1.0,
+            "x_min": 0.5,
+            "y_max": 0.5,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "sw",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.5,
+            "x_min": 0.0,
+            "y_max": 1.0,
+            "y_min": 0.5
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "se",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 1.0,
+            "x_min": 0.5,
+            "y_max": 1.0,
+            "y_min": 0.5
+          }
+        ]
       },
       "trigger_calibration": {
         "l2": {

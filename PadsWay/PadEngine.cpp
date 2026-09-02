@@ -16,6 +16,7 @@
 #include "input/HIDScanner.h"
 #include "input/HIDInputSource.h"
 #include "input/DeviceHub.h"
+#include "input/ComponentTypes.h"  // touchAxisBeyondMax — touchpad delta mouse edge cutoff
 #include "output/IOutputSink.h"
 #include "output/ViGEmX360OutputAdapter.h"
 #include "output/ViGEmDs4OutputAdapter.h"
@@ -1948,8 +1949,19 @@ void PadEngine::threadFunc() {
                 }
             }
 
-            // --- Touchpad delta mouse (no dead zone — real finger movement, not velocity) ---
-            if (cfg->touchpad.surfaceMode == TouchpadSurfaceMode::Mouse &&
+            // --- Touchpad delta mouse ---
+            // Edge cutoff (not the usual deadzone — real finger movement, not velocity, so no
+            // center dead zone here): a touch resting past the calibrated xMax/yMax edge — an
+            // accidental grip contact near the physical border is the usual cause — moves no
+            // cursor at all this frame, checked against the RAW physical position (the literal
+            // physical border, not wherever Analog/Zonas' calibrated remap happens to land).
+            bool touchBeyondEdge = false;
+            if (cfg->touchpad.surfaceMode == TouchpadSurfaceMode::Mouse) {
+                const GamepadState& touchPhys = input->getPhysicalState();
+                touchBeyondEdge = touchAxisBeyondMax(touchPhys.touch1X, cfg->touchpad.xMax) ||
+                                  touchAxisBeyondMax(touchPhys.touch1Y, cfg->touchpad.yMax);
+            }
+            if (cfg->touchpad.surfaceMode == TouchpadSurfaceMode::Mouse && !touchBeyondEdge &&
                 (state.touchDeltaX != 0.0f || state.touchDeltaY != 0.0f)) {
                 constexpr float kTouchpadScale = 1.5f;
                 mouseAccumX += state.touchDeltaX * kTouchpadScale;

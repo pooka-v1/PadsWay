@@ -37,7 +37,7 @@
   },
   "touchpad": {
     "analog_target": "both",
-    "surface_mode": "zones",
+    "surface_mode": "mouse",
     "zone_template_id": "compass-8",
     "zones": [
       {

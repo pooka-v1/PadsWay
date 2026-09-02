@@ -257,6 +257,7 @@
         "mouse_forward":   "Forward",
         "type_mousemove":  "Mouse Move",
         "touch_surface_wip": "Surface mode not implemented yet.",
+        "touch_mode_unassigned_hint": "Touch unassigned — it does nothing until you pick a mode.",
         "touch_mode_analog":  "Analog",
         "touch_mode_gesture": "Gesture",
         "touch_mode_zones":   "Zones",
@@ -374,8 +375,8 @@
     },
     "calibration": {
         "title":         "Calibration",
+        "title_for":     "Calibration for:",
         "no_device":     "No controller connected.",
-        "device_label":  "Active controller",
         "left_stick":    "Left stick",
         "right_stick":   "Right stick",
         "inner":         "In",
@@ -394,6 +395,10 @@
         "accel_z":       "Accel Z",
         "accel_z_note":  "Accel Z measures resting orientation (face up/down), not a gesture.",
         "no_imu":        "This controller has no gyro/accelerometer.",
+        "no_stick":      "This controller has no such stick.",
+        "touch_cross":   "Touch",
+        "touch_x":       "Touch X",
+        "touch_y":       "Touch Y",
         "toast_saved":   "Saved.",
         "save_error":    "Could not save."
     },

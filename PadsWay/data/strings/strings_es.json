@@ -257,6 +257,7 @@
         "mouse_forward":   "Adelante",
         "type_mousemove":  "Mov.Raton",
         "touch_surface_wip": "Este modo aun no esta implementado.",
+        "touch_mode_unassigned_hint": "Touch sin asignar — no hace nada hasta elegir un modo.",
         "touch_mode_analog":  "Analogico",
         "touch_mode_gesture": "Gestos",
         "touch_mode_zones":   "Zonas",
@@ -374,8 +375,8 @@
     },
     "calibration": {
         "title":         "Calibracion",
+        "title_for":     "Calibracion de:",
         "no_device":     "No hay ningun mando conectado.",
-        "device_label":  "Mando activo",
         "left_stick":    "Stick izquierdo",
         "right_stick":   "Stick derecho",
         "inner":         "Int",
@@ -394,6 +395,10 @@
         "accel_z":       "Accel Z",
         "accel_z_note":  "Accel Z mide orientacion en reposo (boca arriba/abajo), no es un gesto.",
         "no_imu":        "Este mando no tiene giroscopio/acelerometro.",
+        "no_stick":      "Este mando no tiene este stick.",
+        "touch_cross":   "Touch",
+        "touch_x":       "Touch X",
+        "touch_y":       "Touch Y",
         "toast_saved":   "Guardado.",
         "save_error":    "No se pudo guardar."
     },

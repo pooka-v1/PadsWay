@@ -468,6 +468,19 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
     // ── H9: lógica de mapping desde el mando ─────────────────────────────────
     GamepadState physNow = m_engine->getLastState();
+    // physNow.touch1X/Y are RAW (see PhysicalTouchpad::process()'s comment) — shape them through
+    // the active device's own touch calibration so region hit-testing in the editor agrees with
+    // what actually fires in game (same reasoning as the accel/gyro shaping further down).
+    float touch1X = physNow.touch1X, touch1Y = physNow.touch1Y;
+    {
+        DeviceCandidate dev = m_engine->getActiveDevice();
+        const ControllerConfig* activeTouchCfg =
+            findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+        if (activeTouchCfg) {
+            touch1X = applyTouchAxisCalib(physNow.touch1X, activeTouchCfg->touchpad.xMax);
+            touch1Y = applyTouchAxisCalib(physNow.touch1Y, activeTouchCfg->touchpad.yMax);
+        }
+    }
     // Movimiento (Gestos): pick the SPECIFIC gesture while already INSIDE the picker panel —
     // covers every way the touchpad can already be the selected source (mouse click on the
     // touchpad body, a prior gesture that only armed the surface, H9 Paso 1 below from a fresh
@@ -496,7 +509,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
     // previous run, top-right did nothing).
     if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones && !m_model.touchZones.empty() &&
         m_sel.physComp >= 0 && m_sel.touchSurfaceSelected && physNow.touch1Active) {
-        const TouchZoneRegion* hit = hitTestTouchZone(m_model.touchZones, physNow.touch1X, physNow.touch1Y);
+        const TouchZoneRegion* hit = hitTestTouchZone(m_model.touchZones, touch1X, touch1Y);
         if (hit && hit->id != m_sel.touchZoneRegionSelected) {
             m_sel.touchZoneRegionSelected = hit->id;
             m_sel.actionType = ActionType::Xbox;
@@ -622,7 +635,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                                 if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
                                     !m_model.touchZones.empty()) {
                                     const TouchZoneRegion* hit =
-                                        hitTestTouchZone(m_model.touchZones, physNow.touch1X, physNow.touch1Y);
+                                        hitTestTouchZone(m_model.touchZones, touch1X, touch1Y);
                                     if (hit) {
                                         activeComp = i; activeIsTouchSurface = true;
                                         activeTouchZoneRegion = hit->id; break;
@@ -853,14 +866,18 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 // the touch zone/gesture and generic Botón paths below, so A never falls into
                 // either while at the top level. ──
                 if (isTouchTopLevelNav && virtShort == "a") {
+                    // 5th stop, "Sin asignar" (see BITACORA.md 2026/09/02) — user's explicit call:
+                    // reachable from the pad alone, not just via the Mapeador's Limpiar button.
                     static const TouchpadSurfaceMode kTouchModeCycle[] = {
                         TouchpadSurfaceMode::Mouse, TouchpadSurfaceMode::Analog,
                         TouchpadSurfaceMode::Gesture, TouchpadSurfaceMode::Zones,
+                        TouchpadSurfaceMode::Unassigned,
                     };
+                    constexpr int kCycleLen = sizeof(kTouchModeCycle) / sizeof(kTouchModeCycle[0]);
                     int cycleIdx = 0;
-                    for (int k = 0; k < 4; ++k)
+                    for (int k = 0; k < kCycleLen; ++k)
                         if (kTouchModeCycle[k] == m_model.touchSurfaceMode) { cycleIdx = k; break; }
-                    m_model.touchSurfaceMode = kTouchModeCycle[(cycleIdx + 1) % 4];
+                    m_model.touchSurfaceMode = kTouchModeCycle[(cycleIdx + 1) % kCycleLen];
                     if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog &&
                         m_model.touchAnalogStickTarget.empty())
                         m_model.touchAnalogStickTarget = "left";
@@ -1758,7 +1775,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         // behavior; Gesture has the 14-icon grid but no action-assignment wiring yet; see
         // ARCHITECTURE.md "Touchpad" for the full design.
         float btnW   = 110.0f;
-        float totalW = btnW * 4 + ImGui::GetStyle().ItemSpacing.x * 3;
+        float totalW = btnW * 5 + ImGui::GetStyle().ItemSpacing.x * 4;
         float offX   = (availW - totalW) * 0.5f;
         if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
 
@@ -1799,8 +1816,16 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         modeBtn(tr("action.touch_mode_gesture"), TouchpadSurfaceMode::Gesture, true);
         ImGui::SameLine();
         modeBtn(tr("action.touch_mode_zones"),   TouchpadSurfaceMode::Zones,   true);
+        ImGui::SameLine();
+        // "Limpiar" — 5th stop, back to Unassigned (the device default, see BITACORA.md
+        // 2026/09/02): a real state, not a one-shot reset — reuses modeBtn as-is so it highlights
+        // like the other 4 while active and gets the same leftover-selection cleanup on switch.
+        modeBtn(tr("btn.clear"), TouchpadSurfaceMode::Unassigned, true);
 
-        if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog) {
+        if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Unassigned) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("%s", tr("action.touch_mode_unassigned_hint"));
+        } else if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog) {
             // Analog: no per-direction action assignment (that's Zonas/Movimiento's job, whole
             // discrete triggers) — the surface is a continuous stick, the only choice is which
             // virtual stick it drives.
