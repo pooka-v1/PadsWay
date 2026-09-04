@@ -505,6 +505,10 @@ El asistente guía a través de cinco etapas:
    - **Stick derecho X/Y**: mismo convenio.
    - **Gatillos**: aprieta completamente.
    - **Los componentes de giroscopio/acelerómetro tienen su propia calibración** en vez del simple empuje-a-extremo: mantén el mando quieto (baseline), dale la vuelta una vez, y luego para cada eje (roll, pitch, yaw) empuja a un extremo, quieto, empuja al extremo opuesto, quieto otra vez. Los ejes invertidos se detectan y corrigen automáticamente — no hace falta invertir nada a mano en este paso.
+   - **Los componentes de touchpad tienen su propio paso de calibración `touch_surface`**: levanta
+     el dedo, toca un patrón corto de confirmación, y luego barre el rango completo en X y en Y por
+     separado. Esto descubre el offset de byte del touchpad y su rango utilizable sin buscar el
+     byte a mano — ver *Touchpad* más abajo.
 5. **Revisión** — muestra todos los botones, ejes y cruceta asignados. Confirma para guardar o reinicia desde el paso de nombre.
 
 ### Resultado
@@ -531,8 +535,7 @@ El asistente usa `state_map.json` para saber el nombre físico del botón (`phys
 
 | Problema | Estado |
 |---|---|
-| El eje X del stick analógico izquierdo puede no capturarse (empujar a la derecha no calibra) | En investigación |
-| La pestaña Pads no se refresca hasta reiniciar la app después de que el asistente guarda | En investigación |
+| El eje X del stick analógico izquierdo puede no capturarse (empujar a la derecha no calibra) — **solo DualShock 4 por Bluetooth** | Depende del soporte Bluetooth completo (report HID corto, sin despertar al extendido) — sin empezar |
 
 ---
 
@@ -574,6 +577,108 @@ separado:
 
 ---
 
+## Panel de Calibración
+
+Se abre desde la **pestaña Pads → botón Calibración**. Afina la señal en bruto de un componente
+físico antes de que llegue al resto de la cadena (mapeo, macros, salida virtual) — es distinto de
+*qué hace* un componente, que es cosa del Mapeador.
+
+Para cada componente tipo eje que el mando conectado realmente tenga — sticks analógicos,
+gatillos, giroscopio/acelerómetro y la superficie del touchpad (ver *Touchpad* más abajo) — el
+panel ofrece:
+
+| Control | Efecto |
+|---|---|
+| **Deadzone** | Ignora el movimiento por debajo de este umbral desde el reposo, así un stick/gatillo/eje de touch lee exactamente 0 cerca del centro en vez de derivar. |
+| **Máx.** | Reescala el rango *utilizable* para que llegue al 100% antes del límite físico real del hardware — útil para un stick o touchpad cuyo borde real se queda corto de lo que capturó el asistente. |
+| **Invertir** | Invierte el signo del eje, por eje. |
+
+Solo se muestran los componentes que el mando conectado actualmente reporta — un mando sin
+giroscopio no muestra filas de IMU, uno sin touchpad no muestra filas de touch. Los valores se
+guardan por mando en `data/controllers.json` (`stick_calibration`, `trigger_calibration`, `imu`,
+`touchpad`).
+
+---
+
+## Touchpad
+
+Los mandos con superficie táctil capacitiva (DualShock 4, DualSense — ver *Mapa de botones por
+mando* más abajo para saber cuáles soporta PadsWay hoy) la exponen como **dos canales
+independientes**:
+
+- **Botón** — el clic físico bajo la superficie. Siempre activo sea cual sea el modo de superficie
+  de abajo; se mapea como cualquier otro botón (`"14": { "type": "mouse_click", "button": "left"
+  }`, una macro, un combo de teclado, un bot...).
+- **Superficie** — la posición XY del dedo mientras toca. Lo que *hace* es uno de 5 **modos de
+  superficie**, elegido desde el editor de touch del Mapeador (o ciclado con el botón físico **A**
+  dentro de él, en el nivel superior del editor):
+
+| Modo | Comportamiento |
+|---|---|
+| **Sin asignar** (por defecto) | Nada — el estado seguro inicial para un mando que PadsWay nunca ha visto tocado. |
+| **Ratón** | El delta del dedo mueve el cursor del ratón, mismo mecanismo que un stick analógico mapeado a `mouse_x`/`mouse_y`. |
+| **Analógico** | La posición del dedo (recentrada al primer toque) pilota un stick virtual — `left`, `right`, o `both` a la vez. |
+| **Gestos** | 14 gestos discretos de un solo disparo — ver más abajo. |
+| **Zonas** | La superficie se divide en regiones con nombre a partir de una plantilla — ver más abajo. |
+
+### Zonas
+
+Elige una plantilla, luego haz clic (o toca físicamente) una región para asignarle una acción
+Mando / Macro / Teclado / Ratón / Bot, igual que un botón físico. Las plantillas viven en
+`data/touch_zone_templates.json`:
+
+| Id de plantilla | Disposición |
+|---|---|
+| `single-1` | Toda la superficie como una sola región |
+| `split-lr-2` | Mitades Izquierda / Derecha |
+| `cross-x-4` | 4 cuñas diagonales (NE/SE/SW/NW) |
+| `cross-plus-4` | 4 cuadrantes (alineados N/E/S/W) |
+| `cross-x-5-center` | Igual que `cross-x-4` más un círculo central |
+| `cross-plus-5-center` | Igual que `cross-plus-4` más un círculo central |
+| `grid-6` | Rejilla 3×2 |
+| `compass-8` | 8 direcciones de brújula, sin centro |
+| `compass-8-center` | 8 direcciones de brújula más un círculo central |
+
+Un dedo más allá del borde calibrado (ver *Panel de Calibración* arriba) no hace nada — **no**
+salta a la región más cercana.
+
+### Gestos
+
+14 gestos de un solo disparo, comparados contra el movimiento del dedo relativo a donde empezó el
+toque:
+
+| Grupo | Gestos |
+|---|---|
+| 1 dedo, 8 direcciones | arriba, arriba-derecha, derecha, abajo-derecha, abajo, abajo-izquierda, izquierda, arriba-izquierda |
+| 2 dedos, paralelo | ambos dedos suben juntos / bajan juntos |
+| 2 dedos, pinza | los dedos se cierran hacia el centro / se abren hacia el borde |
+| 2 dedos, giro | dedo derecho sube + izquierdo baja / dedo derecho baja + izquierdo sube |
+
+Cada gesto es asignable de forma independiente a una acción Mando / Macro / Teclado / Ratón / Bot,
+mismo panel que Zonas. Los 8 gestos de 1 dedo y los 4 de paralelo/pinza soportan **mantener
+pulsado**: el gesto se clasifica en vivo, en cuanto el movimiento del dedo cruza el umbral de
+reconocimiento, y se mantiene activo mientras el dedo siga tocando — la duración real viene de
+cuánto lo mantienes, no de un pulso fijo. Los 2 gestos de giro se siguen clasificando solo al
+soltar.
+
+### Calibración y override por perfil
+
+El deadzone/máx. de touch X/Y viven en el *Panel de Calibración* de arriba, junto a sticks y
+gatillos. Todo ajuste de touch — modo de superficie, el stick de destino del Analógico, la
+plantilla de zonas y sus acciones por región, las acciones por gesto — se puede sobrescribir por
+**perfil de juego**, no solo a nivel de dispositivo.
+
+### Configurar un mando nuevo con touch
+
+El **Asistente de emparejamiento de mando** (ver más arriba) incluye un paso de calibración
+`touch_surface` para cualquier mando cuyo layout tenga un componente touchpad — guía a levantar el
+dedo, un patrón de toques de confirmación, y dos barridos de rango (X y luego Y) para descubrir el
+offset de byte del touchpad en el report HID y su rango X/Y utilizable, y los escribe en
+`data/controllers.json` como `touchpad.data_offset` / `touchpad.max_x` / `touchpad.max_y`. Sin
+tener que buscar el byte a mano.
+
+---
+
 ## Archivos de datos
 
 | Archivo | Descripción |
@@ -582,6 +687,7 @@ separado:
 | `data/profiles/` | Perfiles de juego — un JSON por juego |
 | `data/macros.json` | Biblioteca de macros reutilizables |
 | `data/virtualpad.json` | Tipo de salida virtual y VID/PID por tipo, idioma, nivel de log y umbrales de stick (ver *Tipo de salida virtual*) |
+| `data/touch_zone_templates.json` | Plantillas de regiones de Zonas del touchpad (ver *Touchpad*) |
 | `data/strings/strings_en.json` | Textos de la interfaz — inglés |
 | `data/strings/strings_es.json` | Textos de la interfaz — español |
 | `images/input_tokens/` | Iconos PNG para el creador de macros (24×24) |
@@ -764,11 +870,45 @@ Funciona igual en USB y Bluetooth (mismo VID/PID).
 | 11 | L3 | l3 |
 | 12 | R3 | r3 |
 | 13 | PS | home |
-| **14** | **Touchpad click** | **— sin equivalente** |
+| 14 | Clic del touchpad | Clic izquierdo de ratón *(por defecto en la config base — reasignable como cualquier botón)* |
 
 > L2 y R2 son analógicos independientes vía HID (`hid_rx` / `hid_ry`). Se pueden pulsar ambos a la vez.
-> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, touchpad (seguimiento XY + clic, emulación de ratón), giroscopio (ejes X/Y/Z, calibrable y mapeable — ver [*Giroscopio / Acelerómetro (IMU)*](#giroscopio--acelerómetro-imu)).
-> **Bluetooth**: report simplificado (sticks + botones de cara). Soporte BT completo pendiente.
+> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, giroscopio
+> (ejes X/Y/Z, calibrable y mapeable — ver [*Giroscopio / Acelerómetro (IMU)*](#giroscopio--acelerómetro-imu)),
+> touchpad — clic **y** la superficie completa (Ratón/Analógico/Gestos/Zonas — ver
+> [*Touchpad*](#touchpad)).
+> **Bluetooth**: report simplificado (sticks + botones de cara), sin touch ni giroscopio. Soporte
+> BT completo pendiente.
+
+---
+
+### Sony DualSense / PS5 (VID:054C PID:0CE6)
+
+| Botón HID | Físico | Virtual Xbox |
+|---|---|---|
+| 1 | Square | x |
+| 2 | Cross | a |
+| 3 | Circle | b |
+| 4 | Triangle | y |
+| 5 | L1 | l1 |
+| 6 | R1 | r1 |
+| 9 | Create | select |
+| 10 | Options | start |
+| 11 | L3 | l3 |
+| 12 | R3 | r3 |
+| 14 | Clic del touchpad | — sin equivalente *(sin asignar todavía en la config base)* |
+
+> **El botón PS (13) no está asignado en la config base todavía** — no hay entrada en
+> `controllers.json` para él en este mando hoy; añádela a mano o reasígnala desde el asistente si
+> la necesitas.
+> L2 y R2 son analógicos independientes vía HID (`hid_rx` / `hid_ry`). Se pueden pulsar ambos a la
+> vez.
+> **USB completamente soportado**: botones, sticks analógicos, gatillos analógicos, giroscopio, y
+> el touchpad completo (clic, Ratón/Analógico/Gestos/Zonas — ver [*Touchpad*](#touchpad)) —
+> calibrado (`data_offset=33`, `max_x=1919`, `max_y=1079`).
+> **Bluetooth**: no soportado — el DualSense no se detecta por BT hoy, y se apaga solo a los pocos
+> segundos porque nada mantiene su conexión HID abierta en lectura continua (misma causa raíz que
+> el soporte BT pendiente del DS4).
 
 ---
 
