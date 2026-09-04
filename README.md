@@ -504,6 +504,10 @@ The wizard guides you through five stages:
    - For **right stick X/Y**: same convention.
    - For **triggers**: press fully.
    - **Gyroscope/accelerometer components run their own calibration** instead of a simple push-to-extreme: hold the controller still (baseline), flip it upside down once, then for each axis (roll, pitch, yaw) push to one extreme, hold still, push to the opposite extreme, hold still again. Inverted axes are detected and corrected automatically — no manual invert needed at this stage.
+   - **Touchpad components run a `touch_surface` calibration pass** instead: lift the finger off,
+     tap a short confirmation pattern, then sweep the full X range and the full Y range separately.
+     This discovers the touchpad's byte offset and usable range with no manual byte-hunting — see
+     *Touchpad* below.
 5. **Review** — shows all bound buttons, axes, and D-pad. Confirm to save or restart from the name step.
 
 ### Result
@@ -530,8 +534,7 @@ The wizard uses `state_map.json` to know which physical button name (`physical`)
 
 | Issue | Status |
 |---|---|
-| Left analog stick X axis capture may fail (pushing right not detected) | Under investigation |
-| Pads tab does not refresh until app restart after wizard saves | Under investigation |
+| Left analog stick X axis capture may fail (pushing right not detected) — **DualShock 4 over Bluetooth only** | Depends on full Bluetooth support (short HID report, no wake-up to the extended one) — not started |
 
 ---
 
@@ -570,6 +573,105 @@ Each gyro/accel axis behaves as two half-axes (e.g. Pitch+ / Pitch-), assignable
 
 ---
 
+## Calibration panel
+
+Open from the **Pads tab → Calibration button**. Fine-tunes the raw signal from a physical
+component before it reaches the rest of the pipeline (mapping, macros, virtual output) — separate
+from *what* a component does (that's the Mapper's job).
+
+For every axis-like component the connected controller actually has — analog sticks, triggers,
+gyroscope/accelerometer, and the touchpad surface (see *Touchpad* below) — the panel exposes:
+
+| Control | Effect |
+|---|---|
+| **Deadzone** | Ignores movement below this threshold from rest, so a stick/trigger/touch axis reads exactly 0 near center instead of drifting. |
+| **Max** | Rescales the *usable* range so it reaches 100% before the physical hardware limit — useful for a stick or touchpad whose real edge falls short of what the wizard captured. |
+| **Invert** | Flips the axis sign, per axis. |
+
+Only the components the currently connected controller reports are shown — a controller with no
+gyroscope shows no IMU rows, one with no touchpad shows no touch rows. Values are stored per
+controller in `data/controllers.json` (`stick_calibration`, `trigger_calibration`, `imu`,
+`touchpad`).
+
+---
+
+## Touchpad
+
+Controllers with a capacitive touch surface (DualShock 4, DualSense — see *Button map by
+controller* below for which ones PadsWay supports today) expose it as **two independent
+channels**:
+
+- **Button** — the physical click under the pad. Always active regardless of the surface mode
+  below; maps like any other button (`"14": { "type": "mouse_click", "button": "left" }`, a macro,
+  a keyboard combo, a bot...).
+- **Surface** — the finger's XY position while touching. What it *does* is one of 5 **surface
+  modes**, picked from the Mapper's touch editor (or cycled with the physical **A** button while
+  inside it, at the top level of the editor):
+
+| Mode | Behavior |
+|---|---|
+| **Unassigned** (default) | Nothing — the safe starting state for a controller PadsWay has never seen touched before. |
+| **Mouse** | The finger's delta moves the mouse cursor, same mechanism as an analog stick mapped to `mouse_x`/`mouse_y`. |
+| **Analog** | The finger's position (recentered on first touch) drives a virtual stick — `left`, `right`, or `both` at once. |
+| **Gesture** | 14 discrete one-shot gestures — see below. |
+| **Zones** | The surface is split into named regions from a template — see below. |
+
+### Zones
+
+Pick a template, then click (or physically touch) a region to assign it a Gamepad / Macro /
+Keyboard / Mouse / Bot action, exactly like a physical button. Templates live in
+`data/touch_zone_templates.json`:
+
+| Template id | Layout |
+|---|---|
+| `single-1` | Whole surface as one region |
+| `split-lr-2` | Left / Right halves |
+| `cross-x-4` | 4 diagonal wedges (NE/SE/SW/NW) |
+| `cross-plus-4` | 4 quadrants (N/E/S/W-aligned) |
+| `cross-x-5-center` | Same as `cross-x-4` plus a center circle |
+| `cross-plus-5-center` | Same as `cross-plus-4` plus a center circle |
+| `grid-6` | 3×2 grid |
+| `compass-8` | 8 compass directions, no center |
+| `compass-8-center` | 8 compass directions plus a center circle |
+
+A finger past the calibrated edge (see *Calibration panel* above) does nothing — it does **not**
+snap to the nearest region.
+
+### Gesture
+
+14 one-shot gestures, matched against the finger's movement relative to where the touch started:
+
+| Group | Gestures |
+|---|---|
+| 1-finger, 8 directions | up, up-right, right, down-right, down, down-left, left, up-left |
+| 2-finger, parallel | both fingers move up together / down together |
+| 2-finger, pinch | fingers close toward the center / open toward the edge |
+| 2-finger, twist | right finger up + left down / right finger down + left up |
+
+Each gesture is independently assignable to a Gamepad / Macro / Keyboard / Mouse / Bot action,
+same panel as Zones. The 8 one-finger gestures and the 4 parallel/pinch gestures support
+**hold-to-sustain**: the gesture is classified live, as soon as the finger's movement crosses the
+recognition threshold, and stays active for as long as the finger keeps touching — the actual
+duration comes from how long you hold, not a fixed pulse. The 2 twist gestures are still
+classified at release only.
+
+### Calibration and per-profile override
+
+Deadzone/max for touch X/Y live in the *Calibration panel* above, alongside sticks and triggers.
+Every touch setting — surface mode, the analog stick target, the zone template and its per-region
+actions, the per-gesture actions — can be overridden per **game profile**, not just at the device
+level.
+
+### Setting up a new touch-capable controller
+
+The **Controller Binding Wizard** (see above) includes a `touch_surface` calibration pass for any
+controller whose layout has a touchpad component — it walks through lifting the finger, a
+confirmation tap pattern, and two range sweeps (X then Y) to discover the touchpad's byte offset
+in the HID report and its usable X/Y range, and writes them to `data/controllers.json` as
+`touchpad.data_offset` / `touchpad.max_x` / `touchpad.max_y`. No manual byte-hunting required.
+
+---
+
 ## Data files
 
 | File | Description |
@@ -578,6 +680,7 @@ Each gyro/accel axis behaves as two half-axes (e.g. Pitch+ / Pitch-), assignable
 | `data/profiles/` | Game profiles — one JSON per game |
 | `data/macros.json` | Reusable macro library |
 | `data/virtualpad.json` | Virtual output type and per-type VID/PID, locale, log level, and stick thresholds (see *Virtual output type*) |
+| `data/touch_zone_templates.json` | Touchpad Zones region templates (see *Touchpad*) |
 | `data/strings/strings_en.json` | UI strings — English |
 | `data/strings/strings_es.json` | UI strings — Spanish |
 | `images/input_tokens/` | PNG icons for the macro creator (24×24) |
@@ -760,11 +863,43 @@ Works the same over USB and Bluetooth (same VID/PID).
 | 11 | L3 | l3 |
 | 12 | R3 | r3 |
 | 13 | PS | home |
-| **14** | **Touchpad click** | **— no equivalent** |
+| 14 | Touchpad click | Mouse left-click *(base config default — reassign like any button)* |
 
 > L2 and R2 are independent analog triggers via HID (`hid_rx` / `hid_ry`). Both can be pressed simultaneously.
-> **USB fully supported**: buttons, analog sticks, analog triggers, touchpad (XY tracking + click, mouse emulation), gyroscope (X/Y/Z axes, calibratable and mappable — see [*Gyroscope / Accelerometer (IMU)*](#gyroscope--accelerometer-imu)).
-> **Bluetooth**: simplified report only (sticks + face buttons). Full BT support pending.
+> **USB fully supported**: buttons, analog sticks, analog triggers, gyroscope (X/Y/Z axes,
+> calibratable and mappable — see [*Gyroscope / Accelerometer (IMU)*](#gyroscope--accelerometer-imu)),
+> touchpad — click **and** the full surface (Mouse/Analog/Gesture/Zones — see [*Touchpad*](#touchpad)).
+> **Bluetooth**: simplified report only (sticks + face buttons), no touch or gyro. Full BT support
+> pending.
+
+---
+
+### Sony DualSense / PS5 (VID:054C PID:0CE6)
+
+| HID button | Physical | Virtual Xbox |
+|---|---|---|
+| 1 | Square | x |
+| 2 | Cross | a |
+| 3 | Circle | b |
+| 4 | Triangle | y |
+| 5 | L1 | l1 |
+| 6 | R1 | r1 |
+| 9 | Create | select |
+| 10 | Options | start |
+| 11 | L3 | l3 |
+| 12 | R3 | r3 |
+| 14 | Touchpad click | — no equivalent *(not bound yet in the base config)* |
+
+> **The PS button (13) is not bound in the base config yet** — no `controllers.json` entry for it
+> on this device today; add one by hand or rebind it from the wizard if you need it.
+> L2 and R2 are independent analog triggers via HID (`hid_rx` / `hid_ry`). Both can be pressed
+> simultaneously.
+> **USB fully supported**: buttons, analog sticks, analog triggers, gyroscope, and the full
+> touchpad (click, Mouse/Analog/Gesture/Zones — see [*Touchpad*](#touchpad)) — calibrated
+> (`data_offset=33`, `max_x=1919`, `max_y=1079`).
+> **Bluetooth**: not supported — the DualSense isn't detected over BT today, and disconnects on
+> its own after a few seconds because nothing keeps its HID connection open for continuous reads
+> (same root cause as the DS4's missing full BT support).
 
 ---
 

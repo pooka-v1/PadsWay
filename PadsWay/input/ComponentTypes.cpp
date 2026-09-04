@@ -213,18 +213,115 @@ void PhysicalAnalogDir::process(float value, GamepadState& out,
 // ─── PhysicalTouchpad ────────────────────────────────────────────────────────
 
 void PhysicalTouchpad::process(const GamepadState& physical, GamepadState& out,
-                                StickAccumulator&, StickAccumulator&, GyroAccumulator&) const {
-    // Pass touchpad state through unchanged.
-    // Surface routing (mouse movement) is handled by the input source's applyTouchpad().
+                                StickAccumulator& left, StickAccumulator& right,
+                                GyroAccumulator& gyro) const {
+    // Shaped once here, through this device's own xMax/yMax (see TouchpadConfig's comment in
+    // ControllerConfig.h) — everything below (passthrough, Analog, Zones) reads these instead of
+    // physical.touch1X/Y directly, same "shape once, consume everywhere" pattern
+    // PhysicalGyro/PhysicalAccel use for shapedPhysical in process() above. physical.touch1X/Y
+    // itself stays raw — Scanner/PadView's physical-side display and the Calibracion widget still
+    // need the unshaped reading.
+    float t1x = applyTouchAxisCalib(physical.touch1X, cfg.xMax);
+    float t1y = applyTouchAxisCalib(physical.touch1Y, cfg.yMax);
+    float t2x = applyTouchAxisCalib(physical.touch2X, cfg.xMax);
+    float t2y = applyTouchAxisCalib(physical.touch2Y, cfg.yMax);
+
+    // Pass touchpad state through (shaped).
+    // Mouse-mode routing (touchDelta -> mouse movement) is handled by the input source's
+    // applyTouchpad(), on the raw reading — unaffected by this shaping. Analog-mode routing
+    // (stick accumulator) is handled below.
     out.btnTouch    = physical.btnTouch;
     out.touch1Active = physical.touch1Active;
-    out.touch1X     = physical.touch1X;
-    out.touch1Y     = physical.touch1Y;
+    out.touch1X     = t1x;
+    out.touch1Y     = t1y;
     out.touch2Active = physical.touch2Active;
-    out.touch2X     = physical.touch2X;
-    out.touch2Y     = physical.touch2Y;
+    out.touch2X     = t2x;
+    out.touch2Y     = t2y;
     out.touchDeltaX = physical.touchDeltaX;
     out.touchDeltaY = physical.touchDeltaY;
+
+    // Boton channel: apply the assigned virtual target on top of the raw passthrough above —
+    // same mechanism PhysicalButton uses. VirtualPassthrough (default/unbound) is a no-op here,
+    // same as everywhere else applyVirtualTarget is used.
+    if (physical.btnTouch) applyVirtualTarget(clickTarget, 1.0f, out, left, right, gyro);
+
+    // Analog channel: the surface behaves as a real analog stick — absolute finger position,
+    // recentered on the surface's own geometric middle, feeds the chosen stick's accumulator
+    // directly (same StickCalibration/flush() pipeline any physical stick uses). No per-direction
+    // action assignment here by design (that's Zonas/Movimiento's job) — see ARCHITECTURE.md
+    // "Touchpad" -> "Analogico". Finger up contributes nothing this frame, so the stick reads 0,
+    // same as releasing a physical stick.
+    if (cfg.surfaceMode == TouchpadSurfaceMode::Analog && !cfg.analogStickTarget.empty()) {
+        // rawX/rawY in [0,1]; centerX/halfWidthX pick which slice of the surface maps to this
+        // stick's full [-1,1] range — the whole surface for "left"/"right", one half of it for
+        // "both" (split-lr-2: left half of the pad -> left stick, right half -> right stick).
+        auto applyFinger = [&](bool active, float rawX, float rawY, StickAccumulator& target,
+                                float centerX, float halfWidthX) {
+            if (!active) return;
+            float sx = std::clamp((rawX - centerX) / halfWidthX, -1.0f, 1.0f);
+            // touch Y grows downward like screen coordinates; stick Y+ is "up" (see
+            // pad.left_y_pos = "Arriba"), so this axis is inverted relative to X.
+            float sy = -std::clamp((rawY - 0.5f) * 2.0f, -1.0f, 1.0f);
+            if (sx > 0.0f) target.xPos = std::max(target.xPos,  sx);
+            else           target.xNeg = std::max(target.xNeg, -sx);
+            if (sy > 0.0f) target.yPos = std::max(target.yPos,  sy);
+            else           target.yNeg = std::max(target.yNeg, -sy);
+        };
+
+        if (cfg.analogStickTarget == "both") {
+            // Each finger drives whichever stick corresponds to the half of the surface it
+            // *started* on — locked for the whole touch session (see touch1OnRightHalf's
+            // comment), not re-evaluated every frame. Without the lock, dragging a finger across
+            // the midline mid-gesture would hand control to the other stick, which reads as the
+            // stick "jumping" to whatever the other hand happens to be doing.
+            auto applyBothFinger = [&](bool active, float rawX, float rawY,
+                                       bool& sessionActive, bool& onRightHalf) {
+                if (!active) { sessionActive = false; return; }
+                if (!sessionActive) {
+                    onRightHalf   = rawX >= 0.5f;
+                    sessionActive = true;
+                }
+                applyFinger(true, rawX, rawY, onRightHalf ? right : left,
+                            onRightHalf ? 0.75f : 0.25f, 0.25f);
+            };
+            applyBothFinger(physical.touch1Active, t1x, t1y,
+                            touch1SessionActive, touch1OnRightHalf);
+            applyBothFinger(physical.touch2Active, t2x, t2y,
+                            touch2SessionActive, touch2OnRightHalf);
+        } else {
+            StickAccumulator& target = (cfg.analogStickTarget == "right") ? right : left;
+            applyFinger(physical.touch1Active, t1x, t1y, target,
+                        0.5f, 0.5f);
+        }
+    }
+
+    // Zones channel: which region (if any) each finger currently sits in, resolved here so
+    // PadEngine's per-region action dispatch (VirtualButton/Trigger/Bot/Macro/Keyboard/MouseClick,
+    // reusing the same ButtonAction vocabulary as dpadActions) only has to read the result off
+    // GamepadState instead of re-running hit-testing itself. No action dispatch here — that stays
+    // out-of-band in PadEngine.cpp, same split as Boton's clickTarget (VirtualTarget, resolved
+    // inline above) vs Keyboard/Mouse/Macro/Bot touch actions (handled outside the Component
+    // System). See ARCHITECTURE.md "Touchpad" -> "Zonas".
+    out.activeTouchZone1.clear();
+    out.activeTouchZone2.clear();
+    if (cfg.surfaceMode == TouchpadSurfaceMode::Zones && !cfg.zones.empty()) {
+        // A finger past the calibrated xMax/yMax edge on either axis sits in the dead border
+        // outside the usable rectangle — no region match at all, not saturated into whichever
+        // region the pad's physical edge happens to land in (that's what t1x/t1y's clamp inside
+        // applyTouchAxisCalib would otherwise do). Matches the design agreed for Zonas (see
+        // TouchpadConfig's xMax/yMax comment): "reparte las regiones en menos espacio, con un
+        // borde muerto fuera" — a real dead zone, same treatment Raton mode already gets via
+        // touchAxisBeyondMax() in PadEngine.cpp. Checked against the RAW physical position (the
+        // literal physical border), same reasoning as that call site.
+        auto zoneIdFor = [&](bool active, float rawX, float rawY, float x, float y) -> std::string {
+            if (!active) return {};
+            if (touchAxisBeyondMax(rawX, cfg.xMax) || touchAxisBeyondMax(rawY, cfg.yMax)) return {};
+            const TouchZoneRegion* r = hitTestTouchZone(cfg.zones, x, y);
+            return r ? r->id : std::string{};
+        };
+        out.activeTouchZone1 = zoneIdFor(physical.touch1Active, physical.touch1X, physical.touch1Y, t1x, t1y);
+        out.activeTouchZone2 = zoneIdFor(physical.touch2Active, physical.touch2X, physical.touch2Y, t2x, t2y);
+    }
 }
 
 // ─── PhysicalGyro ─────────────────────────────────────────────────────────────

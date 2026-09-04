@@ -653,6 +653,202 @@ TEST_CASE("applyProfile gyro_actions and accel_actions are independent sections"
     REQUIRE(result.accel_actions.count("z_pos") == 1);  // untouched, still base's
 }
 
+// ── touch_zone_actions / touch_gesture_actions / touchpad surface_mode — profile parsing and apply ──
+
+TEST_CASE("loadGameProfile leaves touch zone/gesture/surface flags false when sections absent", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_notouch.json";
+    { std::ofstream f(path); f << R"({"profile_name": "T"})"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE_FALSE(p.hasTouchZoneActions);
+    REQUIRE_FALSE(p.hasTouchGestureActions);
+    REQUIRE_FALSE(p.hasTouchSurfaceMode);
+    REQUIRE_FALSE(p.hasTouchAnalogTarget);
+    REQUIRE_FALSE(p.hasTouchZoneTemplate);
+    REQUIRE_FALSE(p.hasTouchZones);
+}
+
+TEST_CASE("loadGameProfile parses touch_zone_actions section", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_touchzone.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "T",
+        "touch_zone_actions": {
+            "n": { "virtual": "a" },
+            "s": { "keys": ["l"], "type": "keyboard" }
+        }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE(p.hasTouchZoneActions);
+    REQUIRE(p.touch_zone_actions.size() == 2);
+    REQUIRE(p.touch_zone_actions.at("n").type == ButtonActionType::VirtualButton);
+    REQUIRE(p.touch_zone_actions.at("n").name == "a");
+}
+
+TEST_CASE("loadGameProfile parses touch_gesture_actions section independently of touch_zone_actions", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_touchgesture.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "T",
+        "touch_gesture_actions": {
+            "up": { "virtual": "l1" }
+        }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE_FALSE(p.hasTouchZoneActions);
+    REQUIRE(p.hasTouchGestureActions);
+    REQUIRE(p.touch_gesture_actions.at("up").name == "l1");
+}
+
+TEST_CASE("loadGameProfile parses touchpad.surface_mode only, leaving analog_target flag false", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_touchsurface.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "T",
+        "touchpad": { "surface_mode": "gesture" }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE(p.hasTouchSurfaceMode);
+    REQUIRE(p.touchSurfaceMode == TouchpadSurfaceMode::Gesture);
+    REQUIRE_FALSE(p.hasTouchAnalogTarget);
+}
+
+TEST_CASE("loadGameProfile parses touchpad.analog_target only, leaving surface_mode flag false", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_touchanalog.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "T",
+        "touchpad": { "analog_target": "right" }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE_FALSE(p.hasTouchSurfaceMode);
+    REQUIRE(p.hasTouchAnalogTarget);
+    REQUIRE(p.touchAnalogStickTarget == "right");
+}
+
+TEST_CASE("loadGameProfile parses touchpad.zone_template_id and zones together", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_touchzonetmpl.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "T",
+        "touchpad": {
+            "zone_template_id": "compass-8",
+            "zones": [
+                { "id": "n", "shape": "wedge", "angle_from": 247.5, "angle_to": 292.5 },
+                { "id": "s", "shape": "wedge", "angle_from": 67.5,  "angle_to": 112.5 }
+            ]
+        }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE(p.hasTouchZoneTemplate);
+    REQUIRE(p.touchZoneTemplateId == "compass-8");
+    REQUIRE(p.hasTouchZones);
+    REQUIRE(p.touchZones.size() == 2);
+    REQUIRE(p.touchZones[0].id == "n");
+}
+
+TEST_CASE("loadGameProfile parses touchpad.zone_template_id independently of zones", "[ConfigLoader]") {
+    const std::string path = "test_tmp_profile_touchzonetmplonly.json";
+    { std::ofstream f(path); f << R"({
+        "profile_name": "T",
+        "touchpad": { "zone_template_id": "cross-x-4" }
+    })"; }
+    auto p = loadGameProfile(path);
+    std::remove(path.c_str());
+    REQUIRE(p.hasTouchZoneTemplate);
+    REQUIRE(p.touchZoneTemplateId == "cross-x-4");
+    REQUIRE_FALSE(p.hasTouchZones);
+}
+
+TEST_CASE("applyProfile replaces touch_zone_actions/touch_gesture_actions sections entirely", "[ConfigLoader]") {
+    ControllerConfig base;
+    ButtonAction baseAct; baseAct.type = ButtonActionType::VirtualButton; baseAct.name = "a";
+    base.touchZoneActions["n"] = baseAct;
+    base.touchGestureActions["up"] = baseAct;
+
+    GameProfile p;
+    p.hasTouchZoneActions = true;
+    ButtonAction overrideAct; overrideAct.type = ButtonActionType::VirtualButton; overrideAct.name = "b";
+    p.touch_zone_actions["n"] = overrideAct;
+    p.hasTouchGestureActions = true;
+    p.touch_gesture_actions["down"] = overrideAct;
+
+    auto result = applyProfile(base, p);
+    REQUIRE(result.touchZoneActions.size() == 1);
+    REQUIRE(result.touchZoneActions.at("n").name == "b");
+    REQUIRE(result.touchGestureActions.size() == 1);
+    REQUIRE(result.touchGestureActions.count("down") == 1);
+}
+
+TEST_CASE("applyProfile keeps base touch_zone_actions/touch_gesture_actions when profile declares none", "[ConfigLoader]") {
+    ControllerConfig base;
+    ButtonAction baseAct; baseAct.type = ButtonActionType::VirtualButton; baseAct.name = "a";
+    base.touchZoneActions["n"] = baseAct;
+
+    GameProfile p;  // hasTouchZoneActions/hasTouchGestureActions = false
+    auto result = applyProfile(base, p);
+    REQUIRE(result.touchZoneActions.size() == 1);
+    REQUIRE(result.touchZoneActions.at("n").name == "a");
+}
+
+TEST_CASE("applyProfile merges touchpad surface_mode independently of analog_target", "[ConfigLoader]") {
+    ControllerConfig base;
+    base.touchpad.surfaceMode = TouchpadSurfaceMode::Mouse;
+    base.touchpad.analogStickTarget = "left";
+
+    GameProfile p;
+    p.hasTouchSurfaceMode = true;
+    p.touchSurfaceMode = TouchpadSurfaceMode::Gesture;
+    // hasTouchAnalogTarget left false
+
+    auto result = applyProfile(base, p);
+    REQUIRE(result.touchpad.surfaceMode == TouchpadSurfaceMode::Gesture);
+    REQUIRE(result.touchpad.analogStickTarget == "left");  // untouched, still base's
+}
+
+TEST_CASE("applyProfile keeps base touchpad surfaceMode/analogStickTarget when profile declares neither", "[ConfigLoader]") {
+    ControllerConfig base;
+    base.touchpad.surfaceMode = TouchpadSurfaceMode::Zones;
+    base.touchpad.analogStickTarget = "both";
+
+    GameProfile p;  // hasTouchSurfaceMode/hasTouchAnalogTarget = false
+    auto result = applyProfile(base, p);
+    REQUIRE(result.touchpad.surfaceMode == TouchpadSurfaceMode::Zones);
+    REQUIRE(result.touchpad.analogStickTarget == "both");
+}
+
+TEST_CASE("applyProfile replaces zoneTemplateId/zones together when profile declares both", "[ConfigLoader]") {
+    ControllerConfig base;
+    base.touchpad.zoneTemplateId = "cross-plus-4";
+    TouchZoneRegion baseRegion; baseRegion.id = "nw";
+    base.touchpad.zones = { baseRegion };
+
+    GameProfile p;
+    p.hasTouchZoneTemplate = true;
+    p.touchZoneTemplateId = "compass-8";
+    p.hasTouchZones = true;
+    TouchZoneRegion r1; r1.id = "n"; TouchZoneRegion r2; r2.id = "s";
+    p.touchZones = { r1, r2 };
+
+    auto result = applyProfile(base, p);
+    REQUIRE(result.touchpad.zoneTemplateId == "compass-8");
+    REQUIRE(result.touchpad.zones.size() == 2);
+    REQUIRE(result.touchpad.zones[0].id == "n");
+}
+
+TEST_CASE("applyProfile keeps base zoneTemplateId/zones when profile declares neither", "[ConfigLoader]") {
+    ControllerConfig base;
+    base.touchpad.zoneTemplateId = "cross-plus-4";
+    TouchZoneRegion baseRegion; baseRegion.id = "nw";
+    base.touchpad.zones = { baseRegion };
+
+    GameProfile p;  // hasTouchZoneTemplate/hasTouchZones = false
+    auto result = applyProfile(base, p);
+    REQUIRE(result.touchpad.zoneTemplateId == "cross-plus-4");
+    REQUIRE(result.touchpad.zones.size() == 1);
+    REQUIRE(result.touchpad.zones[0].id == "nw");
+}
+
 // ── rebuildPhysicalControllerFromConfig — gyro/accel wiring + calibration ──────
 
 TEST_CASE("rebuildPhysicalControllerFromConfig builds Gyro/Accel components when imu is enabled", "[ConfigLoader]") {
@@ -743,7 +939,7 @@ TEST_CASE("saveCalibration round-trips stick, trigger and imu deadzone/max", "[C
     imu.gyroXDeadzone = 0.12f; imu.gyroXMax = 0.9f;
     imu.accelZDeadzone = 0.02f; imu.accelZMax = 0.98f;
 
-    saveCalibration(path, "TestController", left, right, trigL, trigR, imu, {});
+    saveCalibration(path, "TestController", left, right, trigL, trigR, imu, TouchpadConfig{}, {});
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -760,6 +956,41 @@ TEST_CASE("saveCalibration round-trips stick, trigger and imu deadzone/max", "[C
     REQUIRE(cfg.imu.accelZMax            == Catch::Approx(0.98f));
 }
 
+TEST_CASE("saveCalibration round-trips touch max", "[ConfigLoader]") {
+    const std::string path = "test_tmp_savecalib_touch.json";
+    { std::ofstream f(path); f << R"({
+        "controllers": [{
+            "vid": "0x1234",
+            "pid": "0x5678",
+            "source_name": "TestController",
+            "mode": "gamepad",
+            "buttons": {},
+            "axes": {},
+            "axis_actions": {},
+            "dpad_remap": {},
+            "dpad_actions": {},
+            "stick_slots": {},
+            "touchpad": { "enabled": true, "data_offset": 35, "max_x": 1919, "max_y": 942 }
+        }]
+    })"; }
+
+    TouchpadConfig touch;
+    touch.xMax = 1.15f;
+    touch.yMax = 1.1f;
+
+    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, touch, {});
+
+    auto configs = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(configs.size() == 1);
+    REQUIRE(configs[0].touchpad.xMax == Catch::Approx(1.15f));
+    REQUIRE(configs[0].touchpad.yMax == Catch::Approx(1.1f));
+    // data_offset/max_x/max_y round-trip untouched — saveCalibration only ever writes the
+    // max keys into the existing "touchpad" object.
+    REQUIRE(configs[0].touchpad.dataOffset == 35);
+    REQUIRE(configs[0].touchpad.maxX       == 1919);
+}
+
 TEST_CASE("saveCalibration writes per-axis invert flags", "[ConfigLoader]") {
     const std::string path = "test_tmp_savecalib_invert.json";
     writeBaseControllerFile(path);
@@ -768,7 +999,7 @@ TEST_CASE("saveCalibration writes per-axis invert flags", "[ConfigLoader]") {
     imu.gyroYInvert  = true;
     imu.accelXInvert = true;
 
-    saveCalibration(path, "TestController", {}, {}, {}, {}, imu, {});
+    saveCalibration(path, "TestController", {}, {}, {}, {}, imu, TouchpadConfig{}, {});
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -785,7 +1016,7 @@ TEST_CASE("saveCalibration merges axis invert only for HID keys present in the f
         {"hid_x", true},          // present in the file
         {"hid_nonexistent", true} // absent — must be silently skipped, not throw
     };
-    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, inverts);
+    saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, inverts);
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -805,7 +1036,7 @@ TEST_CASE("saveCalibration preserves other controllers' entries in the same file
         ]
     })"; }
 
-    saveCalibration(path, "TestController", {0.3f, 1.0f}, {}, {}, {}, ImuConfig{}, {});
+    saveCalibration(path, "TestController", {0.3f, 1.0f}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {});
 
     auto configs = loadControllerConfigs(path);
     std::remove(path.c_str());
@@ -820,7 +1051,7 @@ TEST_CASE("saveCalibration throws when the file has no controllers array", "[Con
     { std::ofstream f(path); f << R"({"not_controllers": []})"; }
 
     REQUIRE_THROWS_AS(
-        saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, {}),
+        saveCalibration(path, "TestController", {}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {}),
         std::runtime_error);
     std::remove(path.c_str());
 }
@@ -830,7 +1061,7 @@ TEST_CASE("saveCalibration throws when sourceName is not found", "[ConfigLoader]
     writeBaseControllerFile(path);
 
     REQUIRE_THROWS_AS(
-        saveCalibration(path, "NoSuchController", {}, {}, {}, {}, ImuConfig{}, {}),
+        saveCalibration(path, "NoSuchController", {}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {}),
         std::runtime_error);
     std::remove(path.c_str());
 }

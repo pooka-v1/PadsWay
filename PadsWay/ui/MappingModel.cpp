@@ -114,6 +114,14 @@ static json axisActionsToJson(const std::unordered_map<std::string, HalfAxisActi
     return j;
 }
 
+// Same shape as axisActionsToJson but for ButtonAction maps (touchZoneActions: region id -> action).
+static json buttonActionsToJson(const std::unordered_map<std::string, ButtonAction>& m) {
+    json j = json::object();
+    for (const auto& [key, act] : m)
+        j[key] = actionToJson(act);
+    return j;
+}
+
 // Trigger side from ranges: a single range collapses to its plain action,
 // multiple ranges serialize as { "ranges": [...] }. Returns null when empty.
 // Works on both RangeEdit and TriggerRange (same field shape).
@@ -238,6 +246,12 @@ void MappingModel::clear() {
     trigRRangeEdits.clear();
     stickSlotEdits.clear();
     contextBotsEdits.clear();
+    touchSurfaceMode = TouchpadSurfaceMode::Unassigned;
+    touchAnalogStickTarget.clear();
+    touchZoneTemplateId.clear();
+    touchZones.clear();
+    touchZoneActionEdits.clear();
+    touchGestureActionEdits.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +317,15 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
         gyroActionEdits[key] = action;
     for (const auto& [key, action] : cfg.accel_actions)
         accelActionEdits[key] = action;
+
+    touchSurfaceMode = cfg.touchpad.surfaceMode;
+    touchAnalogStickTarget = cfg.touchpad.analogStickTarget;
+    touchZoneTemplateId = cfg.touchpad.zoneTemplateId;
+    touchZones = cfg.touchpad.zones;
+    for (const auto& [regionId, action] : cfg.touchZoneActions)
+        touchZoneActionEdits[regionId] = action;
+    for (const auto& [gestureId, action] : cfg.touchGestureActions)
+        touchGestureActionEdits[gestureId] = action;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +441,46 @@ bool MappingModel::saveProfile(const std::string& path, const std::string& profi
         json baseAcA  = axisActionsToJson(base.accel_actions);
         if (modelAcA == baseAcA) root.erase("accel_actions");
         else                     root["accel_actions"] = std::move(modelAcA);
+    }
+
+    // --- touch_zone_actions — whole-section diff against base ---
+    {
+        json modelTZA = buttonActionsToJson(touchZoneActionEdits);
+        json baseTZA  = buttonActionsToJson(base.touchZoneActions);
+        if (modelTZA == baseTZA) root.erase("touch_zone_actions");
+        else                     root["touch_zone_actions"] = std::move(modelTZA);
+    }
+
+    // --- touch_gesture_actions — whole-section diff against base ---
+    {
+        json modelTGA = buttonActionsToJson(touchGestureActionEdits);
+        json baseTGA  = buttonActionsToJson(base.touchGestureActions);
+        if (modelTGA == baseTGA) root.erase("touch_gesture_actions");
+        else                     root["touch_gesture_actions"] = std::move(modelTGA);
+    }
+
+    // --- touchpad surface_mode / analog_target / zone_template_id / zones — per-field diff against base ---
+    {
+        json tpJson = json::object();
+        if (touchSurfaceMode != base.touchpad.surfaceMode)
+            tpJson["surface_mode"] = touchpadSurfaceModeToString(touchSurfaceMode);
+        if (touchAnalogStickTarget != base.touchpad.analogStickTarget)
+            tpJson["analog_target"] = touchAnalogStickTarget;
+        if (touchZoneTemplateId != base.touchpad.zoneTemplateId)
+            tpJson["zone_template_id"] = touchZoneTemplateId;
+
+        // Zones has no operator==, and a profile only needs to declare it when it actually
+        // differs from base — compare via the same JSON serializer save()/saveProfile() both
+        // already use to persist it, same style as buttonActionsToJson comparisons above.
+        json modelZones = json::array();
+        for (const auto& z : touchZones) modelZones.push_back(touchZoneRegionToJson(z));
+        json baseZones = json::array();
+        for (const auto& z : base.touchpad.zones) baseZones.push_back(touchZoneRegionToJson(z));
+        if (modelZones != baseZones)
+            tpJson["zones"] = std::move(modelZones);
+
+        if (tpJson.empty()) root.erase("touchpad");
+        else                root["touchpad"] = std::move(tpJson);
     }
 
     // --- axes (whole-axis remap) — per-key diff against base, keyed by stickId ---
@@ -616,6 +679,50 @@ void MappingModel::save(const std::string& path) {
                 ctrl["accel_actions"] = axisActionsToJson(accelActionEdits);
             else
                 ctrl.erase("accel_actions");
+
+            if (!touchZoneActionEdits.empty())
+                ctrl["touch_zone_actions"] = buttonActionsToJson(touchZoneActionEdits);
+            else
+                ctrl.erase("touch_zone_actions");
+
+            if (!touchGestureActionEdits.empty())
+                ctrl["touch_gesture_actions"] = buttonActionsToJson(touchGestureActionEdits);
+            else
+                ctrl.erase("touch_gesture_actions");
+        }
+
+        // --- Touchpad (Superficie channel mode) ---
+        // First writer of this section ever — controllers.json has never had a "touchpad" key
+        // (see ARCHITECTURE.md "Touchpad"). Only written for controllers that actually have one
+        // (an existing "touchpad" section, or a discovered touch_btn button bit) — otherwise
+        // every save would plant a spurious enabled:true section on non-touchpad controllers.
+        // enabled defaults true here; existing dataOffset/maxX/maxY are preserved as-is (wizard/
+        // calibration territory, not this panel's), ground-truth DS4 defaults only if new.
+        {
+            bool hasTouchBtn = false;
+            for (const auto& [key, btn] : ctrl["buttons"].items())
+                if (btn.is_object() && btn.value("physical", "") == "touch_btn") { hasTouchBtn = true; break; }
+
+            if (ctrl.contains("touchpad") || hasTouchBtn) {
+                json tpJson = ctrl.contains("touchpad") ? ctrl["touchpad"] : json::object();
+                tpJson["enabled"]      = true;
+                if (!tpJson.contains("data_offset")) tpJson["data_offset"] = 35;
+                if (!tpJson.contains("max_x"))       tpJson["max_x"]       = 1919;
+                if (!tpJson.contains("max_y"))       tpJson["max_y"]       = 942;
+                tpJson["surface_mode"] = touchpadSurfaceModeToString(touchSurfaceMode);
+                if (touchAnalogStickTarget.empty()) tpJson.erase("analog_target");
+                else                                 tpJson["analog_target"] = touchAnalogStickTarget;
+                if (touchZoneTemplateId.empty()) tpJson.erase("zone_template_id");
+                else                              tpJson["zone_template_id"] = touchZoneTemplateId;
+                if (touchZones.empty()) {
+                    tpJson.erase("zones");
+                } else {
+                    json zonesJson = json::array();
+                    for (const auto& z : touchZones) zonesJson.push_back(touchZoneRegionToJson(z));
+                    tpJson["zones"] = std::move(zonesJson);
+                }
+                ctrl["touchpad"] = std::move(tpJson);
+            }
         }
 
         break;

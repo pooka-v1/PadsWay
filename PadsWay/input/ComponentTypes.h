@@ -108,6 +108,25 @@ struct ImuAxisCalibration {
     float max      = 1.0f;
 };
 
+// Reshapes one touch axis position (touch1X/Y's own [0,1] scale) through that axis's max,
+// expressed as magnitude-from-pad-center — same convention as TouchpadConfig::xMax/yMax (see its
+// comment in ControllerConfig.h): recenters on 0.5, runs the signed offset through
+// applyDeadzoneMaxSigned() with no deadzone, maps back to [0,1]. max=1 (the default) is a no-op.
+inline float applyTouchAxisCalib(float pos01, float max) {
+    float offset = (pos01 - 0.5f) * 2.0f;
+    float shaped = applyDeadzoneMaxSigned(offset, 0.0f, max);
+    return std::clamp(shaped * 0.5f + 0.5f, 0.0f, 1.0f);
+}
+
+// True if this touch axis position's raw magnitude-from-center already exceeds max — used to
+// gate Raton mode (PadEngine.cpp): a touch resting past the calibrated edge (e.g. an accidental
+// grip contact near the physical border) generates no cursor movement at all, rather than being
+// silently clamped to the edge like Analogico/Zonas do via applyTouchAxisCalib() above.
+inline bool touchAxisBeyondMax(float pos01, float max) {
+    float offset = std::fabs((pos01 - 0.5f) * 2.0f);
+    return offset > max;
+}
+
 // ─── Accumulators ─────────────────────────────────────────────────────────────
 
 struct StickAccumulator {
@@ -180,10 +199,22 @@ struct PhysicalAnalogDir {
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;
 };
 
-// Placeholder — will grow with gestures, touch zones, two-finger combos, etc.
-// The touchpad click button goes in components[ComponentId::BtnHome] or similar, NOT here.
+// Botón/Superficie split (see ARCHITECTURE.md "Touchpad"). Mouse/Analog surfaceModes have real
+// behavior in process() below; Gesture/Zones are still to grow (two-finger combos, touch zones).
 struct PhysicalTouchpad {
     TouchpadConfig cfg;
+    // Boton channel (btnTouch) target — same mechanism as PhysicalButton::target, applied on top
+    // of the raw out.btnTouch passthrough when physical.btnTouch is true.
+    VirtualTarget clickTarget = VirtualPassthrough{};
+
+    // Analog "both" mode only: which half each finger's current touch session is locked onto,
+    // decided once at finger-down and held for the whole session even if the finger later
+    // crosses the midline without lifting — see process()'s "both" branch. Mutable so process()
+    // can stay logically const (this is session bookkeeping, not a mapping decision).
+    mutable bool touch1SessionActive = false;
+    mutable bool touch2SessionActive = false;
+    mutable bool touch1OnRightHalf   = false;
+    mutable bool touch2OnRightHalf   = false;
 
     void process(const GamepadState& physical, GamepadState& out,
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;

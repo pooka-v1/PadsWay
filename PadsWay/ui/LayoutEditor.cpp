@@ -237,6 +237,7 @@ void LayoutEditor::renderLeftPanel(float w) {
     if (ImGui::Button(tr("layout.add_analog_dpad"), { hw, 0.0f })) addComponent("analog_dpad");
     ImGui::SameLine();
     if (ImGui::Button(tr("layout.add_gyro"), { hw, 0.0f })) addComponent("gyro");
+    if (ImGui::Button(tr("layout.add_touchpad"), { -1.0f, 0.0f })) addComponent("touchpad");
 
     ImGui::Separator();
 
@@ -508,7 +509,7 @@ void LayoutEditor::renderRightPanel(float w) {
     } // end if (c.type != "gyro") for images block
 
     // State bindings
-    if (c.type == "button") {
+    if (c.type == "button" || c.type == "touchpad") {
         ImGui::Spacing();
         ImGui::Text("%s", tr("layout.state"));
         stateCombo("state##s", c.state);
@@ -577,7 +578,8 @@ void LayoutEditor::renderRightPanel(float w) {
             { c.colorR=v[0]; c.colorG=v[1]; c.colorB=v[2]; c.colorA=v[3]; }
     }
 
-    if (c.type == "button" || c.type == "stick" || c.type == "dpad" || c.type == "analog_dpad") {
+    if (c.type == "button" || c.type == "stick" || c.type == "dpad" || c.type == "analog_dpad" ||
+        c.type == "touchpad") {
         ImGui::SameLine(0, 12);
         float v[4] = { c.activeColorR, c.activeColorG, c.activeColorB, c.activeColorA };
         ImGui::Text("%s", tr("layout.color_active"));  ImGui::SameLine();
@@ -772,6 +774,10 @@ void LayoutEditor::addComponent(const char* type) {
         }
     } else if (strcmp(type, "dpad") == 0 || strcmp(type, "analog_dpad") == 0) {
         c.size = 1.0f;  // scale factor: 1.0 = natural texture size
+    } else if (strcmp(type, "touchpad") == 0) {
+        c.w     = 150.0f;
+        c.h     = 75.0f;
+        c.state = "btnTouch";
     } else {
         c.w = 50.0f;
         c.h = 50.0f;

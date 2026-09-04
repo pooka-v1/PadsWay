@@ -1,0 +1,101 @@
+{
+    "_comment": "Shared touch zone geometry catalog for the touchpad's Zonas surfaceMode. See ARCHITECTURE.md, 'Touchpad' -> 'Zonas', and input/TouchZones.h for the shape/angle convention. center_radius=0.2 on the '-5-center'/'compass-8-center' templates is a placeholder default, adjustable here without code changes until the drag-based TouchZoneModal editor exists.",
+    "templates": [
+        {
+            "id": "single-1",
+            "regions": [
+                { "id": "all", "shape": "rect", "x_min": 0.0, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0 }
+            ]
+        },
+        {
+            "id": "split-lr-2",
+            "regions": [
+                { "id": "left",  "shape": "rect", "x_min": 0.0, "x_max": 0.5, "y_min": 0.0, "y_max": 1.0 },
+                { "id": "right", "shape": "rect", "x_min": 0.5, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0 }
+            ]
+        },
+        {
+            "id": "cross-x-4",
+            "_comment": "N/E/S/W wedges split by the two diagonals (an X), 90deg each.",
+            "regions": [
+                { "id": "e", "shape": "wedge", "angle_from": 315.0, "angle_to": 45.0 },
+                { "id": "s", "shape": "wedge", "angle_from": 45.0,  "angle_to": 135.0 },
+                { "id": "w", "shape": "wedge", "angle_from": 135.0, "angle_to": 225.0 },
+                { "id": "n", "shape": "wedge", "angle_from": 225.0, "angle_to": 315.0 }
+            ]
+        },
+        {
+            "id": "cross-plus-4",
+            "_comment": "NW/NE/SW/SE quadrants split by a horizontal+vertical line through the center.",
+            "regions": [
+                { "id": "nw", "shape": "rect", "x_min": 0.0, "x_max": 0.5, "y_min": 0.0, "y_max": 0.5 },
+                { "id": "ne", "shape": "rect", "x_min": 0.5, "x_max": 1.0, "y_min": 0.0, "y_max": 0.5 },
+                { "id": "sw", "shape": "rect", "x_min": 0.0, "x_max": 0.5, "y_min": 0.5, "y_max": 1.0 },
+                { "id": "se", "shape": "rect", "x_min": 0.5, "x_max": 1.0, "y_min": 0.5, "y_max": 1.0 }
+            ]
+        },
+        {
+            "id": "cross-x-5-center",
+            "_comment": "cross-x-4 + a center circle subtracted. Circle listed first: hitTestTouchZone() returns the first match, so any point within center_radius lands in 'center' before the wedges ever get tested.",
+            "regions": [
+                { "id": "center", "shape": "circle", "radius": 0.2 },
+                { "id": "e", "shape": "wedge", "angle_from": 315.0, "angle_to": 45.0 },
+                { "id": "s", "shape": "wedge", "angle_from": 45.0,  "angle_to": 135.0 },
+                { "id": "w", "shape": "wedge", "angle_from": 135.0, "angle_to": 225.0 },
+                { "id": "n", "shape": "wedge", "angle_from": 225.0, "angle_to": 315.0 }
+            ]
+        },
+        {
+            "id": "cross-plus-5-center",
+            "_comment": "cross-plus-4 + a center circle subtracted. Same first-match ordering as cross-x-5-center.",
+            "regions": [
+                { "id": "center", "shape": "circle", "radius": 0.2 },
+                { "id": "nw", "shape": "rect", "x_min": 0.0, "x_max": 0.5, "y_min": 0.0, "y_max": 0.5 },
+                { "id": "ne", "shape": "rect", "x_min": 0.5, "x_max": 1.0, "y_min": 0.0, "y_max": 0.5 },
+                { "id": "sw", "shape": "rect", "x_min": 0.0, "x_max": 0.5, "y_min": 0.5, "y_max": 1.0 },
+                { "id": "se", "shape": "rect", "x_min": 0.5, "x_max": 1.0, "y_min": 0.5, "y_max": 1.0 }
+            ]
+        },
+        {
+            "id": "grid-6",
+            "_comment": "2 rows x 3 columns.",
+            "regions": [
+                { "id": "r0c0", "shape": "rect", "x_min": 0.0,      "x_max": 0.333333, "y_min": 0.0, "y_max": 0.5 },
+                { "id": "r0c1", "shape": "rect", "x_min": 0.333333, "x_max": 0.666667, "y_min": 0.0, "y_max": 0.5 },
+                { "id": "r0c2", "shape": "rect", "x_min": 0.666667, "x_max": 1.0,      "y_min": 0.0, "y_max": 0.5 },
+                { "id": "r1c0", "shape": "rect", "x_min": 0.0,      "x_max": 0.333333, "y_min": 0.5, "y_max": 1.0 },
+                { "id": "r1c1", "shape": "rect", "x_min": 0.333333, "x_max": 0.666667, "y_min": 0.5, "y_max": 1.0 },
+                { "id": "r1c2", "shape": "rect", "x_min": 0.666667, "x_max": 1.0,      "y_min": 0.5, "y_max": 1.0 }
+            ]
+        },
+        {
+            "id": "compass-8-center",
+            "_comment": "N/NE/E/SE/S/SW/W/NW wedges (45deg each) + a center circle. Center listed first, same reasoning as the other '-center' templates.",
+            "regions": [
+                { "id": "center", "shape": "circle", "radius": 0.2 },
+                { "id": "e",  "shape": "wedge", "angle_from": 337.5, "angle_to": 22.5 },
+                { "id": "se", "shape": "wedge", "angle_from": 22.5,  "angle_to": 67.5 },
+                { "id": "s",  "shape": "wedge", "angle_from": 67.5,  "angle_to": 112.5 },
+                { "id": "sw", "shape": "wedge", "angle_from": 112.5, "angle_to": 157.5 },
+                { "id": "w",  "shape": "wedge", "angle_from": 157.5, "angle_to": 202.5 },
+                { "id": "nw", "shape": "wedge", "angle_from": 202.5, "angle_to": 247.5 },
+                { "id": "n",  "shape": "wedge", "angle_from": 247.5, "angle_to": 292.5 },
+                { "id": "ne", "shape": "wedge", "angle_from": 292.5, "angle_to": 337.5 }
+            ]
+        },
+        {
+            "id": "compass-8",
+            "_comment": "Same 8 wedges as compass-8-center, no center circle carved out — full 8-direction coverage from the middle outward, meant for d-pad-style mapping.",
+            "regions": [
+                { "id": "e",  "shape": "wedge", "angle_from": 337.5, "angle_to": 22.5 },
+                { "id": "se", "shape": "wedge", "angle_from": 22.5,  "angle_to": 67.5 },
+                { "id": "s",  "shape": "wedge", "angle_from": 67.5,  "angle_to": 112.5 },
+                { "id": "sw", "shape": "wedge", "angle_from": 112.5, "angle_to": 157.5 },
+                { "id": "w",  "shape": "wedge", "angle_from": 157.5, "angle_to": 202.5 },
+                { "id": "nw", "shape": "wedge", "angle_from": 202.5, "angle_to": 247.5 },
+                { "id": "n",  "shape": "wedge", "angle_from": 247.5, "angle_to": 292.5 },
+                { "id": "ne", "shape": "wedge", "angle_from": 292.5, "angle_to": 337.5 }
+            ]
+        }
+    ]
+}

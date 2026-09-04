@@ -48,6 +48,10 @@ private:
     TriggerCalibration m_editTriggerL;
     TriggerCalibration m_editTriggerR;
     ImuConfig          m_editImu;
+    // Whole struct, same round-trip reasoning as m_editImu — only its xDeadzone/xMax/yDeadzone/
+    // yMax fields are ever written by this panel, the rest (surfaceMode, zones, ...) just rides
+    // along untouched back to m_activeConfig/saveCalibration() on Save.
+    TouchpadConfig     m_editTouch;
 
     // Which HID axis (if any) feeds a given logical stick axis in this device's config, and its
     // invert flag as edited here. Invert doesn't live on StickCalibration — it's on
@@ -88,6 +92,7 @@ private:
     enum class CompassHandle { None, VInner, VOuter, HInner, HOuter, AInner, AOuter };
     CompassHandle m_gyroCompassDrag  = CompassHandle::None;
     CompassHandle m_accelCompassDrag = CompassHandle::None;
+    CompassHandle m_touchCrossDrag   = CompassHandle::None;
 
     // Shared by renderGyroCompass/renderAccelCompass/renderImuAxisWidgetVertical (compass image
     // size) and render()'s manual column layout for that row — see render()'s comment on why the
@@ -152,4 +157,18 @@ private:
                             float& xDeadzone, float& xMax,
                             CompassHandle& drag,
                             bool& yInvert, bool& xInvert);
+
+    // Max for the raw touch position, drawn as a crosshair (guide lines + tick marks) instead of
+    // renderGyroCompass/renderAccelCompass's ring — a touchpad has no radial shape to preserve
+    // (even a round one is read as two independent linear axes internally, see TouchpadConfig's
+    // xMax/yMax comment in ControllerConfig.h), so drawing a reference circle around it would
+    // suggest a boundary that isn't real. No deadzone handle (unlike gyro/accel) — see that same
+    // comment for why a center deadzone is deliberately not a thing here. rawX/rawY: touch1X/Y
+    // recentered on the pad's middle and scaled so an edge reads 1.0 (same convention as
+    // gyro/accel's rest-centered axes). No invert — touch has no equivalent of the stick/gyro
+    // axis-invert flag.
+    void renderTouchCross(const char* label, const char* idSuffix,
+                          float rawX, float rawY,
+                          float& xMax, float& yMax,
+                          CompassHandle& drag);
 };

@@ -52,6 +52,48 @@ private:
     float            m_lastTouchX      = 0.0f;
     float            m_lastTouchY      = 0.0f;
     bool             m_lastTouchActive = false;
+    float            m_lastTouch2X      = 0.0f;
+    float            m_lastTouch2Y      = 0.0f;
+    bool             m_lastTouch2Active = false;
+    // Gesture-threshold harness (measure, not classify — see ARCHITECTURE.md "Touchpad"): each
+    // finger's touch-down position/time, captured on the rising edge, consumed on the falling
+    // edge to log one summary line per session.
+    float            m_touch1SessStartX  = 0.0f;
+    float            m_touch1SessStartY  = 0.0f;
+    ULONGLONG        m_touch1SessStartMs = 0;
+    float            m_touch2SessStartX  = 0.0f;
+    float            m_touch2SessStartY  = 0.0f;
+    ULONGLONG        m_touch2SessStartMs = 0;
+    // Movimiento (Gestos) — see TouchGestures.h. True if the OTHER finger was active at any point
+    // during this finger's session (set from the "concurrent" branch, cleared at session start);
+    // decides whether a release classifies immediately as a 1-finger gesture or waits to be
+    // correlated with the other finger's release as a 2-finger gesture.
+    bool             m_touch1SessConcurrent = false;
+    bool             m_touch2SessConcurrent = false;
+    // Live (not release-triggered) commit for 1-finger linear gestures: set as soon as this
+    // session's displacement crosses kGestureMinDist WHILE the finger is still down, so the
+    // resulting action can be genuinely HELD for as long as the finger stays put instead of
+    // firing a single-frame pulse (user's idea, see SESSION_CONTEXT.md 2026/08/23 — ties
+    // visibility/press duration to real physical contact time instead of faking it). Empty =
+    // not committed yet this session. Only ever set for non-concurrent sessions — a session that
+    // becomes concurrent defers to the 2-finger release-correlation path instead (unaffected).
+    std::string      m_touch1CommittedGesture;
+    std::string      m_touch2CommittedGesture;
+    // Live commit for the 6 two-finger gestures (parallel/pinch/twist) — same idea as
+    // m_touch1CommittedGesture/m_touch2CommittedGesture above, but needs BOTH fingers' current
+    // displacement together, so it's evaluated once per read after both fingers' individual
+    // blocks have updated state.touch1X/Y and state.touch2X/Y, not inside either finger's own
+    // block. Empty = not committed yet for the current pairing (both fingers down together);
+    // cleared as soon as either finger releases, so a fresh pairing starts clean.
+    std::string      m_touchTwoFingerCommittedGesture;
+    // One finger's release, stashed while waiting for the other (concurrent) finger to also
+    // release within kTwoFingerWindowMs — see classifyTouchRelease().
+    struct PendingTwoFingerRelease {
+        bool      valid      = false;
+        float     dx = 0.0f, dy = 0.0f, x0 = 0.0f;
+        ULONGLONG deadlineMs = 0;
+    };
+    PendingTwoFingerRelease m_pendingTwoFinger;
     GamepadState             m_physicalState;
     RawHIDState              m_lastRawSnapshot;
     std::vector<std::string> m_activeAxisActions;
@@ -69,6 +111,16 @@ private:
     void          applyButtons (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);
+    // Logs one [TOUCH][sess] line for a finger's just-ended touch session — see the harness
+    // comment near m_touch1SessStartX above. x0/y0/x1/y1 are normalized [0,1] touchpad coords.
+    void          logTouchSession(int finger, float x0, float y0, float x1, float y1,
+                                   ULONGLONG startMs) const;
+    // Movimiento (Gestos): classifies one finger's just-ended session — see TouchGestures.h.
+    // 1-finger (non-concurrent) sessions classify immediately. Concurrent (2-finger) sessions
+    // stash into m_pendingTwoFinger and wait for the other finger's release; returns "" until
+    // that second release arrives (or the stash expires unused). x0/y0/x1/y1 normalized [0,1].
+    std::string   classifyTouchRelease(int finger, float x0, float y0, float x1, float y1,
+                                        bool concurrent);
     void          applyIMU     (PCHAR buf, ULONG bytesRead, GamepadState& state);
     void          applyImuActions();
     void          buildPhysicalButtons (PCHAR buf, ULONG bufLen);

@@ -383,6 +383,29 @@ TEST_CASE("applyDeadzoneMaxSigned max<1 boosts sensitivity past the raw ceiling"
     REQUIRE(applyDeadzoneMaxSigned(0.5f, 0.0f, 0.5f) == Catch::Approx(1.0f));
 }
 
+// ─── applyTouchAxisCalib() ────────────────────────────────────────────────────
+
+TEST_CASE("applyTouchAxisCalib default max=1 is a no-op passthrough", "[ComponentTypes][Calibration]") {
+    REQUIRE(applyTouchAxisCalib(0.5f, 1.0f) == Catch::Approx(0.5f));
+    REQUIRE(applyTouchAxisCalib(0.0f, 1.0f) == Catch::Approx(0.0f));
+    REQUIRE(applyTouchAxisCalib(1.0f, 1.0f) == Catch::Approx(1.0f));
+}
+
+TEST_CASE("applyTouchAxisCalib max<1 reaches the edge before the raw reading gets there", "[ComponentTypes][Calibration]") {
+    // Compensates a wizard maxX/maxY that landed short of the true physical edge (see
+    // TouchpadConfig's comment) — the finger never has to reach raw 1.0 to read as "at the edge".
+    REQUIRE(applyTouchAxisCalib(0.9f, 0.8f) == Catch::Approx(1.0f));
+    REQUIRE(applyTouchAxisCalib(0.1f, 0.8f) == Catch::Approx(0.0f));
+}
+
+TEST_CASE("touchAxisBeyondMax flags a raw position past the calibrated edge", "[ComponentTypes][Calibration]") {
+    // Used to gate Raton mode — a touch resting past max moves no cursor at all that frame.
+    REQUIRE(touchAxisBeyondMax(0.95f, 0.8f) == true);
+    REQUIRE(touchAxisBeyondMax(0.05f, 0.8f) == true);
+    REQUIRE(touchAxisBeyondMax(0.5f, 0.8f)  == false);
+    REQUIRE(touchAxisBeyondMax(0.5f, 1.0f)  == false);
+}
+
 // ─── StickAccumulator::flush() with calibration ──────────────────────────────
 
 TEST_CASE("StickAccumulator::flush default calib matches the no-calib overload", "[ComponentTypes][Calibration]") {
@@ -575,6 +598,79 @@ TEST_CASE("PhysicalAccel::process routes Y axis reading to the accumulator", "[C
     REQUIRE(out.accelActive == true);
     REQUIRE(accelAcc.yPos == Catch::Approx(0.4f));
     REQUIRE(accelAcc.yNeg == Catch::Approx(0.0f));
+}
+
+// ─── PhysicalTouchpad::process() — Zonas dead border ─────────────────────────
+// See BITACORA.md 2026/09/02: xMax/yMax must exclude a finger past the calibrated edge from
+// hitting any region at all (a real dead border), not saturate it into whatever region the
+// pad's physical edge happens to land in.
+
+namespace {
+TouchpadConfig makeQuadrantZonesConfig(float xMax, float yMax) {
+    TouchpadConfig cfg;
+    cfg.enabled     = true;
+    cfg.surfaceMode = TouchpadSurfaceMode::Zones;
+    cfg.xMax = xMax;
+    cfg.yMax = yMax;
+    auto rect = [](const char* id, float x0, float x1, float y0, float y1) {
+        TouchZoneRegion r;
+        r.id = id; r.shape = TouchZoneShape::Rect;
+        r.xMin = x0; r.xMax = x1; r.yMin = y0; r.yMax = y1;
+        return r;
+    };
+    cfg.zones = {
+        rect("nw", 0.0f, 0.5f, 0.0f, 0.5f),
+        rect("ne", 0.5f, 1.0f, 0.0f, 0.5f),
+        rect("sw", 0.0f, 0.5f, 0.5f, 1.0f),
+        rect("se", 0.5f, 1.0f, 0.5f, 1.0f),
+    };
+    return cfg;
+}
+}  // namespace
+
+TEST_CASE("PhysicalTouchpad::process Zonas within the calibrated edge hits the expected quadrant", "[ComponentTypes][Calibration]") {
+    PhysicalTouchpad comp{ makeQuadrantZonesConfig(0.51f, 0.51f) };
+    GamepadState physical;
+    physical.touch1Active = true;
+    physical.touch1X = 0.7f;  // offset = 0.4, within xMax=0.51
+    physical.touch1Y = 0.3f;  // offset = -0.4, within yMax=0.51
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyro;
+
+    comp.process(physical, out, left, right, gyro);
+
+    REQUIRE(out.activeTouchZone1 == "ne");
+}
+
+TEST_CASE("PhysicalTouchpad::process Zonas past the calibrated edge hits no region", "[ComponentTypes][Calibration]") {
+    PhysicalTouchpad comp{ makeQuadrantZonesConfig(0.51f, 0.51f) };
+    GamepadState physical;
+    physical.touch1Active = true;
+    physical.touch1X = 0.95f;  // offset = 0.9, past xMax=0.51 — dead border
+    physical.touch1Y = 0.05f;  // offset = -0.9, past yMax=0.51 too
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyro;
+
+    comp.process(physical, out, left, right, gyro);
+
+    REQUIRE(out.activeTouchZone1 == "");
+}
+
+TEST_CASE("PhysicalTouchpad::process Zonas default xMax/yMax=1 never excludes (no-op)", "[ComponentTypes][Calibration]") {
+    PhysicalTouchpad comp{ makeQuadrantZonesConfig(1.0f, 1.0f) };
+    GamepadState physical;
+    physical.touch1Active = true;
+    physical.touch1X = 0.95f;
+    physical.touch1Y = 0.05f;
+    GamepadState     out;
+    StickAccumulator left, right;
+    GyroAccumulator  gyro;
+
+    comp.process(physical, out, left, right, gyro);
+
+    REQUIRE(out.activeTouchZone1 == "ne");
 }
 
 // ─── PhysicalController::process() — end-to-end calibration pipeline ─────────

@@ -564,6 +564,8 @@ void AppWindow::renderScannerTab() {
         m_scanImuMinMax.clear();
         m_scanImuDetectFrames = 0;
         m_scanImuDetecting    = true;
+
+        m_scanTouchOffset = (cfg && cfg->touchpad.enabled) ? cfg->touchpad.dataOffset : 35;
     }
 
     // The connection itself lives in DeviceHub, shared with the engine — no independent handle
@@ -769,6 +771,89 @@ void AppWindow::renderScannerTab() {
                                         IM_COL32(90, 100, 120, 140), 1.5f);
     ImGui::SetCursorScreenPos({ axesRowStart.x, sepBottom });
 
+    // Touch + Raw bytes run tighter than the rest of the tab — they're dense diagnostic dumps,
+    // not a handful of controls, and the default vertical rhythm (ItemSpacing.y=6, set up near
+    // the top of AppWindow.cpp) was tall enough to force the InputMonitor child to scroll once
+    // both blocks were in. Popped again right before EndChild().
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { ImGui::GetStyle().ItemSpacing.x, 2.0f });
+
+    // ── Touch: manual-offset live decode ─────────────────────────────────────────────────
+    // No auto-detection here (unlike the IMU block above) — an "active" bit doesn't drift like
+    // a sensor value, so there's no amplitude heuristic to lean on. The user tunes the offset by
+    // hand while touching the pad, same as they already did to pin down data_offset=35 for the
+    // DS4 (BITACORA.md, 2026/08/17). Fixed at 2 slots (DS4's 2 fingers, and the best starting
+    // guess for the DualSense). All slots share a SINGLE text line (not one line per active
+    // touch) so the row height never changes as fingers land/lift — otherwise every touch/
+    // release would shift the Raw bytes block below up and down.
+    ImGui::Spacing();
+    ImGui::Text("%s", tr("scanner.touch_title"));
+    ImGui::Separator();
+    ImGui::Spacing();
+    constexpr int kScanTouchSlots = 2;
+    int maxTouchOffset = std::max(0, static_cast<int>(snap.raw.size()) - kScanTouchSlots * 4);
+    m_scanTouchOffset  = std::clamp(m_scanTouchOffset, 0, maxTouchOffset);
+    ImGui::SetNextItemWidth(100.0f);
+    ImGui::InputInt(tr("scanner.touch_offset"), &m_scanTouchOffset);
+    m_scanTouchOffset = std::clamp(m_scanTouchOffset, 0, maxTouchOffset);
+
+    if (static_cast<int>(snap.raw.size()) < m_scanTouchOffset + kScanTouchSlots * 4) {
+        ImGui::TextDisabled("%s", tr("scanner.touch_no_data"));
+    } else {
+        std::string touchLine;
+        bool        anyActive = false;
+        for (int i = 0; i < kScanTouchSlots; ++i) {
+            int     o  = m_scanTouchOffset + i * 4;
+            uint8_t b0 = snap.raw[o], b1 = snap.raw[o + 1], b2 = snap.raw[o + 2], b3 = snap.raw[o + 3];
+            if ((b0 & 0x80) != 0) continue; // bit7 set = not touching
+            anyActive = true;
+            int x = b1 | ((b2 & 0x0F) << 8);
+            int y = ((b2 & 0xF0) >> 4) | (b3 << 4);
+            char seg[48];
+            snprintf(seg, sizeof(seg), "Touch %d: X=%4d  Y=%4d", i + 1, x, y);
+            if (!touchLine.empty()) touchLine += "    ";
+            touchLine += seg;
+        }
+        if (!anyActive) touchLine = tr("scanner.touch_none");
+        ImGui::TextColored(anyActive ? ImVec4{ 0.3f, 1.0f, 0.3f, 1.0f } : ImVec4{ 0.6f, 0.6f, 0.6f, 1.0f },
+                            "%s", touchLine.c_str());
+    }
+
+    // ── Raw bytes: full report dump, enumerated in index/value row pairs ────────────────
+    // No decoding, no guessing at an offset — every byte of the raw HID report, indexed, so an
+    // unknown device's layout (DualSense, Steam Controller...) can be read straight off the
+    // screen while touching/pressing things, instead of hunting for it one offset at a time
+    // (see SESSION_CONTEXT.md "Wizard", discussion 2026/08/29). Same bytes the [HID][raw] trace
+    // (HIDInputSource.cpp) already logs to file — this is just the live, always-visible version.
+    // Indices are decimal (not the usual hex-dump convention) to match the decimal "Offset"
+    // field of the Touch block above, so a byte found here can be typed there directly. Laid
+    // out as an index row followed by its value row (32 columns per pair, not one row per 16
+    // bytes with a leading offset label) — easier to read a specific column straight down.
+    ImGui::Spacing();
+    ImGui::Text("%s", tr("scanner.raw_title"));
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        constexpr int kBytesPerBlock = 32;
+        // Index and value share the exact same format — 2 digits, zero-padded — so a column
+        // lines up visually between its label and its value with no width mismatch to eyeball.
+        int n = static_cast<int>(snap.raw.size());
+        for (int blockStart = 0; blockStart < n; blockStart += kBytesPerBlock) {
+            int blockEnd = std::min(blockStart + kBytesPerBlock, n);
+            std::string idxLine, valLine;
+            for (int i = blockStart; i < blockEnd; ++i) {
+                char idxTok[8]; snprintf(idxTok, sizeof(idxTok), "%02d ", i);
+                idxLine += idxTok;
+                char valTok[8]; snprintf(valTok, sizeof(valTok), "%02X ", snap.raw[i]);
+                valLine += valTok;
+            }
+            ImGui::TextDisabled("%s", idxLine.c_str());
+            ImGui::TextUnformatted(valLine.c_str());
+            ImGui::Spacing();
+        }
+    }
+
+    ImGui::PopStyleVar(); // ItemSpacing pushed before the Touch block above
+
     ImGui::EndChild();
 }
 
@@ -905,6 +990,35 @@ void AppWindow::renderPadsTab() {
       if (!m_mappingEditor.isActive() && !m_macroManager.isActive() && !m_calibrationPanel.isActive()) {
         ImGui::Spacing();
 
+        // ── Botones Mapper / Perfiles / Macros / Calibración ──────────────────
+        // Drawn BEFORE the pad images (2026/09/03) so this row occupies the same
+        // height as the Mapeador/Perfiles headers — the pad images then start at
+        // the same Y across Pads/Mapeador/Perfiles and the tab switch doesn't jump.
+        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            m_mappingEditor.activate();
+            m_engine.setEditorOpen(true);
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("profiles.title", "openProfiles").c_str(), { 140.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            int presel = m_profileSelected > 0 ? m_profileSelected - 1 : -1;
+            m_mappingEditor.activateProfile(m_profilePaths, m_profileNames, presel);
+            m_engine.setEditorOpen(true);
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
+            m_macroManager.activate();
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("calibration.title", "openCalibration").c_str(), { 120.0f, 0.0f })) {
+            m_calibrationPanel.setConfigs(m_controllerConfigs);
+            m_calibrationPanel.activate();
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
         if (!m_engine.isConnected()) {
             ImGui::Spacing();
             ImGui::TextDisabled("%s", tr("engine.waiting"));
@@ -932,31 +1046,6 @@ void AppWindow::renderPadsTab() {
         m_virtualPadView.render(m_engine.getLastVirtualState());
         ImGui::EndGroup();
         } // isConnected
-
-        // ── Botones Mapper / Perfiles / Macros ────────────────────────────────
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
-            m_mappingEditor.setConfigs(m_controllerConfigs);
-            m_mappingEditor.activate();
-            m_engine.setEditorOpen(true);
-        }
-        ImGui::SameLine(0.0f, 8.0f);
-        if (ImGui::Button(trid("profiles.title", "openProfiles").c_str(), { 140.0f, 0.0f })) {
-            m_mappingEditor.setConfigs(m_controllerConfigs);
-            int presel = m_profileSelected > 0 ? m_profileSelected - 1 : -1;
-            m_mappingEditor.activateProfile(m_profilePaths, m_profileNames, presel);
-            m_engine.setEditorOpen(true);
-        }
-        ImGui::SameLine(0.0f, 8.0f);
-        if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
-            m_macroManager.activate();
-        ImGui::SameLine(0.0f, 8.0f);
-        if (ImGui::Button(trid("calibration.title", "openCalibration").c_str(), { 120.0f, 0.0f })) {
-            m_calibrationPanel.setConfigs(m_controllerConfigs);
-            m_calibrationPanel.activate();
-        }
 
             // ── Marquee ───────────────────────────────────────────────────────────
 
