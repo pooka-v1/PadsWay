@@ -898,7 +898,7 @@
         "enabled": true,
         "max_x": 1919,
         "max_y": 942,
-        "surface_mode": "unassigned",
+        "surface_mode": "mouse",
         "x_max": 1.0099999904632568,
         "y_max": 1.0099999904632568,
         "zone_template_id": "cross-plus-4",

@@ -79,36 +79,30 @@ bool renderKeyboardCapture(const char* contextId,
 
     ImGui::PushID(contextId);
 
-    // Row 1: captured keys (or placeholder), centered on the panel.
-    float textW = ImGui::CalcTextSize(dispStr.c_str()).x;
-    float offX1 = (availW - textW) * 0.5f;
-    if (offX1 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX1);
+    // Left/right split (2026/09/04, was a single centered row): left half is the captured-keys
+    // "text box" — wraps onto more lines below if it doesn't fit instead of pushing anything
+    // sideways; right half is Asignar/Limpiar, anchored at the TOP-LEFT of that half via an
+    // explicit SetCursorPos (not a natural SameLine after the text) so they stay put regardless
+    // of how many lines the text wraps to as more keys are pressed.
+    float gap   = 16.0f;
+    float leftW = (availW - gap) * 0.5f;
+    ImVec2 rowStart = ImGui::GetCursorPos();
+
+    ImGui::PushTextWrapPos(rowStart.x + leftW);
     ImGui::TextColored({0.3f, 1.0f, 0.3f, 1.0f}, "%s", dispStr.c_str());
+    ImGui::PopTextWrapPos();
+    float textBottomY = ImGui::GetCursorPosY();
 
-    // Row 2: underline mark, fixed width, centered on the panel independently of the text above
-    // — signals "a key goes here" without trying to track the text's variable width.
-    // 1/3 of the profile name field width (MappingEditor.cpp "profiles.name_label", 200.0f) —
-    // starting point, expect to tune once seen rendered.
-    const float kUnderlineW = 200.0f / 3.0f;
-    float lineX0 = ImGui::GetCursorScreenPos().x + (availW - kUnderlineW) * 0.5f;
-    float lineY  = ImGui::GetCursorScreenPos().y;
-    ImGui::GetWindowDrawList()->AddLine({lineX0, lineY}, {lineX0 + kUnderlineW, lineY},
-                                        ImGui::GetColorU32(ImGuiCol_Text), 1.5f);
-    ImGui::Dummy({kUnderlineW, 6.0f});
-    ImGui::Spacing();
-
-    // Row 2: [Asignar] [Limpiar]
     float bAsigW = 100.0f, bLimpW = 80.0f;
-    float sp    = ImGui::GetStyle().ItemSpacing.x;
-    float rowW2 = bAsigW + sp + bLimpW;
-    float offX2 = (availW - rowW2) * 0.5f;
-    if (offX2 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX2);
-
+    ImGui::SetCursorPos({ rowStart.x + leftW + gap, rowStart.y });
     if (empty) ImGui::BeginDisabled();
     bool assigned = ImGui::Button(tr("btn.assign"), {bAsigW, 0.0f}) && !empty;
     if (empty) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button(tr("btn.clear"), {bLimpW, 0.0f})) keys.clear();
+    float buttonsBottomY = ImGui::GetCursorPosY();
+    ImGui::SetCursorPosY(textBottomY > buttonsBottomY ? textBottomY : buttonsBottomY);
+
     ImGui::PopID();
 
     return assigned;

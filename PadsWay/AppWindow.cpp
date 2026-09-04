@@ -990,6 +990,35 @@ void AppWindow::renderPadsTab() {
       if (!m_mappingEditor.isActive() && !m_macroManager.isActive() && !m_calibrationPanel.isActive()) {
         ImGui::Spacing();
 
+        // ── Botones Mapper / Perfiles / Macros / Calibración ──────────────────
+        // Drawn BEFORE the pad images (2026/09/03) so this row occupies the same
+        // height as the Mapeador/Perfiles headers — the pad images then start at
+        // the same Y across Pads/Mapeador/Perfiles and the tab switch doesn't jump.
+        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            m_mappingEditor.activate();
+            m_engine.setEditorOpen(true);
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("profiles.title", "openProfiles").c_str(), { 140.0f, 0.0f })) {
+            m_mappingEditor.setConfigs(m_controllerConfigs);
+            int presel = m_profileSelected > 0 ? m_profileSelected - 1 : -1;
+            m_mappingEditor.activateProfile(m_profilePaths, m_profileNames, presel);
+            m_engine.setEditorOpen(true);
+        }
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
+            m_macroManager.activate();
+        ImGui::SameLine(0.0f, 8.0f);
+        if (ImGui::Button(trid("calibration.title", "openCalibration").c_str(), { 120.0f, 0.0f })) {
+            m_calibrationPanel.setConfigs(m_controllerConfigs);
+            m_calibrationPanel.activate();
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
         if (!m_engine.isConnected()) {
             ImGui::Spacing();
             ImGui::TextDisabled("%s", tr("engine.waiting"));
@@ -1017,31 +1046,6 @@ void AppWindow::renderPadsTab() {
         m_virtualPadView.render(m_engine.getLastVirtualState());
         ImGui::EndGroup();
         } // isConnected
-
-        // ── Botones Mapper / Perfiles / Macros ────────────────────────────────
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-        if (ImGui::Button(trid("mapper.title", "openMapping").c_str(), { 120.0f, 0.0f })) {
-            m_mappingEditor.setConfigs(m_controllerConfigs);
-            m_mappingEditor.activate();
-            m_engine.setEditorOpen(true);
-        }
-        ImGui::SameLine(0.0f, 8.0f);
-        if (ImGui::Button(trid("profiles.title", "openProfiles").c_str(), { 140.0f, 0.0f })) {
-            m_mappingEditor.setConfigs(m_controllerConfigs);
-            int presel = m_profileSelected > 0 ? m_profileSelected - 1 : -1;
-            m_mappingEditor.activateProfile(m_profilePaths, m_profileNames, presel);
-            m_engine.setEditorOpen(true);
-        }
-        ImGui::SameLine(0.0f, 8.0f);
-        if (ImGui::Button(trid("macros.title", "openMacros").c_str(), { 100.0f, 0.0f }))
-            m_macroManager.activate();
-        ImGui::SameLine(0.0f, 8.0f);
-        if (ImGui::Button(trid("calibration.title", "openCalibration").c_str(), { 120.0f, 0.0f })) {
-            m_calibrationPanel.setConfigs(m_controllerConfigs);
-            m_calibrationPanel.activate();
-        }
 
             // ── Marquee ───────────────────────────────────────────────────────────
 
