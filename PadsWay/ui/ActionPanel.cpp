@@ -77,23 +77,32 @@ bool renderKeyboardCapture(const char* contextId,
     for (const auto& p : keys) { if (!dispStr.empty()) dispStr += " + "; dispStr += p.second; }
     if (dispStr.empty()) dispStr = tr("action.press_keys");
 
-    // Center the row: [text] [Asignar] [Limpiar]
-    float bAsigW = 100.0f, bLimpW = 80.0f;
-    float sp   = ImGui::GetStyle().ItemSpacing.x;
-    float textW = ImGui::CalcTextSize(dispStr.c_str()).x;
-    float rowW  = textW + sp + bAsigW + sp + bLimpW;
-    float offX  = (availW - rowW) * 0.5f;
-    if (offX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX);
-
-    ImGui::TextColored({0.3f, 1.0f, 0.3f, 1.0f}, "%s", dispStr.c_str());
-    ImGui::SameLine();
-
     ImGui::PushID(contextId);
+
+    // Left/right split (2026/09/04, was a single centered row): left half is the captured-keys
+    // "text box" — wraps onto more lines below if it doesn't fit instead of pushing anything
+    // sideways; right half is Asignar/Limpiar, anchored at the TOP-LEFT of that half via an
+    // explicit SetCursorPos (not a natural SameLine after the text) so they stay put regardless
+    // of how many lines the text wraps to as more keys are pressed.
+    float gap   = 16.0f;
+    float leftW = (availW - gap) * 0.5f;
+    ImVec2 rowStart = ImGui::GetCursorPos();
+
+    ImGui::PushTextWrapPos(rowStart.x + leftW);
+    ImGui::TextColored({0.3f, 1.0f, 0.3f, 1.0f}, "%s", dispStr.c_str());
+    ImGui::PopTextWrapPos();
+    float textBottomY = ImGui::GetCursorPosY();
+
+    float bAsigW = 100.0f, bLimpW = 80.0f;
+    ImGui::SetCursorPos({ rowStart.x + leftW + gap, rowStart.y });
     if (empty) ImGui::BeginDisabled();
     bool assigned = ImGui::Button(tr("btn.assign"), {bAsigW, 0.0f}) && !empty;
     if (empty) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button(tr("btn.clear"), {bLimpW, 0.0f})) keys.clear();
+    float buttonsBottomY = ImGui::GetCursorPosY();
+    ImGui::SetCursorPosY(textBottomY > buttonsBottomY ? textBottomY : buttonsBottomY);
+
     ImGui::PopID();
 
     return assigned;

@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstdio>
 #include <algorithm>
+#include <cmath>
 
 #include "../imgui/imgui.h"
 
@@ -98,6 +99,8 @@ bool PadView::load(ID3D11Device* device) {
     loadPng(device, "images/gyroscope/ArrowClockwise.png",       m_gyroArrowCW);
     loadPng(device, "images/gyroscope/ArrowCounterclockwise.png",m_gyroArrowCCW);
     loadPng(device, "images/gyroscope/LevelBar.png",             m_gyroLevelBar);
+    loadPng(device, "images/decorations/TouchPanel.png",         m_touchSurfaceIcon);
+    loadPng(device, "images/decorations/TouchPressButton.png",   m_touchButtonIcon);
     return true;
 }
 
@@ -172,6 +175,8 @@ void PadView::unload() {
     m_gyroArrowCW.release();
     m_gyroArrowCCW.release();
     m_gyroLevelBar.release();
+    m_touchSurfaceIcon.release();
+    m_touchButtonIcon.release();
     m_device = nullptr;
     m_loaded = false;
 }
@@ -598,6 +603,125 @@ void PadView::renderStickArrows(ImVec2 canvasOrigin, int selectedComp, const std
                          { 0, 0 }, { 1, 1 }, ImGui::ColorConvertFloat4ToU32(tint));
         }
     }
+}
+
+void PadView::renderTouchpadHints(ImVec2 canvasOrigin, int selectedComp, bool surfaceSelected) {
+    if (!m_loaded) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    auto drawIcon = [&](const PadTexture& t, float cx, float cy, float sz, bool bright) {
+        if (!t.valid()) return;
+        float alpha = bright ? 1.0f : 0.40f;   // same dim level as renderStickArrows
+        ImVec2 p0 = { cx - sz * 0.5f, cy - sz * 0.5f };
+        ImVec2 p1 = { p0.x + sz,      p0.y + sz };
+        dl->AddImage((ImTextureID)(intptr_t)t.srv, p0, p1,
+                     { 0, 0 }, { 1, 1 }, ImGui::ColorConvertFloat4ToU32({ 1.0f, 1.0f, 1.0f, alpha }));
+    };
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "touchpad") continue;
+
+        bool isSel = (i == selectedComp);
+        float cx   = canvasOrigin.x + c.cx;
+        float cy   = canvasOrigin.y + c.cy;
+        float sz   = c.h * 0.6f;
+        drawIcon(m_touchSurfaceIcon, cx - c.w * 0.25f, cy, sz, isSel && surfaceSelected);
+        drawIcon(m_touchButtonIcon,  cx + c.w * 0.25f, cy, sz, isSel && !surfaceSelected);
+    }
+}
+
+void PadView::renderTouchZoneOverlay(ImVec2 canvasOrigin, const std::vector<TouchZoneRegion>& zones,
+                                      const std::string& selectedRegionId,
+                                      const std::string& hoveredRegionId) {
+    if (!m_loaded || zones.empty()) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "touchpad") continue;
+
+        // Same padL/padT/c.w/c.h mapping the finger dots use (render()'s "touchpad" branch) —
+        // normalized [0,1] surface coords -> screen pixels.
+        float padL = canvasOrigin.x + c.cx - c.w * 0.5f;
+        float padT = canvasOrigin.y + c.cy - c.h * 0.5f;
+        auto toScreen = [&](float normX, float normY) -> ImVec2 {
+            return { padL + normX * c.w, padT + normY * c.h };
+        };
+        // Wedge regions have no radius of their own (see TouchZones.h) — approximate their spokes
+        // reaching most of the way to the pad's edge along their angle, close enough to read as
+        // pie slices at this scale without needing exact rect-boundary intersection math.
+        const float kWedgeReach = 0.9f;
+        ImVec2 center = toScreen(0.5f, 0.5f);
+
+        for (const auto& r : zones) {
+            bool isSel     = (r.id == selectedRegionId);
+            bool isHovered = (r.id == hoveredRegionId);
+            float alpha    = isSel ? 0.95f : (isHovered ? 0.75f : 0.35f);
+            ImU32 lineCol  = ImGui::ColorConvertFloat4ToU32({ 0.4f, 0.85f, 1.0f, alpha });
+            ImU32 fillCol  = ImGui::ColorConvertFloat4ToU32({ 0.4f, 0.85f, 1.0f, isSel ? 0.28f : (isHovered ? 0.16f : 0.0f) });
+            float thickness = isSel ? 2.5f : 1.5f;
+
+            switch (r.shape) {
+                case TouchZoneShape::Rect: {
+                    ImVec2 p0 = toScreen(r.xMin, r.yMin);
+                    ImVec2 p1 = toScreen(r.xMax, r.yMax);
+                    if (fillCol & IM_COL32_A_MASK) dl->AddRectFilled(p0, p1, fillCol);
+                    dl->AddRect(p0, p1, lineCol, 0.0f, 0, thickness);
+                    break;
+                }
+                case TouchZoneShape::Wedge: {
+                    float radFrom = r.angleFromDeg * (3.14159265358979323846f / 180.0f);
+                    float radTo   = r.angleToDeg   * (3.14159265358979323846f / 180.0f);
+                    ImVec2 edgeFrom = { center.x + std::cos(radFrom) * c.w * 0.5f * kWedgeReach,
+                                        center.y + std::sin(radFrom) * c.h * 0.5f * kWedgeReach };
+                    ImVec2 edgeTo   = { center.x + std::cos(radTo)   * c.w * 0.5f * kWedgeReach,
+                                        center.y + std::sin(radTo)   * c.h * 0.5f * kWedgeReach };
+                    if (fillCol & IM_COL32_A_MASK)
+                        dl->AddTriangleFilled(center, edgeFrom, edgeTo, fillCol);
+                    dl->AddLine(center, edgeFrom, lineCol, thickness);
+                    dl->AddLine(center, edgeTo,   lineCol, thickness);
+                    break;
+                }
+                case TouchZoneShape::Circle: {
+                    float rx = r.radius * c.w, ry = r.radius * c.h;
+                    constexpr int kSegs = 32;
+                    ImVec2 pts[kSegs];
+                    for (int s = 0; s < kSegs; ++s) {
+                        float t = (2.0f * 3.14159265358979323846f) * (float)s / (float)kSegs;
+                        pts[s] = { center.x + std::cos(t) * rx, center.y + std::sin(t) * ry };
+                    }
+                    if (fillCol & IM_COL32_A_MASK)
+                        dl->AddConvexPolyFilled(pts, kSegs, fillCol);
+                    dl->AddPolyline(pts, kSegs, lineCol, ImDrawFlags_Closed, thickness);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+int PadView::hitTestZoneRegion(ImVec2 mousePos, ImVec2 canvasOrigin,
+                                const std::vector<TouchZoneRegion>& zones,
+                                std::string& outRegionId) const {
+    for (int i = 0; i < (int)m_layout.components.size(); ++i) {
+        const PadComponent& c = m_layout.components[i];
+        if (c.type != "touchpad") continue;
+
+        float padL = canvasOrigin.x + c.cx - c.w * 0.5f;
+        float padT = canvasOrigin.y + c.cy - c.h * 0.5f;
+        if (mousePos.x < padL || mousePos.x > padL + c.w ||
+            mousePos.y < padT || mousePos.y > padT + c.h)
+            continue;
+
+        float normX = (mousePos.x - padL) / c.w;
+        float normY = (mousePos.y - padT) / c.h;
+        const TouchZoneRegion* r = hitTestTouchZone(zones, normX, normY);
+        if (!r) continue;
+        outRegionId = r->id;
+        return i;
+    }
+    return -1;
 }
 
 int PadView::hitTestStickArrow(ImVec2 mousePos, ImVec2 canvasOrigin, std::string& outDir) const {

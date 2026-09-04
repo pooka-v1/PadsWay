@@ -66,6 +66,7 @@ void CalibrationPanel::reload() {
         m_editTriggerL     = cfg->triggerLCalib;
         m_editTriggerR     = cfg->triggerRCalib;
         m_editImu          = cfg->imu;
+        m_editTouch        = cfg->touchpad;
         m_leftXInvertRef   = findAxisInvert(*cfg, "left_x");
         m_leftYInvertRef   = findAxisInvert(*cfg, "left_y");
         m_rightXInvertRef  = findAxisInvert(*cfg, "right_x");
@@ -84,12 +85,13 @@ void CalibrationPanel::save() {
 
         saveCalibration(Paths::userData("data/controllers.json"), m_activeConfig.source_name,
                         m_editLeftStick, m_editRightStick, m_editTriggerL, m_editTriggerR,
-                        m_editImu, axisInverts);
+                        m_editImu, m_editTouch, axisInverts);
         m_activeConfig.leftStickCalib  = m_editLeftStick;
         m_activeConfig.rightStickCalib = m_editRightStick;
         m_activeConfig.triggerLCalib   = m_editTriggerL;
         m_activeConfig.triggerRCalib   = m_editTriggerR;
         m_activeConfig.imu             = m_editImu;
+        m_activeConfig.touchpad        = m_editTouch;
         for (AxisInvertRef* ref : { &m_leftXInvertRef, &m_leftYInvertRef,
                                     &m_rightXInvertRef, &m_rightYInvertRef }) {
             if (ref->hidKey.empty()) continue;
@@ -516,6 +518,11 @@ void CalibrationPanel::renderGyroCompass(const char* label, const char* idSuffix
     constexpr float kCheckboxColWidth = 30.0f;
     float textColX = ImGui::GetCursorScreenPos().x;
 
+    // Nudged up — 3 tightly-packed rows (pitch/roll/yaw) otherwise sit noticeably lower than the
+    // stick widget's shorter block below its own ring.
+    constexpr float kInvertBlockRise = 10.0f;
+    ImGui::SetCursorScreenPos({ textColX, ImGui::GetCursorScreenPos().y - kInvertBlockRise });
+
     ImGui::TextDisabled("%s", tr("calibration.invert"));
 
     ImVec2 rowPos = ImGui::GetCursorScreenPos();
@@ -653,6 +660,10 @@ void CalibrationPanel::renderAccelCompass(const char* label, const char* idSuffi
     constexpr float kCheckboxColWidth = 30.0f;
     float textColX = ImGui::GetCursorScreenPos().x;
 
+    // Same nudge-up as renderGyroCompass — see its comment.
+    constexpr float kInvertBlockRise = 10.0f;
+    ImGui::SetCursorScreenPos({ textColX, ImGui::GetCursorScreenPos().y - kInvertBlockRise });
+
     ImGui::TextDisabled("%s", tr("calibration.invert"));
 
     ImVec2 rowPos = ImGui::GetCursorScreenPos();
@@ -672,13 +683,132 @@ void CalibrationPanel::renderAccelCompass(const char* label, const char* idSuffi
     ImGui::PopID();
 }
 
+void CalibrationPanel::renderTouchCross(const char* label, const char* idSuffix,
+                                        float rawX, float rawY,
+                                        float& xMax, float& yMax,
+                                        CompassHandle& drag) {
+    ImGui::PushID(idSuffix);
+    ImGui::Text("%s", label);
+
+    // Smaller than the gyro/accel compasses (kCompassRadius/kCompassPad) — this one sits in the
+    // trigger row rather than its own dedicated row, and has no ring/arc filling out its corners.
+    // kPad keeps the same ratio to kRadius the widget originally shipped with (8/55).
+    constexpr float kRadius       = 75.0f;
+    constexpr float kPad         = kRadius * 8.0f / 55.0f;
+    constexpr float kHitTol      = 12.0f;
+    constexpr float kAxisTol     = 14.0f;
+    // Same headroom trick as the gyro/accel widgets (see ImuConfig's comment): lets max be
+    // dragged up to 20% past the nominal edge, absorbing a wizard maxX/maxY that landed a few %
+    // short of the true physical corner without needing to re-run it.
+    constexpr float kOuterCeiling = 1.20f;
+    const float     kDiameter    = (kRadius + kPad) * 2.0f;
+
+    ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+    ImVec2 center    = { canvasPos.x + kRadius + kPad, canvasPos.y + kRadius + kPad };
+
+    ImGui::InvisibleButton("##touch_cross", { kDiameter, kDiameter });
+    bool active = ImGui::IsItemActive();
+
+    auto toPx    = [&](float v) { return kRadius * (v / kOuterCeiling); };
+    auto toValue = [&](float px) { return std::clamp((px / kRadius) * kOuterCeiling, 0.0f, kOuterCeiling); };
+
+    ImVec2 mouse = ImGui::GetIO().MousePos;
+    float  mHOff = std::fabs(mouse.x - center.x);
+    float  mVOff = std::fabs(mouse.y - center.y);
+    bool   onHAxis = mVOff <= kAxisTol;  // near the horizontal guide -> grabbing the X handle
+    bool   onVAxis = mHOff <= kAxisTol;  // near the vertical guide -> grabbing the Y handle
+
+    // Only HOuter/VOuter (max) exist here — no HInner/VInner deadzone handles, unlike the
+    // gyro/accel compasses. See TouchpadConfig's xMax/yMax comment for why touch calibration
+    // deliberately has no center deadzone.
+    if (ImGui::IsItemActivated()) {
+        struct Cand { CompassHandle h; float d; bool valid; };
+        Cand cands[2] = {
+            { CompassHandle::HOuter, std::fabs(mHOff - toPx(xMax)), onHAxis },
+            { CompassHandle::VOuter, std::fabs(mVOff - toPx(yMax)), onVAxis },
+        };
+        CompassHandle best = CompassHandle::None;
+        float bestD = kHitTol;
+        for (const auto& c : cands) if (c.valid && c.d <= bestD) { bestD = c.d; best = c.h; }
+        drag = best;
+    }
+    if (!active) drag = CompassHandle::None;
+
+    if (active && drag != CompassHandle::None) {
+        if (drag == CompassHandle::HOuter)
+            xMax = std::clamp(std::round(toValue(mHOff) * 100.0f) / 100.0f, 0.02f, kOuterCeiling);
+        else if (drag == CompassHandle::VOuter)
+            yMax = std::clamp(std::round(toValue(mVOff) * 100.0f) / 100.0f, 0.02f, kOuterCeiling);
+    }
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // No boundary ring, unlike renderGyroCompass/renderAccelCompass — see this function's
+    // declaration comment in CalibrationPanel.h. Just the crosshair guide lines through the
+    // pad's center, matching how a finger's travel is actually bounded (two independent linear
+    // axes), not a circle.
+    dl->AddLine({ center.x, center.y - kRadius }, { center.x, center.y + kRadius },
+               IM_COL32(90, 100, 120, 90), 1.0f);
+    dl->AddLine({ center.x - kRadius, center.y }, { center.x + kRadius, center.y },
+               IM_COL32(90, 100, 120, 90), 1.0f);
+
+    auto hTick = [&](float y, ImU32 col, float w) {
+        dl->AddLine({ center.x - 9.0f, y }, { center.x + 9.0f, y }, col, w);
+        dl->AddCircleFilled({ center.x, y }, 3.5f, col);
+    };
+    auto vTick = [&](float x, ImU32 col, float w) {
+        dl->AddLine({ x, center.y - 9.0f }, { x, center.y + 9.0f }, col, w);
+        dl->AddCircleFilled({ x, center.y }, 3.5f, col);
+    };
+
+    ImU32 hOutCol = (drag == CompassHandle::HOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
+    vTick(center.x - toPx(xMax), hOutCol, drag == CompassHandle::HOuter ? 3.0f : 2.0f);
+    vTick(center.x + toPx(xMax), hOutCol, drag == CompassHandle::HOuter ? 3.0f : 2.0f);
+
+    ImU32 vOutCol = (drag == CompassHandle::VOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
+    hTick(center.y - toPx(yMax), vOutCol, drag == CompassHandle::VOuter ? 3.0f : 2.0f);
+    hTick(center.y + toPx(yMax), vOutCol, drag == CompassHandle::VOuter ? 3.0f : 2.0f);
+
+    bool xOut = std::fabs(rawX) > xMax, yOut = std::fabs(rawY) > yMax;
+    ImU32 ballCol = (xOut || yOut) ? IM_COL32(255, 140, 60, 230) : IM_COL32(90, 230, 120, 230);
+    // No sign flip needed (unlike the gyro/accel "positive = up" tilt convention): touch1X/Y grow
+    // left->right and top->bottom, same as screen space, so the ball just follows raw offset.
+    ImVec2 ball = { center.x + toPx(rawX), center.y + toPx(rawY) };
+    dl->AddCircleFilled({ ball.x + 1.5f, ball.y + 2.5f }, 7.0f, IM_COL32(0, 0, 0, 80));
+    dl->AddCircleFilled(ball, 7.0f, ballCol);
+    dl->AddCircle(ball, 7.0f, IM_COL32(20, 20, 25, 200), 16, 1.5f);
+
+    // Tighter than the default ItemSpacing between the crosshair and its readout lines (and
+    // between the two lines themselves) — this widget sits in the trigger row, so keeping it
+    // compact matters more here than it does for the gyro/accel compasses in their own row.
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { ImGui::GetStyle().ItemSpacing.x, 2.0f });
+    ImGui::Text("%s: %s %.2f  %s %.2f", tr("calibration.touch_x"),
+               tr("calibration.outer"), xMax, tr("calibration.current"), rawX);
+    ImGui::Text("%s: %s %.2f  %s %.2f", tr("calibration.touch_y"),
+               tr("calibration.outer"), yMax, tr("calibration.current"), rawY);
+    ImGui::PopStyleVar();
+
+    ImGui::PopID();
+}
+
 void CalibrationPanel::render() {
     if (ImGui::Button(tr("btn.back"))) {
         m_active = false;
         return;
     }
-    ImGui::SameLine(0.0f, 20.0f);
-    ImGui::Text("%s", tr("calibration.title"));
+
+    // Save sits next to Back instead of at the bottom of a long scrolling panel — one line saved,
+    // and the button (plus the device title next to it) only draws when there is a device.
+    if (m_hasActiveConfig) {
+        ImGui::SameLine(0.0f, 20.0f);
+        if (ImGui::Button(tr("btn.save"), { 120.0f, 0.0f }))
+            save();
+
+        // Merges the old standalone "Calibracion" title and "Mando activo: X" line into this row
+        // too, ahead of the toast/error text below — two lines saved off the panel.
+        ImGui::SameLine(0.0f, 20.0f);
+        ImGui::Text("%s %s", tr("calibration.title_for"), m_activeDeviceName.c_str());
+    }
 
     if (!m_toastMsg.empty()) {
         if (GetTickCount64() - m_toastTime < 2500) {
@@ -688,24 +818,29 @@ void CalibrationPanel::render() {
             m_toastMsg.clear();
         }
     }
+    if (!m_saveError.empty()) {
+        ImGui::SameLine(0.0f, 12.0f);
+        ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", m_saveError.c_str());
+    }
 
     ImGui::Separator();
     ImGui::Spacing();
 
     if (!m_hasActiveConfig) {
+        ImGui::Text("%s", tr("calibration.title"));
         ImGui::TextDisabled("%s", tr("calibration.no_device"));
         return;
     }
 
-    ImGui::Text("%s: %s", tr("calibration.device_label"), m_activeDeviceName.c_str());
-    ImGui::Spacing();
-
     GamepadState phys = m_engine->getLastState();
+
+    ImVec2 topRowStart = ImGui::GetCursorScreenPos();
 
     ImGui::BeginGroup();
     renderTriggerWidget(tr("pad.trigger_l"), "calibTriggerL",
                         phys.triggerL, m_editTriggerL, m_triggerLDrag);
     ImGui::EndGroup();
+    float topRowBottom = ImGui::GetItemRectMax().y;
 
     ImGui::SameLine(0.0f, 40.0f);
 
@@ -713,6 +848,29 @@ void CalibrationPanel::render() {
     renderTriggerWidget(tr("pad.trigger_r"), "calibTriggerR",
                         phys.triggerR, m_editTriggerR, m_triggerRDrag, /*mirrored=*/true);
     ImGui::EndGroup();
+    topRowBottom = std::max(topRowBottom, ImGui::GetItemRectMax().y);
+
+    // Same row as the triggers — taller than them (the cross needs room for its guide lines), so
+    // the row's bottom (and everything below it) shifts down to fit, tracked via topRowBottom
+    // same as the sticks/gyro row further down does with mainRowBottom.
+    if (m_activeConfig.touchpad.enabled) {
+        ImGui::SameLine(0.0f, 40.0f);
+        ImGui::BeginGroup();
+        // touch1X/Y are [0,1]; recenter on the pad's own middle and scale so an edge reads 1.0,
+        // same rest-centered convention as the gyro/accel axes below. Rests at dead center (0,0)
+        // with no finger down instead of following touch1X/Y's idle 0.0f, which would otherwise
+        // read as "stuck in the top-left corner".
+        float touchOffX = phys.touch1Active ? (phys.touch1X - 0.5f) * 2.0f : 0.0f;
+        float touchOffY = phys.touch1Active ? (phys.touch1Y - 0.5f) * 2.0f : 0.0f;
+        renderTouchCross(tr("calibration.touch_cross"), "calibTouch",
+                         touchOffX, touchOffY,
+                         m_editTouch.xMax, m_editTouch.yMax,
+                         m_touchCrossDrag);
+        ImGui::EndGroup();
+        topRowBottom = std::max(topRowBottom, ImGui::GetItemRectMax().y);
+    }
+
+    ImGui::SetCursorScreenPos({ topRowStart.x, topRowBottom });
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -739,18 +897,36 @@ void CalibrationPanel::render() {
 
     ImVec2 mainRowStart = ImGui::GetCursorScreenPos();
 
+    // A stick with no HID axis mapped to either of its logical targets doesn't exist on this
+    // device (e.g. the Zero 2's cruceta is an analog_dpad feeding left_x/left_y, with no right
+    // stick at all) — skip its widget instead of drawing an interactive ring for calibration
+    // data that has nothing physical behind it. Same detection findAxisInvert() already does
+    // per-axis for the invert checkboxes, just applied to the whole widget.
+    const bool hasLeftStick  = !m_leftXInvertRef.hidKey.empty()  || !m_leftYInvertRef.hidKey.empty();
+    const bool hasRightStick = !m_rightXInvertRef.hidKey.empty() || !m_rightYInvertRef.hidKey.empty();
+
     ImGui::BeginGroup();
-    renderStickWidget(tr("calibration.left_stick"), "calibLeftStick",
-                      phys.leftX * previewSign(m_leftXInvertRef), phys.leftY * previewSign(m_leftYInvertRef),
-                      m_editLeftStick, m_leftStickDrag, m_leftXInvertRef, m_leftYInvertRef);
+    if (hasLeftStick) {
+        renderStickWidget(tr("calibration.left_stick"), "calibLeftStick",
+                          phys.leftX * previewSign(m_leftXInvertRef), phys.leftY * previewSign(m_leftYInvertRef),
+                          m_editLeftStick, m_leftStickDrag, m_leftXInvertRef, m_leftYInvertRef);
+    } else {
+        ImGui::Text("%s", tr("calibration.left_stick"));
+        ImGui::TextDisabled("%s", tr("calibration.no_stick"));
+    }
     ImGui::EndGroup();
     float mainRowBottom = ImGui::GetItemRectMax().y;
 
     ImGui::SetCursorScreenPos({ mainRowStart.x + kStickDiameter + kStickGap, mainRowStart.y });
     ImGui::BeginGroup();
-    renderStickWidget(tr("calibration.right_stick"), "calibRightStick",
-                      phys.rightX * previewSign(m_rightXInvertRef), phys.rightY * previewSign(m_rightYInvertRef),
-                      m_editRightStick, m_rightStickDrag, m_rightXInvertRef, m_rightYInvertRef);
+    if (hasRightStick) {
+        renderStickWidget(tr("calibration.right_stick"), "calibRightStick",
+                          phys.rightX * previewSign(m_rightXInvertRef), phys.rightY * previewSign(m_rightYInvertRef),
+                          m_editRightStick, m_rightStickDrag, m_rightXInvertRef, m_rightYInvertRef);
+    } else {
+        ImGui::Text("%s", tr("calibration.right_stick"));
+        ImGui::TextDisabled("%s", tr("calibration.no_stick"));
+    }
     ImGui::EndGroup();
     mainRowBottom = std::max(mainRowBottom, ImGui::GetItemRectMax().y);
 
@@ -850,20 +1026,11 @@ void CalibrationPanel::render() {
 
     ImGui::SetCursorScreenPos({ mainRowStart.x, mainRowBottom });
 
-    ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
     if (m_activeConfig.imu.enabled && m_activeConfig.imu.accelZOffset != -1) {
         ImGui::TextDisabled("* %s", tr("calibration.accel_z_note"));
         ImGui::Spacing();
-    }
-
-    if (ImGui::Button(tr("btn.save"), { 120.0f, 0.0f }))
-        save();
-
-    if (!m_saveError.empty()) {
-        ImGui::SameLine(0.0f, 12.0f);
-        ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", m_saveError.c_str());
     }
 }

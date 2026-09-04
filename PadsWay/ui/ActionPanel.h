@@ -15,6 +15,14 @@
 
 namespace ActionPanel {
 
+// Reference button count for every action-type row across the app (Boton/D-pad, Gatillo,
+// Analogico, Gyro/Accel, Zonas, Gestos, and the Rangos modal) — 2026/09/04. All of them divide
+// their available width by this same count so a button is the same pixel width everywhere,
+// regardless of how many buttons that particular panel actually shows. 7 because Analogico/Gyro's
+// own row (the widest, Mando/Macro/Teclado/Raton/Raton-movimiento/Bot/Rangos) needs to fit without
+// wrapping — the widest row picks the reference, not the other way round.
+constexpr int kActionTypeBtnRefCount = 7;
+
 // Key translation: ImGuiKey → {json_name, display_name}.
 // Returns {"",""} for keys that are not mappable to a PadsWay action.
 std::pair<const char*, const char*> imguiKeyToKeyName(ImGuiKey k);

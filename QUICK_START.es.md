@@ -117,11 +117,14 @@ DualShock) para montar, digamos, un mando estilo Xbox.
    > [*Giroscopio / Acelerómetro (IMU)*](README.es.md#giroscopio--acelerómetro-imu) en el README
    > para mapearlo a acciones después.
 
+   > **Mandos con touchpad (DualShock 4, DualSense — por USB):** el asistente añade también un
+   > paso de calibración `touch_surface` — levanta el dedo, toca un patrón corto de confirmación,
+   > y luego barre el rango completo en X y en Y. Ver [*Touchpad*](README.es.md#touchpad) en el
+   > README para los 5 modos de superficie (Ratón/Analógico/Gestos/Zonas/Sin asignar) que puedes
+   > elegir después.
+
 **4. Pruébalo — pestaña Pads.** Abre la pestaña **Pads** y comprueba que el mando responde. Si
 responde, ya está listo para usarlo en tus juegos.
-
-> Si la pestaña **Pads** no muestra el mando tras guardar, **reinicia la app** (problema
-> conocido, en investigación).
 
 ---
 
@@ -142,6 +145,15 @@ responde, ya está listo para usarlo en tus juegos.
 
 ---
 
+## 8. (Opcional) Touchpad
+
+Si tu mando tiene uno (DualShock 4, DualSense), abre la pestaña **Mapeador**, haz clic en el
+touchpad de la imagen del mando, y elige un modo de superficie — Ratón, Analógico, Gestos o
+Zonas. Detalle completo de los 5 modos, el catálogo de gestos y las plantillas de zonas →
+[*Touchpad*](README.es.md#touchpad) en el README.
+
+---
+
 ## Solución de problemas
 
 | Síntoma | Causa probable / solución |
@@ -149,8 +161,7 @@ responde, ya está listo para usarlo en tus juegos.
 | El juego no detecta ningún mando | ViGEmBus no está instalado o el equipo no se reinició tras instalarlo |
 | El juego recibe entrada doble | Falta HidHide, o no está ocultando el mando físico |
 | No se guarda la configuración | La carpeta está en `Archivos de programa`; muévela a una con permiso de escritura |
-| El stick izquierdo X no calibra en el asistente | Problema conocido (en investigación); reintenta el paso |
-| El mando no aparece tras emparejar | Reinicia la app (la pestaña Pads no refresca sola, en investigación) |
+| El stick izquierdo X no calibra en el asistente | **Solo DualShock 4 por Bluetooth** — depende del soporte Bluetooth completo, sin empezar; empareja por USB en su lugar |
 | Arranque con problemas gráficos | El fallback a render por software debería cubrirlo; actualiza los drivers de la GPU |
 
 ---

@@ -182,8 +182,12 @@ bool TriggerRangeModal::render() {
                     m_work[m_selSect].to);
         ImGui::Spacing();
 
-        float bW = 85.0f;
-        float sp = ImGui::GetStyle().ItemSpacing.x;
+        // Same reference button width as the Mando/Macro/... rows elsewhere in the app
+        // (2026/09/04) — this modal is shared by Gatillo/Analogico/Gyro (one TriggerRangeModal
+        // instance, not a duplicate per site), it just didn't have unified sizing yet.
+        constexpr int kNBtn = ActionPanel::kActionTypeBtnRefCount;
+        float sp  = ImGui::GetStyle().ItemSpacing.x;
+        float bW  = (ImGui::GetContentRegionAvail().x - sp * (kNBtn - 1)) / kNBtn;
         float totalBtnW = bW * 5 + sp * 4;
         float offBX = (ImGui::GetContentRegionAvail().x - totalBtnW) * 0.5f;
         if (offBX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offBX);

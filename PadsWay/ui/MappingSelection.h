@@ -126,6 +126,21 @@ struct MappingSelection {
     bool        stickAsButton   = false;// true → stick selected for L3/R3
     std::string dpadDir;                // "up"/"down"/"left"/"right" or ""
     std::string triggerSrc;             // "l2", "r2", or ""
+    // Touchpad component split (see MappingEditor::onPhysTouchpadHit): true → left half
+    // (Superficie/touch channel) selected, false → right half (Botón/btnTouch channel).
+    // Only meaningful while the selected physComp's type is "touchpad".
+    bool        touchSurfaceSelected = false;
+    // Zonas surfaceMode only: TouchZoneRegion::id currently selected ("" = none). Takes over from
+    // touchSurfaceSelected's left/right split when the touchpad's surfaceMode is Zones — a region
+    // click assigns into MappingModel::touchZoneActionEdits[touchZoneRegionSelected] instead of
+    // the Botón/Superficie channels. Also only meaningful while physComp's type is "touchpad".
+    std::string touchZoneRegionSelected;
+    // Movimiento (Gestos) only: which of the 14 catalog gesture ids is currently selected for
+    // editing ("" = none). Same role as touchZoneRegionSelected above, but keyed by a fixed
+    // gesture id instead of a data-driven region id — the 14-gesture catalog is closed
+    // (ARCHITECTURE.md "Movimiento"), not loaded from a template file like Zonas. Also only
+    // meaningful while physComp's type is "touchpad".
+    std::string touchGestureSelected;
 
     // --- Flash feedback on virtual pad ---
     int         flashComp       = -1;
@@ -155,6 +170,9 @@ struct MappingSelection {
     int         h9HoldComp      = -1;
     std::string h9HoldStickDir;
     std::string h9HoldDpadDir;
+    // Zonas only: TouchZoneRegion::id the real finger is currently resting on while armed — same
+    // role as h9HoldDpadDir, just keyed by region id instead of a fixed direction string.
+    std::string h9HoldTouchZoneRegion;
     float       h9HoldTimer     = 0.0f;
     float       h9ErrorTimer    = 0.0f;
     GamepadState h9PrevPhysState{};
@@ -187,6 +205,9 @@ struct MappingSelection {
         stickAsButton = false;
         dpadDir.clear();
         triggerSrc.clear();
+        touchSurfaceSelected = false;
+        touchZoneRegionSelected.clear();
+        touchGestureSelected.clear();
         flashComp     = -1;
         flashTimer    = 0.0f;
         flashVirtShort.clear();
@@ -200,6 +221,7 @@ struct MappingSelection {
         h9HoldComp    = -1;
         h9HoldStickDir.clear();
         h9HoldDpadDir.clear();
+        h9HoldTouchZoneRegion.clear();
         h9HoldTimer   = 0.0f;
         h9ErrorTimer  = 0.0f;
         h9PrevPhysState = {};

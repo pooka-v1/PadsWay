@@ -53,6 +53,14 @@ private:
     // advance/step back), so the declaration order here IS the wizard order.
     enum class GyroPhase { Baseline, Flip, Roll, Pitch, Yaw };
 
+    // Sub-phases of the "touch_surface" step's discovery sub-machine (BindStep.mapping.type ==
+    // "touch_surface"). Same gesture-guided philosophy as the gyro phases above, adapted to the
+    // shape of touch data (an activity bit + packed coordinates, not a continuous noisy signal),
+    // so there is no round/vote machinery here — see ARCHITECTURE.md, "Wizard — descubrimiento
+    // crudo", for the algorithm this implements. Treated as a plain sequential index elsewhere
+    // (+-1 to advance/step back), same convention as GyroPhase.
+    enum class TouchPhase { Lift, Confirm, RangeX, RangeY };
+
     // Sub-state within a Roll/Pitch/Yaw phase: move to one extreme of the axis, hold still
     // (auto-detected rest), move to the opposite extreme, hold still again. One round = one full
     // MoveToA->HoldA->MoveToB->HoldB cycle; see updateGyroRound()/finishGyroRound().
@@ -124,6 +132,16 @@ private:
         bool accelXInvert = false;
         bool accelYInvert = false;
         bool accelZInvert = false;
+    };
+
+    // Result of the touch surface discovery sub-machine. dataOffset=-1 = discovery never
+    // completed (skipped, or Lift/Confirm failed) — saveResult() leaves the existing "touchpad"
+    // JSON block untouched in that case.
+    struct TouchSurfaceResult {
+        bool ok         = false;
+        int  dataOffset = -1;
+        int  maxX       = 0;
+        int  maxY       = 0;
     };
 
     // ── Render sub-methods ───────────────────────────────────────────────────
@@ -202,16 +220,36 @@ private:
     // this axis also votes accel) the accel-vote lead, each as a fraction of kGyroRoundVoteLead.
     // 0 before at least 2 rounds have completed — see definition in BindingWizard.cpp.
     float axisConfidence() const;
+
+    // ── Touch surface discovery (dataOffset/maxX/maxY) ─────────────────────────────────────
+    // Resets the whole touch_surface sub-machine to TouchPhase::Lift — shared by beginStep()
+    // (first entry) and goBack() (re-entering a completed/failed step), same scratch state
+    // either way.
+    void resetTouchSurfaceState();
+    // Accumulates one frame into the current TouchPhase's candidate/score data (see the .cpp for
+    // the per-phase byte-level logic). Returns true when a frame was actually read.
+    bool sampleTouchFrame();
+    // "Continuar": evaluates the phase that just finished capturing and advances to the next one,
+    // or sets m_touchPoolFailed when Lift found no candidates or Confirm found no winner (mirrors
+    // computeGyroCandidatePool()'s empty-pool failure).
+    void commitTouchPhase();
+    // Shared tail of the touch_surface BindStep (success or failure), same bookkeeping as
+    // finishGyroStep(): overlay label, cooldown, ++m_currentStep, beginStep().
+    void finishTouchSurfaceStep();
+
     void skipStep();
     void goBack();
     void cancel();
     void saveResult();
 
     // ── Input capture ────────────────────────────────────────────────────────
-    // Shared "Continuar" control for the gyro sub-phases: draws the button (disabled until
-    // canAdvance) and also accepts any controller button press as a confirm. Returns true once
-    // the user has confirmed either way.
-    bool renderGyroAdvanceControl(bool canAdvance);
+    // Shared "Continuar" control for the gyro and touch_surface sub-phases: draws the button
+    // (disabled until canAdvance) and, when acceptAnyButton is true (the default), also accepts
+    // any controller button press as a confirm — except excludePhysIndex (1-based physIndex,
+    // -1 = none excluded), for a phase where ONE specific button can fire as a side effect of the
+    // gesture itself (touch_surface's RangeX/RangeY and the touchpad's own click — see the .cpp
+    // for why). Returns true once the user has confirmed either way.
+    bool renderPhaseAdvanceControl(bool canAdvance, bool acceptAnyButton = true, int excludePhysIndex = -1);
     // Returns true and sets outIndex (1-based) when a new button press is detected.
     bool captureButton(int& outIndex);
     // Returns true when an axis moved past threshold; sets source and invert.
@@ -372,6 +410,88 @@ private:
     static constexpr int   kGyroRestMinFrames = 60; // ~0.5-1s depending on report rate
     static constexpr int   kGyroRoundVoteLead = 2;  // vote lead over the runner-up needed to confirm an axis winner
     static constexpr int   kGyroMaxRounds     = 6;  // hard cap per axis; no winner by then -> classify FAILED
+
+    // ── Touch surface discovery capture (touch_surface step) ───────────────────────────────
+    bool       m_hasTouchSurfaceStep = false; // true if the layout has a "touchpad" component (set by buildSteps())
+    TouchPhase m_touchPhase          = TouchPhase::Lift;
+    // Same "press any button to start" gate as the gyro phases (m_gyroPhaseStarted/
+    // m_gyroAwaitingRelease) — separate members because a layout with both a gyro and a touchpad
+    // component runs both steps in the same wizard pass. Only used by Lift/Confirm; RangeX/RangeY
+    // start capturing immediately (the touch-and-slide gesture itself is the "start").
+    bool       m_touchPhaseStarted    = false;
+    bool       m_touchAwaitingRelease = false;
+    int        m_touchPhaseFrames     = 0;    // frames captured in the current phase
+    // True when Lift found no candidate offsets, or Confirm found no candidate whose edge count
+    // landed within kTouchConfirmTapTolerance of kTouchConfirmTargetTaps — holds the step on an
+    // explicit failure message (wizard.touch_surface_lift_failed / _confirm_failed) instead of
+    // silently skipping, same reasoning as m_gyroPoolFailed.
+    bool       m_touchPoolFailed = false;
+
+    // Lift: per raw-report-byte-offset, true while that byte has read bit7==1 (not touching) in
+    // EVERY sampled frame so far. Resized to the report's raw length and reset to all-true the
+    // first time Lift starts (resetTouchSurfaceState()).
+    std::vector<bool> m_touchLiftAlive;
+    // Running min/max of the FULL byte value (not just bit7) per offset during Lift — a gyro/
+    // accel raw byte still carries sensor noise even holding the controller still, so it almost
+    // never reads bit-for-bit constant the way the touch flag's fixed idle value does; requiring
+    // peak-to-peak <= kTouchLiftNoiseFloor at commitTouchPhase() weeds those out before Confirm
+    // ever sees them (confirmed for real 2026/08/30: Confirm kept failing to find a winner while
+    // the user was actively sliding their finger the whole time — a near-still gyro/accel byte
+    // had snuck into the Lift candidate pool and was competing for the win).
+    std::vector<uint8_t> m_touchLiftMin;
+    std::vector<uint8_t> m_touchLiftMax;
+    // Confirm: per raw-report-byte-offset, how many clean "not touching -> touching" transitions
+    // that byte showed (only meaningful for offsets still alive out of Lift). The user taps and
+    // releases repeatedly, each tap at a clearly different spot on the pad (a corner-to-corner
+    // diagonal is suggested) instead of holding, sliding, or tapping the same spot — a duty-cycle/
+    // fraction score turned out not to separate the true byte from Lift survivors reliably
+    // (confirmed for real 2026/08/30, sliding continuously still left ambiguous candidates), and
+    // "whichever taps the most" wasn't reliable either (confirmed for real 2026/08/30, intento 4:
+    // a position byte inside the same touch block out-scored the real one because finger jitter
+    // mid-hold straddled ITS OWN bit7 boundary a couple of extra times within a single physical
+    // tap). Spreading the taps across very different positions is what actually separates them:
+    // the real activity byte reads exactly one clean edge per physical tap no matter where it
+    // lands (it is position-independent), while a position-dependent byte's own bit7 only reads
+    // "touching" for SOME of those positions, so its total edge count drifts away from the
+    // requested count across a genuinely varied diagonal — see kTouchConfirmTargetTaps.
+    std::vector<int>  m_touchConfirmEdges;
+    // Previous frame's "touching" (bit7==0) state per offset, to detect the rising edge above.
+    std::vector<bool> m_touchConfirmPrevTouching;
+    int        m_touchDataOffset = -1; // Confirm's winning offset, consumed by RangeX/RangeY and saveResult()
+    int        m_touchRangeMaxX  = 0;  // running max X seen in RangeX while touching
+    int        m_touchRangeMaxY  = 0;  // running max Y seen in RangeY while touching
+    int        m_touchRangeTouchedFrames = 0; // frames with an active touch this RangeX/RangeY phase
+    // Physical HID button index (1-based, m_boundButtons' ButtonResult::physIndex) of the
+    // touchpad's own click, resolved from the preceding click BindStep once touch_surface starts
+    // (resetTouchSurfaceState()). Excluded from RangeX/RangeY's "any button confirms" check —
+    // sliding a finger into the pad's edge can trigger this exact click by accident, which must
+    // NOT be allowed to end the phase before the finger actually gets there (confirmed for real
+    // 2026/08/30: max_x/max_y came in short). -1 if the click step was skipped.
+    int        m_touchClickPhysIndex = -1;
+    TouchSurfaceResult m_touchSurfaceResult; // set by commitTouchPhase() on RangeY success, consumed by saveResult()
+
+    static constexpr int   kTouchLiftMinFrames    = 90;  // ~1.5s @60fps — no-touch settle window
+    // Byte-value peak-to-peak allowed during Lift for a candidate to stay alive — see
+    // m_touchLiftMin/m_touchLiftMax's comment. Tight on purpose: the true touch flag's idle value
+    // is hardware-fixed (0 jitter expected), while even a dead-still sensor byte's own noise floor
+    // is far above this (kGyroBaselineNoiseFloor=800 on the full int16 it belongs to).
+    static constexpr int   kTouchLiftNoiseFloor   = 3;
+    static constexpr int   kTouchConfirmMinFrames = 150; // ~2.5s @60fps — floor before Continue is clickable, gives room for a few taps
+    // RangeX/RangeY have no percentage/timer gate at all — the user slides into the edge as many
+    // times as they want, watching the live max readout, and confirms with any button (except the
+    // touchpad's own click, see m_touchClickPhysIndex) whenever they're satisfied. This is just
+    // the floor before Continue is even clickable, so a literal zero-frame tap can't confirm.
+    static constexpr int   kTouchRangeMinFrames   = 1;
+    // Confirm asks the user for exactly this many taps (see wizard.touch_surface_confirm), spread
+    // across clearly different points of the pad. The winning offset is the lowest-numbered
+    // candidate whose edge count (m_touchConfirmEdges) falls within +-kTouchConfirmTapTolerance of
+    // this target — not "whichever has the most" (see m_touchConfirmEdges' comment for why that
+    // failed for real). Preferring the lowest offset on a tie matches the DS4/DualShock4 touch
+    // block layout, where the activity byte is always the FIRST of the 4 (see ARCHITECTURE.md,
+    // "Wizard — descubrimiento crudo") — both wrong offsets seen so far (36, 37) were higher than
+    // the real one (35).
+    static constexpr int   kTouchConfirmTargetTaps     = 5;
+    static constexpr int   kTouchConfirmTapTolerance   = 1;
 
     // Overlay: compIndex → display label (button number or axis name)
     std::unordered_map<int, std::string> m_overlayLabels;

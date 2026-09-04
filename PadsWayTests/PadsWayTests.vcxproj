@@ -148,6 +148,8 @@
     <ClCompile Include="tests\test_MacroStep.cpp" />
     <ClCompile Include="tests\test_MappingModel.cpp" />
     <ClCompile Include="tests\test_MappingSelection.cpp" />
+    <ClCompile Include="tests\test_TouchGestures.cpp" />
+    <ClCompile Include="tests\test_TouchZones.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />

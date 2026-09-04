@@ -116,11 +116,14 @@ the wizard's 5 stages:
    > [*Gyroscope / Accelerometer (IMU)*](README.md#gyroscope--accelerometer-imu) in the README
    > for mapping it to actions afterward.
 
+   > **Controllers with a touchpad (DualShock 4, DualSense — over USB):** the wizard adds a
+   > `touch_surface` calibration pass too — lift your finger, tap a short confirmation pattern,
+   > then sweep the full X range and the full Y range. See [*Touchpad*](README.md#touchpad) in
+   > the README for the 5 surface modes (Mouse/Analog/Gesture/Zones/Unassigned) you can pick
+   > afterward.
+
 **4. Test it — Pads tab.** Open the **Pads** tab and check the controller responds. If it does,
 it's ready to use in your games.
-
-> If the **Pads** tab doesn't show the controller after saving, **restart the app** (known
-> issue, under investigation).
 
 ---
 
@@ -141,6 +144,14 @@ it's ready to use in your games.
 
 ---
 
+## 8. (Optional) Touchpad
+
+If your controller has one (DualShock 4, DualSense), open the **Mapper** tab, click the touchpad
+in the pad image, and pick a surface mode — Mouse, Analog, Gesture, or Zones. Full detail on the
+5 modes, the gesture catalog, and zone templates → [*Touchpad*](README.md#touchpad) in the README.
+
+---
+
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |
@@ -148,8 +159,7 @@ it's ready to use in your games.
 | The game detects no controller | ViGEmBus isn't installed, or you didn't reboot after installing it |
 | The game receives double input | HidHide is missing, or isn't hiding the physical controller |
 | The configuration isn't saved | The folder is under `Program Files`; move it to a writable location |
-| Left stick X won't calibrate in the wizard | Known issue (under investigation); retry the step |
-| The controller doesn't appear after pairing | Restart the app (the Pads tab doesn't auto-refresh, under investigation) |
+| Left stick X won't calibrate in the wizard | **DualShock 4 over Bluetooth only** — depends on full Bluetooth support, not started; pair over USB instead |
 | Graphics issues on launch | The software-rendering fallback should cover it; update your GPU drivers |
 
 ---

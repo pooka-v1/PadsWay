@@ -2,8 +2,10 @@
 #include "../GamepadState.h"
 #include "../Log.h"
 #include "StickSlotsHelper.h"
+#include "TouchGestures.h"
 #include <hidsdi.h>
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_hid.preparsed()))
@@ -16,6 +18,12 @@ static constexpr USHORT kUsageRx  = 0x33;
 static constexpr USHORT kUsageRy  = 0x34;
 static constexpr USHORT kUsageRz  = 0x35;
 static constexpr USHORT kUsageHat = 0x39;
+
+// Movimiento (Gestos) — starting thresholds, unmeasured (see ARCHITECTURE.md "Harness de
+// umbrales de Gestos"), tuned by feel against real hardware rather than derived from harness
+// data yet. Same physical-unit space as logTouchSession's dx/dy (normalized delta * maxX/maxY).
+static constexpr float     kGestureMinDist        = 100.0f;
+static constexpr ULONGLONG kTwoFingerWindowMs      = 150;
 
 // ---------------------------------------------------------------------------
 
@@ -131,6 +139,14 @@ bool HIDInputSource::read(GamepadState& state) {
         }
 
         state = {};
+        // Must run BEFORE process(): PhysicalTouchpad::process() reads touch1Active/X/Y (and, for
+        // Analog mode, drives a stick accumulator from them) off m_physicalState, the same way
+        // applyIMU() above feeds gyro/accel into it. Calling this after process() (as used to be
+        // the case, back when only Mouse mode existed and read state.touchDelta* directly outside
+        // the Component System) left m_physicalState.touch1Active permanently false — wiped by the
+        // `m_physicalState = {}` at the top of this branch and never refreshed in time — so Analog
+        // mode's condition on physical.touch1Active could never fire.
+        applyTouchpad(buf, bytesRead, state);
         m_physicalController.process(m_physicalState, state);
         applyAxesResidual(buf, bufLen, state);
 
@@ -227,13 +243,13 @@ bool HIDInputSource::read(GamepadState& state) {
         }
 
         applyStickSlots(m_config, m_physicalState, state);
+        applyTouchpad(buf, bytesRead, state);
 
         spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
                m_name, state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
     }
 
-    applyTouchpad(buf, bytesRead, state);
     applyIMU     (buf, bytesRead, state);
     applyImuActions();
 
@@ -781,10 +797,92 @@ void HIDInputSource::applyAxesResidual(PCHAR buf, ULONG bufLen, GamepadState& st
 }
 
 // ---------------------------------------------------------------------------
+// Gesture-threshold harness — see ARCHITECTURE.md "Touchpad", "Harness de umbrales de Gestos".
+// Captures raw session data only (no gesture classification here, by design — that's what these
+// numbers are meant to let someone design later, not something the harness should presuppose).
+void HIDInputSource::logTouchSession(int finger, float x0, float y0, float x1, float y1,
+                                      ULONGLONG startMs) const {
+    float dx   = (x1 - x0) * static_cast<float>(m_config.touchpad.maxX);
+    float dy   = (y1 - y0) * static_cast<float>(m_config.touchpad.maxY);
+    float dist = std::sqrt(dx * dx + dy * dy);
+    float angleDeg = std::atan2(dy, dx) * 180.0f / 3.14159265f;
+    ULONGLONG durationMs = GetTickCount64() - startMs;
+    spdlog::debug("[TOUCH][sess] finger={} x0={:.3f} y0={:.3f} x1={:.3f} y1={:.3f} "
+                  "dx={:.1f} dy={:.1f} dist={:.1f} angleDeg={:.1f} durationMs={}",
+                  finger, x0, y0, x1, y1, dx, dy, dist, angleDeg, durationMs);
+}
+
+// ---------------------------------------------------------------------------
+// Movimiento (Gestos) — see TouchGestures.h and ARCHITECTURE.md "Touchpad" -> "Movimiento".
+// A non-concurrent session (only this finger ever touched) classifies immediately as one of the
+// 8 linear gestures. A concurrent session (both fingers overlapped at some point) can't classify
+// alone — it stashes into m_pendingTwoFinger and waits for the OTHER finger's release. If that
+// second release arrives within kTwoFingerWindowMs, both deltas go into
+// classifyTwoFingerGesture(); if the window expires unused (the other finger never lifted), the
+// stash is silently dropped rather than risk misclassifying a single moving finger as a pair.
+std::string HIDInputSource::classifyTouchRelease(int finger, float x0, float y0, float x1, float y1,
+                                                   bool concurrent) {
+    // Divided by xMax/yMax (the calibrated usable-range fraction, see TouchpadConfig's comment)
+    // so a smaller usable range makes gestures proportionally more sensitive — the same real
+    // distance a finger travels now counts for more of a shrunk pad. Defaults to 1.0 (no-op).
+    float dx = (x1 - x0) * static_cast<float>(m_config.touchpad.maxX) / m_config.touchpad.xMax;
+    float dy = (y1 - y0) * static_cast<float>(m_config.touchpad.maxY) / m_config.touchpad.yMax;
+    float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
+
+    // Dead border — same treatment as Zonas' identical check in PhysicalTouchpad::process()
+    // (ComponentTypes.cpp): a release past the calibrated xMax/yMax edge doesn't count, same as a
+    // finger sitting there drives no Zonas region either. Checked on the release point (x1,y1),
+    // not the session start — a gesture that started inside and drifted into the dead border by
+    // the time the finger lifts didn't finish on usable surface.
+    bool beyondMax = touchAxisBeyondMax(x1, m_config.touchpad.xMax) ||
+                      touchAxisBeyondMax(y1, m_config.touchpad.yMax);
+
+    if (!concurrent) {
+        // A stale pending release from the other finger (its partner never came) doesn't apply to
+        // an unrelated, non-concurrent session — drop it so it can't be matched up later by
+        // mistake once its deadline is (or isn't) checked elsewhere.
+        m_pendingTwoFinger.valid = false;
+        if (beyondMax) return "";
+        return classifyLinearGesture(dx, dy, kGestureMinDist, aspectRatio);
+    }
+
+    if (beyondMax) {
+        m_pendingTwoFinger.valid = false;  // drop rather than pair a dead-border release
+        return "";
+    }
+
+    ULONGLONG now = GetTickCount64();
+    if (m_pendingTwoFinger.valid && now <= m_pendingTwoFinger.deadlineMs) {
+        std::string gesture = classifyTwoFingerGesture(
+            m_pendingTwoFinger.dx, m_pendingTwoFinger.dy, dx, dy,
+            m_pendingTwoFinger.x0, x0, kGestureMinDist);
+        m_pendingTwoFinger.valid = false;
+        return gesture;
+    }
+
+    m_pendingTwoFinger.valid      = true;
+    m_pendingTwoFinger.dx         = dx;
+    m_pendingTwoFinger.dy         = dy;
+    m_pendingTwoFinger.x0         = x0;
+    m_pendingTwoFinger.deadlineMs = now + kTwoFingerWindowMs;
+    return "";
+}
+
+// ---------------------------------------------------------------------------
 
 void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state) {
     state.touchDeltaX = 0.0f;
     state.touchDeltaY = 0.0f;
+    m_physicalState.touchDeltaX = 0.0f;
+    m_physicalState.touchDeltaY = 0.0f;
+    state.touchGestureFired.clear();
+    m_physicalState.touchGestureFired.clear();
+    // Snapshot BEFORE either finger's release branch runs below — a 2-finger gesture already
+    // live-committed (see m_touchTwoFingerCommittedGesture near the end of this function) takes
+    // priority over each finger's OWN release-time fallback classification, so both finger
+    // blocks need to know this was true as of the START of this read, not after it's cleared at
+    // the end of this same call once a finger actually goes inactive.
+    const bool touchTwoFingerWasCommitted = !m_touchTwoFingerCommittedGesture.empty();
 
     if (!m_config.touchpad.enabled) return;
 
@@ -798,6 +896,7 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         state.touch1Active = false;
         state.touch2Active = false;
         m_lastTouchActive  = false;
+        m_lastTouch2Active = false;
         return;
     }
 
@@ -831,8 +930,44 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             // Delta in raw touchpad units — used for mouse routing
             state.touchDeltaX = (normX - m_lastTouchX) * static_cast<float>(m_config.touchpad.maxX);
             state.touchDeltaY = (normY - m_lastTouchY) * static_cast<float>(m_config.touchpad.maxY);
+            m_physicalState.touchDeltaX = state.touchDeltaX;
+            m_physicalState.touchDeltaY = state.touchDeltaY;
+        } else {
+            // First contact this gesture — no delta (avoids jump on finger-down). Also the start
+            // of a new touch session for the gesture-threshold harness/Movimiento classifier.
+            m_touch1SessStartX  = normX;
+            m_touch1SessStartY  = normY;
+            m_touch1SessStartMs = GetTickCount64();
+            m_touch1SessConcurrent = false;
+            m_touch1CommittedGesture.clear();
         }
-        // else: first contact this gesture — no delta (avoids jump on finger-down)
+        // Movimiento (Gestos): finger 2's state as known so far this frame (its own block below
+        // hasn't run yet, so this is last frame's value — at most 1 frame of lag on concurrency
+        // onset, negligible at HID polling rates).
+        if (m_lastTouch2Active) m_touch1SessConcurrent = true;
+
+        // Live commit, while still touching: as soon as this session's displacement crosses
+        // kGestureMinDist, lock in the classification (no re-evaluating direction afterward, so
+        // the output doesn't flip mid-hold) and report it as ACTIVE every frame from here on —
+        // not just once — so the finger staying down genuinely holds the resulting action, same
+        // as holding a real button. A session that goes concurrent skips this (defers to the
+        // release-correlated 2-finger path in classifyTouchRelease() instead).
+        if (m_touch1CommittedGesture.empty() && !m_touch1SessConcurrent &&
+            !touchAxisBeyondMax(normX, m_config.touchpad.xMax) &&
+            !touchAxisBeyondMax(normY, m_config.touchpad.yMax)) {
+            // Divided by xMax/yMax — see classifyTouchRelease()'s identical comment. Dead-border
+            // gate (finger currently past xMax/yMax) — see classifyTouchRelease()'s identical
+            // comment; checked here on the CURRENT position since this path commits live, frame
+            // by frame, not just at release.
+            float liveDx = (normX - m_touch1SessStartX) * static_cast<float>(m_config.touchpad.maxX) / m_config.touchpad.xMax;
+            float liveDy = (normY - m_touch1SessStartY) * static_cast<float>(m_config.touchpad.maxY) / m_config.touchpad.yMax;
+            float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
+            m_touch1CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
+        }
+        if (!m_touch1CommittedGesture.empty()) {
+            state.touchGestureFired = m_touch1CommittedGesture;
+            m_physicalState.touchGestureFired = m_touch1CommittedGesture;
+        }
 
         m_lastTouchX = normX;
         m_lastTouchY = normY;
@@ -841,6 +976,33 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
         state.touch1Y = 0.0f;
         m_physicalState.touch1X = 0.0f;
         m_physicalState.touch1Y = 0.0f;
+
+        if (m_lastTouchActive) {
+            logTouchSession(1, m_touch1SessStartX, m_touch1SessStartY,
+                             m_lastTouchX, m_lastTouchY, m_touch1SessStartMs);
+            if (touchTwoFingerWasCommitted) {
+                // A 2-finger gesture was already live-committed and sustained (see
+                // m_touchTwoFingerCommittedGesture near the end of this function) — this release
+                // is that gesture's release edge, already reported active every frame up to now.
+                // Nothing to (re)classify here; the fallback below is only for a session that
+                // never crossed the live-commit threshold at all.
+            } else if (m_touch1CommittedGesture.empty()) {
+                // Never crossed the threshold live (stayed too short the whole time, or the
+                // session went concurrent before committing) — fall back to the release-time
+                // classifier, same as before this held-gesture change.
+                std::string gesture = classifyTouchRelease(1, m_touch1SessStartX, m_touch1SessStartY,
+                                                             m_lastTouchX, m_lastTouchY,
+                                                             m_touch1SessConcurrent);
+                if (!gesture.empty()) {
+                    state.touchGestureFired = gesture;
+                    m_physicalState.touchGestureFired = gesture;
+                }
+            }
+            // else: already reported active every frame up to now; leaving touchGestureFired
+            // cleared (this function's top) on this release frame is exactly the release edge the
+            // shared dispatch lambdas need — nothing else to do here.
+            m_touch1CommittedGesture.clear();
+        }
     }
 
     m_lastTouchActive = active;
@@ -860,17 +1022,103 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
             state.touch2Y = static_cast<float>(rawY2) / static_cast<float>(m_config.touchpad.maxY);
             m_physicalState.touch2X = state.touch2X;
             m_physicalState.touch2Y = state.touch2Y;
+
+            if (!m_lastTouch2Active) {
+                // Start of a new touch session for finger 2 (gesture-threshold harness/Movimiento).
+                m_touch2SessStartX  = state.touch2X;
+                m_touch2SessStartY  = state.touch2Y;
+                m_touch2SessStartMs = GetTickCount64();
+                m_touch2SessConcurrent = false;
+                m_touch2CommittedGesture.clear();
+            }
+            // Movimiento (Gestos): finger 1's state as of this frame (its block already ran above).
+            if (state.touch1Active) m_touch2SessConcurrent = true;
+
+            // Live commit — see finger 1's identical block above for the full rationale.
+            if (m_touch2CommittedGesture.empty() && !m_touch2SessConcurrent &&
+                !touchAxisBeyondMax(state.touch2X, m_config.touchpad.xMax) &&
+                !touchAxisBeyondMax(state.touch2Y, m_config.touchpad.yMax)) {
+                // Divided by xMax/yMax, dead-border gate — see finger 1's identical block above.
+                float liveDx = (state.touch2X - m_touch2SessStartX) * static_cast<float>(m_config.touchpad.maxX) / m_config.touchpad.xMax;
+                float liveDy = (state.touch2Y - m_touch2SessStartY) * static_cast<float>(m_config.touchpad.maxY) / m_config.touchpad.yMax;
+                float aspectRatio = static_cast<float>(m_config.touchpad.maxX) / static_cast<float>(m_config.touchpad.maxY);
+                m_touch2CommittedGesture = classifyLinearGesture(liveDx, liveDy, kGestureMinDist, aspectRatio);
+            }
+            if (!m_touch2CommittedGesture.empty()) {
+                state.touchGestureFired = m_touch2CommittedGesture;
+                m_physicalState.touchGestureFired = m_touch2CommittedGesture;
+            }
+
+            m_lastTouch2X = state.touch2X;
+            m_lastTouch2Y = state.touch2Y;
         } else {
             state.touch2X = 0.0f;
             state.touch2Y = 0.0f;
             m_physicalState.touch2X = 0.0f;
             m_physicalState.touch2Y = 0.0f;
+
+            if (m_lastTouch2Active) {
+                logTouchSession(2, m_touch2SessStartX, m_touch2SessStartY,
+                                 m_lastTouch2X, m_lastTouch2Y, m_touch2SessStartMs);
+                if (touchTwoFingerWasCommitted) {
+                    // Same release edge as finger 1's symmetric check above — already reported,
+                    // nothing to (re)classify.
+                } else if (!m_touch2CommittedGesture.empty()) {
+                    m_touch2CommittedGesture.clear();
+                } else {
+                    std::string gesture = classifyTouchRelease(2, m_touch2SessStartX, m_touch2SessStartY,
+                                                                 m_lastTouch2X, m_lastTouch2Y,
+                                                                 m_touch2SessConcurrent);
+                    if (!gesture.empty()) {
+                        state.touchGestureFired = gesture;
+                        m_physicalState.touchGestureFired = gesture;
+                    }
+                }
+            }
         }
+        m_lastTouch2Active = state.touch2Active;
     } else {
+        if (m_lastTouch2Active)
+            logTouchSession(2, m_touch2SessStartX, m_touch2SessStartY,
+                             m_lastTouch2X, m_lastTouch2Y, m_touch2SessStartMs);
+        m_lastTouch2Active = false;
         state.touch2Active = false;
         state.touch2X = state.touch2Y = 0.0f;
         m_physicalState.touch2Active = false;
         m_physicalState.touch2X = m_physicalState.touch2Y = 0.0f;
+    }
+
+    // --- Movimiento (Gestos), 2 fingers: live commit while BOTH are down ---
+    // Same idea as m_touch1CommittedGesture above, but needs both fingers' CURRENT displacement
+    // together, so it can only run here — after both finger blocks above have finished updating
+    // state.touch1X/Y and state.touch2X/Y for this read. Previously the 6 two-finger gestures
+    // only ever fired as a single, easy-to-miss frame pulse at release (classifyTouchRelease's
+    // m_pendingTwoFinger correlation, still used below as a fallback for a pairing that never
+    // crosses the live threshold before one finger lets go).
+    if (state.touch1Active && state.touch2Active) {
+        // Dead-border gate — see finger 1's identical block above. Either finger currently past
+        // its own xMax/yMax blocks the INITIAL commit only (not an already-committed hold, same
+        // as the single-finger case never re-evaluates mid-hold either).
+        bool eitherBeyondMax = touchAxisBeyondMax(state.touch1X, m_config.touchpad.xMax) ||
+                                touchAxisBeyondMax(state.touch1Y, m_config.touchpad.yMax) ||
+                                touchAxisBeyondMax(state.touch2X, m_config.touchpad.xMax) ||
+                                touchAxisBeyondMax(state.touch2Y, m_config.touchpad.yMax);
+        if (m_touchTwoFingerCommittedGesture.empty() && !eitherBeyondMax) {
+            // Divided by xMax/yMax — see classifyTouchRelease()'s identical comment.
+            float liveDx1 = (state.touch1X - m_touch1SessStartX) * static_cast<float>(m_config.touchpad.maxX) / m_config.touchpad.xMax;
+            float liveDy1 = (state.touch1Y - m_touch1SessStartY) * static_cast<float>(m_config.touchpad.maxY) / m_config.touchpad.yMax;
+            float liveDx2 = (state.touch2X - m_touch2SessStartX) * static_cast<float>(m_config.touchpad.maxX) / m_config.touchpad.xMax;
+            float liveDy2 = (state.touch2Y - m_touch2SessStartY) * static_cast<float>(m_config.touchpad.maxY) / m_config.touchpad.yMax;
+            m_touchTwoFingerCommittedGesture = classifyTwoFingerGesture(
+                liveDx1, liveDy1, liveDx2, liveDy2,
+                m_touch1SessStartX, m_touch2SessStartX, kGestureMinDist);
+        }
+        if (!m_touchTwoFingerCommittedGesture.empty()) {
+            state.touchGestureFired = m_touchTwoFingerCommittedGesture;
+            m_physicalState.touchGestureFired = m_touchTwoFingerCommittedGesture;
+        }
+    } else {
+        m_touchTwoFingerCommittedGesture.clear();
     }
 }
 

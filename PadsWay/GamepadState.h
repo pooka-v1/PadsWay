@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 // Normalized representation of a gamepad state.
 // This is the common "language" that all input sources produce
@@ -68,6 +69,16 @@ struct GamepadState {
     float touch2Y      = 0.0f;   // finger 2 absolute Y position [0..1]
     float touchDeltaX  = 0.0f;   // finger 1 delta for mouse routing (derived each frame)
     float touchDeltaY  = 0.0f;
+    // Zonas mode only: TouchZoneRegion::id the finger currently sits in, resolved each frame by
+    // PhysicalTouchpad::process() from TouchpadConfig::zones. Empty = finger up, no region hit, or
+    // surfaceMode isn't Zones — never sent to ViGEm, consumed by PadEngine's zone action dispatch.
+    std::string activeTouchZone1;
+    std::string activeTouchZone2;
+    // Movimiento (Gestos): gesture id (see kGestureIcons in MappingEditor.cpp) recognized on THIS
+    // frame only — a one-shot pulse, reset every frame by HIDInputSource::applyTouchpad() before
+    // being (maybe) set again. Any of the 14 catalog ids, twist included — see TouchGestures.h's
+    // classifyLinearGesture()/classifyTwoFingerGesture().
+    std::string touchGestureFired;
 
     // --- IMU (gyroscope) [-1.0 .. 1.0] ---
     bool  gyroActive = false;  // true when the device is reporting IMU data this frame

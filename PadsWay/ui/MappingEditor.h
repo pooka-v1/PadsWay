@@ -43,8 +43,16 @@ public:
     // Call only when isActive().
     void render(PadView& phys, PadView& virt);
 
-    // Enter normal mapping mode.
-    void activate() { m_mode = Mode::kNormal; m_active = true; }
+    // Enter normal mapping mode. m_sel.clear() so no selection (touch zone, dpad direction,
+    // capture keys, ...) survives from whatever was left mid-edit the last time the editor was
+    // active — previously only physComp got reset ad hoc in a few places, never the whole struct.
+    // reload() re-populates m_model from the actual device config — required here (found
+    // 2026-09-01): without it, m_model kept whatever a previous activateProfile() session had left
+    // in it (e.g. touchGestureActionEdits/touchZoneTemplateId/touchZones merged from a profile),
+    // and a subsequent Normal-mode save() would write that stale profile-inherited data straight
+    // into controllers.json. activateProfile() already called reload() at the end; this one never
+    // did.
+    void activate() { m_mode = Mode::kNormal; m_active = true; m_sel.clear(); reload(); }
 
     // Enter profile editing mode. profilePaths/Names: full list for the selector.
     // preselectedIdx: index to pre-load (-1 = no selection / new profile).
@@ -106,6 +114,11 @@ private:
     std::vector<std::pair<std::string,std::string>>    m_macroLibrary;
     bool                                               m_macroNamesLoaded = false;
 
+    // Zonas template catalog (data/touch_zone_templates.json) — lazy-loaded once, same precedent
+    // as m_macroNamesLoaded above.
+    std::vector<TouchZoneTemplate>                     m_zoneTemplates;
+    bool                                               m_zoneTemplatesLoaded = false;
+
     // Inline macro modal
     MacroCreatorModal m_macroModal;
     struct MacroModalPending {
@@ -115,6 +128,12 @@ private:
 
     // Arrow texture (lazy-loaded on first render)
     PadTexture m_arrowTex;
+
+    // Movimiento (Gestos) icon cache — 14 fixed glyphs (images/decorations/Move*.png), lazy-
+    // loaded once on first visit to Gesture mode, same precedent as m_arrowTex above. Order
+    // matches kGestureIcons in MappingEditor.cpp.
+    std::vector<PadTexture> m_gestureIconTex;
+    bool                    m_gestureIconsLoaded = false;
 
     // Canvas origins (set during render, used for hit testing)
     ImVec2 m_physOrigin = {};
@@ -132,8 +151,17 @@ private:
     void onPhysButtonHit(PadView& phys, int physHit);
     void onPhysStickHit(int physHit);
     void onPhysDpadHit(PadView& phys, int physHit, ImVec2 mouse);
+    void onPhysTouchpadHit(PadView& phys, int physHit, ImVec2 mouse);
     void onVirtHitPhysButton(PadView& phys, PadView& virt, ImVec2 mouse);
     void onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mouse);
+    // Virtual pad click when a Zonas region is selected with the Gamepad/Xbox tab active — same
+    // button/dpad-direction/trigger target resolution as onVirtHitPhysButton, but keyed by the
+    // region id into MappingModel::touchZoneActionEdits instead of buttonEdits/actionEdits.
+    void onVirtHitTouchZone(PadView& virt, ImVec2 mouse);
+    // Same role as onVirtHitTouchZone, keyed by the selected gesture id into
+    // MappingModel::touchGestureActionEdits instead of touchZoneActionEdits. Reached for all 14
+    // gestures (see MappingEditor.cpp's Gesture render block), twist included.
+    void onVirtHitTouchGesture(PadView& virt, ImVec2 mouse);
     void onVirtHitTriggerSrc(PadView& virt, ImVec2 mouse);
     void onVirtArrowHit(PadView& phys, PadView& virt, int virtComp, const std::string& dir);
     void onVirtHitAxisAction(PadView& phys, PadView& virt, ImVec2 mouse);

@@ -253,6 +253,14 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         if (c.contains("accel_actions"))
             cfg.accel_actions = parseAxisActionsJson(c.at("accel_actions"));
 
+        if (c.contains("touch_zone_actions") && c["touch_zone_actions"].is_object())
+            for (const auto& [regionId, val] : c["touch_zone_actions"].items())
+                cfg.touchZoneActions[regionId] = parseButtonAction(val);
+
+        if (c.contains("touch_gesture_actions") && c["touch_gesture_actions"].is_object())
+            for (const auto& [gestureId, val] : c["touch_gesture_actions"].items())
+                cfg.touchGestureActions[gestureId] = parseButtonAction(val);
+
         if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
             std::unordered_map<std::string, std::string> dpadSlots;
             parseDpadRemapJson(c["dpad_remap"], cfg.dpadRemap, cfg.dpadActions, dpadSlots);
@@ -318,11 +326,20 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
         if (c.contains("touchpad")) {
             const auto& tp        = c["touchpad"];
-            cfg.touchpad.enabled      = tp.value("enabled",       false);
-            cfg.touchpad.dataOffset   = tp.value("data_offset",   34);
-            cfg.touchpad.maxX         = tp.value("max_x",         1919);
-            cfg.touchpad.maxY         = tp.value("max_y",         942);
-            cfg.touchpad.mouseEnabled = tp.value("mouse_enabled", false);
+            cfg.touchpad.enabled     = tp.value("enabled",       false);
+            cfg.touchpad.dataOffset  = tp.value("data_offset",   35);
+            cfg.touchpad.maxX        = tp.value("max_x",         1919);
+            cfg.touchpad.maxY        = tp.value("max_y",         942);
+            cfg.touchpad.surfaceMode = touchpadSurfaceModeFromString(
+                tp.value("surface_mode", std::string("unassigned")));
+            cfg.touchpad.analogStickTarget = tp.value("analog_target", std::string{});
+            cfg.touchpad.zoneTemplateId    = tp.value("zone_template_id", std::string{});
+            cfg.touchpad.zones.clear();
+            if (tp.contains("zones") && tp["zones"].is_array())
+                for (const auto& zj : tp["zones"])
+                    cfg.touchpad.zones.push_back(parseTouchZoneRegion(zj));
+            cfg.touchpad.xMax = tp.value("x_max", 1.0f);
+            cfg.touchpad.yMax = tp.value("y_max", 1.0f);
         }
 
         if (c.contains("imu")) {
@@ -420,7 +437,7 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
 void saveCalibration(const std::string& path, const std::string& sourceName,
                      const StickCalibration& leftStick, const StickCalibration& rightStick,
                      const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
-                     const ImuConfig& imu,
+                     const ImuConfig& imu, const TouchpadConfig& touchpad,
                      const std::vector<std::pair<std::string, bool>>& axisInverts) {
     nlohmann::ordered_json root;
     {
@@ -469,6 +486,14 @@ void saveCalibration(const std::string& path, const std::string& sourceName,
         im["accel_x_invert"]   = imu.accelXInvert;
         im["accel_y_invert"]   = imu.accelYInvert;
         im["accel_z_invert"]   = imu.accelZInvert;
+
+        // Only into a device that already has a "touchpad" section — a no-touch controller
+        // never gets one created just from opening Calibracion (mirrors the axes guard below).
+        if (ctrl.contains("touchpad")) {
+            auto& tpj = ctrl["touchpad"];
+            tpj["x_max"] = touchpad.xMax;
+            tpj["y_max"] = touchpad.yMax;
+        }
 
         // Stick axis invert lives on the whole-axis `axes` map (keyed by HID source name), not
         // on StickCalibration — see this function's declaration comment. Skip any HID key this
@@ -624,6 +649,40 @@ GameProfile loadGameProfile(const std::string& path) {
         profile.hasAccelActions = true;
         profile.accel_actions   = parseAxisActionsJson(root["accel_actions"]);
     }
+    if (root.contains("touch_zone_actions") && root["touch_zone_actions"].is_object()) {
+        profile.hasTouchZoneActions = true;
+        for (const auto& [regionId, val] : root["touch_zone_actions"].items())
+            profile.touch_zone_actions[regionId] = parseButtonAction(val);
+    }
+    if (root.contains("touch_gesture_actions") && root["touch_gesture_actions"].is_object()) {
+        profile.hasTouchGestureActions = true;
+        for (const auto& [gestureId, val] : root["touch_gesture_actions"].items())
+            profile.touch_gesture_actions[gestureId] = parseButtonAction(val);
+    }
+    if (root.contains("touchpad") && root["touchpad"].is_object()) {
+        const auto& tp = root["touchpad"];
+        // Only set the has* flag when the specific sub-key is present — a profile's "touchpad"
+        // object must never imply calibration (dataOffset/maxX/maxY/enabled stay Normal-mode-only,
+        // unlike controllers.json's).
+        if (tp.contains("surface_mode")) {
+            profile.hasTouchSurfaceMode = true;
+            profile.touchSurfaceMode = touchpadSurfaceModeFromString(
+                tp.value("surface_mode", std::string("unassigned")));
+        }
+        if (tp.contains("analog_target")) {
+            profile.hasTouchAnalogTarget = true;
+            profile.touchAnalogStickTarget = tp.value("analog_target", std::string{});
+        }
+        if (tp.contains("zone_template_id")) {
+            profile.hasTouchZoneTemplate = true;
+            profile.touchZoneTemplateId = tp.value("zone_template_id", std::string{});
+        }
+        if (tp.contains("zones") && tp["zones"].is_array()) {
+            profile.hasTouchZones = true;
+            for (const auto& zj : tp["zones"])
+                profile.touchZones.push_back(parseTouchZoneRegion(zj));
+        }
+    }
     if (root.contains("dpad_remap") && root["dpad_remap"].is_object()) {
         profile.hasDpadRemap = true;
         parseDpadRemapJson(root["dpad_remap"],
@@ -727,6 +786,22 @@ ControllerConfig applyProfile(const ControllerConfig& base, const GameProfile& p
         result.gyro_actions = profile.gyro_actions;
     if (profile.hasAccelActions)
         result.accel_actions = profile.accel_actions;
+
+    // ── Touch zone / gesture actions (whole-section replace) ─────────────────
+    if (profile.hasTouchZoneActions)
+        result.touchZoneActions = profile.touch_zone_actions;
+    if (profile.hasTouchGestureActions)
+        result.touchGestureActions = profile.touch_gesture_actions;
+
+    // ── Touchpad surface mode / analog target / zone template+geometry (independent per-field) ─
+    if (profile.hasTouchSurfaceMode)
+        result.touchpad.surfaceMode = profile.touchSurfaceMode;
+    if (profile.hasTouchAnalogTarget)
+        result.touchpad.analogStickTarget = profile.touchAnalogStickTarget;
+    if (profile.hasTouchZoneTemplate)
+        result.touchpad.zoneTemplateId = profile.touchZoneTemplateId;
+    if (profile.hasTouchZones)
+        result.touchpad.zones = profile.touchZones;
 
     // ── Dpad (whole-section replace) ─────────────────────────────────────────
     if (profile.hasDpadRemap) {
@@ -994,12 +1069,22 @@ static PhysicalController parsePhysicalController(const json& c) {
         ctrl.baseLayer[static_cast<size_t>(id)] = std::move(comp);
     };
 
+    // Boton channel (btnTouch) target, stashed here and merged into the touchpad section below —
+    // "touch_btn" isn't a physicalNameToComponentId() case since it doesn't drive a PhysicalButton
+    // (no HID bit array to test; "pressed" is physical.btnTouch, read directly by
+    // PhysicalTouchpad::process()), it merges into PhysicalTouchpad::clickTarget instead.
+    std::optional<VirtualTarget> touchClickTarget;
+
     // ── Buttons ──────────────────────────────────────────────────────────────
     if (c.contains("buttons")) {
         for (const auto& [key, val] : c["buttons"].items()) {
             if (!key.empty() && key[0] == '_') continue;
             ButtonAction action = parseButtonAction(val);
             if (action.physical.empty()) continue;
+            if (action.physical == "touch_btn") {
+                if (auto vt = buttonActionToVT(action)) touchClickTarget = *vt;
+                continue;
+            }
             auto cid = physicalNameToComponentId(action.physical);
             if (!cid) continue;
             auto vt = buttonActionToVT(action);
@@ -1136,15 +1221,33 @@ static PhysicalController parsePhysicalController(const json& c) {
     }
 
     // ── Touchpad ─────────────────────────────────────────────────────────────
-    if (c.contains("touchpad")) {
-        const auto& tp = c["touchpad"];
+    // Built whenever either an explicit "touchpad" JSON section exists OR a "touch_btn" buttons
+    // entry was found above. Controllers saved before MappingModel::save() gained its "touchpad"
+    // writer have no such section at all (the DS4's ground-truth dataOffset/maxX/maxY happen to
+    // already be TouchpadConfig's compiled-in defaults), so gating on c.contains("touchpad")
+    // alone left ComponentId::Touchpad permanently unset and PhysicalTouchpad::process() (and
+    // clickTarget) never ran for those controllers.
+    if (c.contains("touchpad") || touchClickTarget) {
         TouchpadConfig tpc;
-        tpc.enabled      = tp.value("enabled",       false);
-        tpc.dataOffset   = tp.value("data_offset",   34);
-        tpc.maxX         = tp.value("max_x",         1919);
-        tpc.maxY         = tp.value("max_y",         942);
-        tpc.mouseEnabled = tp.value("mouse_enabled", false);
-        setBase(ComponentId::Touchpad, PhysicalTouchpad{tpc});
+        if (c.contains("touchpad")) {
+            const auto& tp = c["touchpad"];
+            tpc.enabled     = tp.value("enabled",       false);
+            tpc.dataOffset  = tp.value("data_offset",   35);
+            tpc.maxX        = tp.value("max_x",         1919);
+            tpc.maxY        = tp.value("max_y",         942);
+            tpc.surfaceMode = touchpadSurfaceModeFromString(
+                tp.value("surface_mode", std::string("unassigned")));
+            tpc.analogStickTarget = tp.value("analog_target", std::string{});
+            tpc.zoneTemplateId    = tp.value("zone_template_id", std::string{});
+            if (tp.contains("zones") && tp["zones"].is_array())
+                for (const auto& zj : tp["zones"])
+                    tpc.zones.push_back(parseTouchZoneRegion(zj));
+            tpc.xMax = tp.value("x_max", 1.0f);
+            tpc.yMax = tp.value("y_max", 1.0f);
+        }
+        PhysicalTouchpad ptp{tpc};
+        if (touchClickTarget) ptp.clickTarget = *touchClickTarget;
+        setBase(ComponentId::Touchpad, ptp);
     }
 
     // ── Gyro / Accel ─────────────────────────────────────────────────────────
@@ -1191,14 +1294,52 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
         return false;
     };
 
+    // Surface cfg (dataOffset/maxX/maxY are Normal-mode-only; surfaceMode/analogStickTarget are
+    // profile-overridable via applyProfile(), see ConfigLoader.h) still needs refreshing here on
+    // every rebuild — same treatment as the gyro/accel calibration above, and cfg here is already
+    // the profile-merged effectiveCfg when a profile is active. Skipping it (as this used to do)
+    // left a live edit+save in the Mapeador invisible to the already-running PhysicalController
+    // until the app restarted and loadPhysicalControllers() re-parsed controllers.json from
+    // scratch: Mouse mode never showed the gap because PadEngine's touchDelta->mouse routing
+    // reads cfg->touchpad.surfaceMode directly every frame (PadEngine.cpp, outside the Component
+    // System) instead of through this struct, but Analog mode's routing lives inside
+    // PhysicalTouchpad::process() and does read it from here.
+    if (auto& touchSlot = pc.baseLayer[static_cast<size_t>(ComponentId::Touchpad)];
+        touchSlot && std::holds_alternative<PhysicalTouchpad>(*touchSlot)) {
+        std::get<PhysicalTouchpad>(*touchSlot).cfg = cfg.touchpad;
+    }
+
     // ── Buttons ──────────────────────────────────────────────────────────────
+    // "touch_btn" merges into the existing Touchpad slot's clickTarget below instead of going
+    // through setBase(cid, PhysicalButton{...}) — see the matching comment in
+    // parsePhysicalController().
+    bool touchClickSeen = false;
+    std::optional<VirtualTarget> touchClickTarget;
     for (const auto& [bit, action] : cfg.buttons) {
         if (action.physical.empty()) continue;
+        if (action.physical == "touch_btn") {
+            touchClickSeen   = true;
+            touchClickTarget = buttonActionToVT(action);
+            continue;
+        }
         auto cid = physicalNameToComponentId(action.physical);
         if (!cid) continue;
         auto vt = buttonActionToVT(action);
         if (vt) setBase(*cid, PhysicalButton{static_cast<uint8_t>(bit), *vt});
         else    setBase(*cid, std::nullopt);   // unbound (e.g. cleared by a profile)
+    }
+    if (touchClickSeen) {
+        auto& touchSlot = pc.baseLayer[static_cast<size_t>(ComponentId::Touchpad)];
+        if (touchSlot && std::holds_alternative<PhysicalTouchpad>(*touchSlot)) {
+            std::get<PhysicalTouchpad>(*touchSlot).clickTarget =
+                touchClickTarget.value_or(VirtualTarget{VirtualPassthrough{}});
+        } else {
+            // Slot wasn't built yet (defensive — parsePhysicalController() builds it whenever
+            // a touch_btn entry exists, same condition as touchClickSeen here).
+            PhysicalTouchpad ptp{cfg.touchpad};
+            ptp.clickTarget = touchClickTarget.value_or(VirtualTarget{VirtualPassthrough{}});
+            touchSlot = ptp;
+        }
     }
 
     // ── Dpad ─────────────────────────────────────────────────────────────────

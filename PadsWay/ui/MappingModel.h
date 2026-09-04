@@ -63,6 +63,34 @@ public:
     // Bots to start automatically while this profile is active (profile mode only).
     std::vector<std::string> contextBotsEdits;
 
+    // Touchpad Superficie channel mode — per-profile overridable (reverted 2026-08-31; see
+    // ARCHITECTURE.md "Touchpad"), like touchGestureActionEdits below. reloadFromConfig() picks it
+    // up from whatever ControllerConfig it's given (base or profile-applied via applyProfile()),
+    // and saveProfile() now writes a per-field diff against base (MappingModel.cpp).
+    TouchpadSurfaceMode touchSurfaceMode = TouchpadSurfaceMode::Unassigned;
+
+    // Analog mode only: which virtual stick the surface drives, "left"/"right"/"" (none).
+    // Per-profile overridable, same as touchSurfaceMode above.
+    std::string touchAnalogStickTarget;
+
+    // Zones mode only. touchZoneTemplateId/touchZones mirror TouchpadConfig::zoneTemplateId/zones
+    // (instance geometry) — per-profile overridable (reverted 2026-09-01, same as touchSurfaceMode
+    // above): a profile's touchZoneActionEdits below is keyed by region id, and those ids are only
+    // meaningful against whatever zone template/geometry was active when the profile was designed
+    // (cross-x-4 uses n/s/e/w, compass-8 uses all 8, etc.) — letting a profile pin its own template
+    // means its region-id actions don't silently orphan if Normal mode's template changes later.
+    // touchZoneActionEdits mirrors gyroActionEdits/accelActionEdits' shape (region id -> action)
+    // but ButtonAction instead of HalfAxisAction, one entry per region with an assigned action.
+    std::string touchZoneTemplateId;
+    std::vector<TouchZoneRegion> touchZones;
+    std::unordered_map<std::string, ButtonAction> touchZoneActionEdits;
+
+    // Movimiento (Gestos) mode only. Same shape/precedent as touchZoneActionEdits above (gesture
+    // id -> action), but keyed by the fixed 14-gesture catalog id instead of a data-driven region
+    // id — all 14 gestures use this map, twist included (see TouchGestures.h's
+    // classifyTwoFingerGesture()). Per-profile overridable, like touchZoneActionEdits.
+    std::unordered_map<std::string, ButtonAction> touchGestureActionEdits;
+
     // Populate edits from the matching config entry (vid/pid must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 

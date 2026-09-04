@@ -316,6 +316,21 @@ void BindingWizard::renderBinding() {
                 } else {
                     promptText = tr("wizard.gyro_hold"); // HoldA / HoldB — same instruction either side
                 }
+            } else if (t == "touch_surface") {
+                if (m_touchPoolFailed) {
+                    // m_touchPhase is still whichever phase failed (Lift or Confirm — see
+                    // commitTouchPhase(), it returns before advancing the phase on failure), so
+                    // the message can say exactly which one, instead of one ambiguous text for
+                    // both (2026/08/30: this ambiguity made a real Confirm failure hard to tell
+                    // apart from a Lift failure while diagnosing it with the user).
+                    promptText = (m_touchPhase == TouchPhase::Lift) ? tr("wizard.touch_surface_lift_failed")
+                                                                      : tr("wizard.touch_surface_confirm_failed");
+                } else switch (m_touchPhase) {
+                    case TouchPhase::Lift:    promptText = tr("wizard.touch_surface_lift");     break;
+                    case TouchPhase::Confirm: promptText = tr("wizard.touch_surface_confirm");  break;
+                    case TouchPhase::RangeX:  promptText = tr("wizard.touch_surface_range_x");  break;
+                    case TouchPhase::RangeY:  promptText = tr("wizard.touch_surface_range_y");  break;
+                }
             }
 
             if (t == "gyro" && m_gyroPhase != GyroPhase::Baseline && m_gyroPhase != GyroPhase::Flip) {
@@ -327,7 +342,7 @@ void BindingWizard::renderBinding() {
 
             // Amber for the pool-failed message (matches Review's review_gyro_failed), yellow for
             // every normal instruction prompt.
-            bool isFailure = (t == "gyro" && m_gyroPoolFailed);
+            bool isFailure = (t == "gyro" && m_gyroPoolFailed) || (t == "touch_surface" && m_touchPoolFailed);
             ImGui::SetWindowFontScale(1.35f);
             ImGui::PushStyleColor(ImGuiCol_Text, isFailure ? ImVec4(1.0f, 0.6f, 0.2f, 1.0f)
                                                              : ImVec4(1.0f, 0.95f, 0.2f, 1.0f));
@@ -396,7 +411,7 @@ void BindingWizard::renderBinding() {
                 ImGui::Text(tr("wizard.gyro_capturing"), pct);
                 if (canAdvance) ImGui::TextDisabled("%s", tr("wizard.gyro_ready_hint"));
                 ImGui::Spacing();
-                if (renderGyroAdvanceControl(canAdvance)) commitGyroPhase();
+                if (renderPhaseAdvanceControl(canAdvance)) commitGyroPhase();
             } else {
                 // Roll/Pitch/Yaw: fully automatic move/hold detection (see updateGyroRound()) —
                 // no manual "Continuar", the round machine advances itself. The only escape
@@ -407,13 +422,73 @@ void BindingWizard::renderBinding() {
                 float confidence = axisConfidence();
                 ImGui::Text(tr("wizard.gyro_confidence"), static_cast<int>(confidence * 100.0f));
             }
+        } else if (t == "touch_surface") {
+            if (m_touchPoolFailed) {
+                // Held here instead of auto-advancing (see commitTouchPhase()) so the amber
+                // message above is actually seen before the touch_surface step gets skipped.
+                if (ImGui::Button(trid("wizard.touch_surface_continue", "bind").c_str(), { 180.0f, 0.0f })) {
+                    m_touchPoolFailed = false;
+                    finishTouchSurfaceStep();
+                }
+            } else if (!m_touchPhaseStarted &&
+                       (m_touchPhase == TouchPhase::Lift || m_touchPhase == TouchPhase::Confirm)) {
+                // Same "press any button to start" gate as the gyro phases (see the comment on
+                // that block above) — lets the user get their hand in position (or off the pad,
+                // for Lift) before the capture window starts counting.
+                ImGui::TextWrapped("%s", tr("wizard.touch_surface_start"));
+                int dummyIdx = 0;
+                bool pressed = captureButton(dummyIdx);
+                if (m_touchAwaitingRelease) {
+                    if (m_prevButtonMask == 0) m_touchAwaitingRelease = false;
+                } else if (pressed) {
+                    m_touchPhaseStarted = true;
+                }
+            } else if (m_touchPhase == TouchPhase::Lift) {
+                sampleTouchFrame();
+                bool canAdvance = m_touchPhaseFrames >= kTouchLiftMinFrames;
+                int  pct = std::min(100, (m_touchPhaseFrames * 100) / kTouchLiftMinFrames);
+                ImGui::Text(tr("wizard.touch_surface_capturing"), pct);
+                if (canAdvance) ImGui::TextDisabled("%s", tr("wizard.gyro_ready_hint"));
+                ImGui::Spacing();
+                if (renderPhaseAdvanceControl(canAdvance)) commitTouchPhase();
+            } else if (m_touchPhase == TouchPhase::Confirm) {
+                // No fraction/percentage here — the live number IS the feedback: it's the best
+                // tap count seen so far across all surviving Lift candidates (not necessarily the
+                // eventual winner while still low), so the user can tell at a glance whether their
+                // taps are actually registering before pressing Continue.
+                sampleTouchFrame();
+                int bestEdgesSoFar = 0;
+                for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
+                    if (m_touchLiftAlive[o] && m_touchConfirmEdges[o] > bestEdgesSoFar)
+                        bestEdgesSoFar = m_touchConfirmEdges[o];
+                }
+                bool canAdvance = m_touchPhaseFrames >= kTouchConfirmMinFrames;
+                ImGui::Text(tr("wizard.touch_surface_confirm_taps"), bestEdgesSoFar);
+                if (canAdvance) ImGui::TextDisabled("%s", tr("wizard.gyro_ready_hint"));
+                ImGui::Spacing();
+                if (renderPhaseAdvanceControl(canAdvance)) commitTouchPhase();
+            } else {
+                // RangeX/RangeY: no percentage, no rush — slide into the edge as many times as
+                // needed and watch the live max below; once it stops growing, confirm with any
+                // controller button (except the touchpad's own click, excluded via
+                // m_touchClickPhysIndex — see renderPhaseAdvanceControl()'s comment) or Continue.
+                sampleTouchFrame();
+                bool canAdvance = m_touchRangeTouchedFrames >= kTouchRangeMinFrames;
+                int  liveMax = (m_touchPhase == TouchPhase::RangeX) ? m_touchRangeMaxX : m_touchRangeMaxY;
+                ImGui::Text(tr("wizard.touch_surface_range_live"), liveMax);
+                ImGui::Spacing();
+                if (renderPhaseAdvanceControl(canAdvance, /*acceptAnyButton=*/true, m_touchClickPhysIndex))
+                    commitTouchPhase();
+            }
         }
 
         // ── Manual controls ──────────────────────────────────────────────────
-        bool atVeryStart = (m_currentStep == 0 && !(t == "gyro" && m_gyroPhase != GyroPhase::Baseline));
+        bool midGyroPhases  = (t == "gyro" && m_gyroPhase != GyroPhase::Baseline);
+        bool midTouchPhases = (t == "touch_surface" && m_touchPhase != TouchPhase::Lift);
+        bool atVeryStart = (m_currentStep == 0 && !midGyroPhases && !midTouchPhases);
         if (atVeryStart) ImGui::BeginDisabled();
         if (ImGui::Button(trid("btn.back", "bind").c_str(), { 90.0f, 0.0f })) {
-            if (t == "gyro" && m_gyroPhase != GyroPhase::Baseline) {
+            if (midGyroPhases) {
                 m_gyroPhase = static_cast<GyroPhase>(static_cast<int>(m_gyroPhase) - 1);
                 resetGyroRoundState(/*clearVotes=*/true);
                 if (m_gyroPhase == GyroPhase::Baseline) {
@@ -433,6 +508,25 @@ void BindingWizard::renderBinding() {
                 m_gyroPhaseStarted = false;
                 m_gyroAwaitingRelease = true;
                 snapshotBaseline(); // resync m_prevButtonMask so a repeated start-button press is detected as new
+            } else if (midTouchPhases) {
+                m_touchPhase = static_cast<TouchPhase>(static_cast<int>(m_touchPhase) - 1);
+                m_touchPoolFailed  = false;
+                m_touchPhaseFrames = 0;
+                if (m_touchPhase == TouchPhase::RangeX) {
+                    m_touchRangeMaxX = 0;
+                    m_touchRangeTouchedFrames = 0;
+                } else if (m_touchPhase == TouchPhase::Confirm) {
+                    m_touchDataOffset = -1;
+                    std::fill(m_touchConfirmEdges.begin(), m_touchConfirmEdges.end(), 0);
+                    std::fill(m_touchConfirmPrevTouching.begin(), m_touchConfirmPrevTouching.end(), false);
+                } else { // back to Lift
+                    m_touchLiftAlive.clear(); // forces sampleTouchFrame() to reinit all-true
+                    m_touchLiftMin.clear();
+                    m_touchLiftMax.clear();
+                }
+                m_touchPhaseStarted    = false;
+                m_touchAwaitingRelease = true;
+                snapshotBaseline();
             } else {
                 goBack();
             }
@@ -496,6 +590,15 @@ void BindingWizard::renderReview() {
             }
         } else {
             ImGui::TextColored({ 1.0f, 0.6f, 0.2f, 1.0f }, "%s", tr("wizard.review_gyro_failed"));
+        }
+    }
+
+    if (m_hasTouchSurfaceStep) {
+        if (m_touchSurfaceResult.ok) {
+            ImGui::Text(tr("wizard.review_touch_ok"), m_touchSurfaceResult.dataOffset,
+                        m_touchSurfaceResult.maxX, m_touchSurfaceResult.maxY);
+        } else {
+            ImGui::TextColored({ 1.0f, 0.6f, 0.2f, 1.0f }, "%s", tr("wizard.review_touch_failed"));
         }
     }
 
@@ -707,6 +810,7 @@ void BindingWizard::buildSteps() {
     m_steps.clear();
     m_noStateCount = 0;
     m_hasGyroStep  = false;
+    m_hasTouchSurfaceStep = false;
     bool dpadAdded = false;
 
     for (int i = 0; i < (int)m_layout.components.size(); ++i) {
@@ -743,7 +847,11 @@ void BindingWizard::buildSteps() {
             continue;
         }
 
-        // Touchpad: one step for the click button (surface data is fixed, nothing to calibrate).
+        // Touchpad: one step for the click button, followed by a second step that runs the
+        // touch_surface discovery sub-machine (dataOffset/maxX/maxY) — see ARCHITECTURE.md,
+        // "Wizard — descubrimiento crudo". No state_map entry for the second step: it doesn't
+        // bind to a virtual action, it discovers raw report byte offsets, same relationship the
+        // "gyro" step above has to ImuConfig.
         if (comp.type == "touchpad") {
             const std::string clickState = comp.state.empty() ? "btnTouch" : comp.state;
             auto it = m_stateMap.find(clickState);
@@ -756,6 +864,13 @@ void BindingWizard::buildSteps() {
             } else {
                 ++m_noStateCount;
             }
+
+            BindStep surf;
+            surf.compIndex    = i;
+            surf.state        = "touch_surface";
+            surf.mapping.type = "touch_surface";
+            m_steps.push_back(surf);
+            m_hasTouchSurfaceStep = true;
             continue;
         }
 
@@ -882,6 +997,8 @@ void BindingWizard::beginStep() {
         resetGyroRoundState(/*clearVotes=*/true);
         if (m_hidReader && m_hidReader->isOpen())
             m_hidReader->read(m_gyroAxisBaseline);
+    } else if (m_steps[m_currentStep].mapping.type == "touch_surface") {
+        resetTouchSurfaceState();
     }
     snapshotBaseline();
 }
@@ -982,6 +1099,167 @@ void BindingWizard::finishGyroStep() {
     beginStep();
 }
 
+// ---------------------------------------------------------------------------
+// Touch surface discovery (touch_surface step)
+// ---------------------------------------------------------------------------
+
+void BindingWizard::resetTouchSurfaceState() {
+    m_touchPhase           = TouchPhase::Lift;
+    m_touchPhaseStarted    = false;
+    m_touchAwaitingRelease = true;
+    m_touchPhaseFrames     = 0;
+    m_touchPoolFailed      = false;
+    m_touchLiftAlive.clear();       // sampleTouchFrame() lazily resizes+inits all-true
+    m_touchLiftMin.clear();
+    m_touchLiftMax.clear();
+    m_touchConfirmEdges.clear();
+    m_touchConfirmPrevTouching.clear();
+    m_touchDataOffset       = -1;
+    m_touchRangeMaxX        = 0;
+    m_touchRangeMaxY        = 0;
+    m_touchRangeTouchedFrames = 0;
+    m_touchSurfaceResult    = TouchSurfaceResult{};
+
+    // Resolve the touchpad's own click physIndex from the preceding click BindStep (same
+    // compIndex, already committed by the time this — the touch_surface step — starts), so
+    // RangeX/RangeY can exclude it from "any button confirms" (see m_touchClickPhysIndex's
+    // comment in the header for why). -1 (no exclusion) if that step was skipped.
+    m_touchClickPhysIndex = -1;
+    if (m_currentStep < (int)m_steps.size()) {
+        int compIdx = m_steps[m_currentStep].compIndex;
+        for (const auto& b : m_boundButtons) {
+            if (b.compIndex == compIdx) { m_touchClickPhysIndex = b.physIndex; break; }
+        }
+    }
+}
+
+bool BindingWizard::sampleTouchFrame() {
+    if (!m_hidReader || !m_hidReader->isOpen()) return false;
+    RawHIDState s{};
+    m_hidReader->read(s);
+    if (!s.valid || s.raw.size() < 4) return false;
+
+    const int n = static_cast<int>(s.raw.size());
+
+    if (m_touchPhase == TouchPhase::Lift) {
+        bool firstFrame = (static_cast<int>(m_touchLiftAlive.size()) != n);
+        if (firstFrame) {
+            m_touchLiftAlive.assign(n, true);
+            m_touchLiftMin.assign(n, 0);
+            m_touchLiftMax.assign(n, 0);
+        }
+        for (int o = 0; o < n; ++o) {
+            uint8_t v = static_cast<uint8_t>(s.raw[o]);
+            if (firstFrame) {
+                m_touchLiftMin[o] = v;
+                m_touchLiftMax[o] = v;
+            } else {
+                if (v < m_touchLiftMin[o]) m_touchLiftMin[o] = v;
+                if (v > m_touchLiftMax[o]) m_touchLiftMax[o] = v;
+            }
+            if ((v & 0x80) == 0) m_touchLiftAlive[o] = false;
+        }
+    } else if (m_touchPhase == TouchPhase::Confirm) {
+        if (static_cast<int>(m_touchConfirmEdges.size()) != n) {
+            m_touchConfirmEdges.assign(n, 0);
+            // Baseline "not touching" — matches how the phase actually starts (right after Lift,
+            // finger off the pad), so the very first tap counts as an edge too.
+            m_touchConfirmPrevTouching.assign(n, false);
+        }
+        for (int o = 0; o < n && o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
+            if (!m_touchLiftAlive[o]) continue; // not a Lift candidate, skip scoring it
+            bool touching = (s.raw[o] & 0x80) == 0;
+            if (touching && !m_touchConfirmPrevTouching[o]) ++m_touchConfirmEdges[o]; // clean tap detected
+            m_touchConfirmPrevTouching[o] = touching;
+        }
+    } else { // RangeX / RangeY — decode against the confirmed dataOffset
+        int o = m_touchDataOffset;
+        if (o >= 0 && o + 3 < n && (s.raw[o] & 0x80) == 0) {
+            ++m_touchRangeTouchedFrames;
+            if (m_touchPhase == TouchPhase::RangeX) {
+                int x = s.raw[o + 1] | ((s.raw[o + 2] & 0x0F) << 8);
+                m_touchRangeMaxX = std::max(m_touchRangeMaxX, x);
+            } else {
+                int y = ((s.raw[o + 2] & 0xF0) >> 4) | (s.raw[o + 3] << 4);
+                m_touchRangeMaxY = std::max(m_touchRangeMaxY, y);
+            }
+        }
+    }
+
+    ++m_touchPhaseFrames;
+    return true;
+}
+
+// "Continuar" for the touch_surface step: evaluates the phase that just finished capturing.
+// Lift/Confirm can fail outright (see m_touchPoolFailed); RangeX/RangeY always succeed since
+// m_touchDataOffset is already confirmed by the time they run.
+void BindingWizard::commitTouchPhase() {
+    if (m_touchPhase == TouchPhase::Lift) {
+        // A candidate must ALSO have read a bit-for-bit constant value the whole time — see
+        // m_touchLiftMin/m_touchLiftMax's comment — this is what actually rules out gyro/accel
+        // bytes, not the bit7 check alone (a near-still sensor byte can hold bit7 stable while
+        // still jittering a few counts below it).
+        bool anyCandidate = false;
+        for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
+            if (!m_touchLiftAlive[o]) continue;
+            int peakToPeak = static_cast<int>(m_touchLiftMax[o]) - static_cast<int>(m_touchLiftMin[o]);
+            if (peakToPeak > kTouchLiftNoiseFloor) { m_touchLiftAlive[o] = false; continue; }
+            anyCandidate = true;
+        }
+        if (!anyCandidate) {
+            m_touchPoolFailed = true;
+            return;
+        }
+        m_touchPhase = TouchPhase::Confirm;
+        m_touchConfirmEdges.assign(m_touchLiftAlive.size(), 0);
+        m_touchConfirmPrevTouching.assign(m_touchLiftAlive.size(), false);
+    } else if (m_touchPhase == TouchPhase::Confirm) {
+        // Winner = the lowest-offset candidate whose edge count actually lands within
+        // +-kTouchConfirmTapTolerance of the requested kTouchConfirmTargetTaps — not "whichever
+        // has the most" (see m_touchConfirmEdges' comment for why that picked the wrong byte for
+        // real, 2026/08/30). The loop already runs offsets low-to-high, so the first match found
+        // IS the lowest-offset one — no separate tie-break needed.
+        int winner = -1;
+        for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
+            if (!m_touchLiftAlive[o]) continue;
+            int diff = m_touchConfirmEdges[o] - kTouchConfirmTargetTaps;
+            if (diff < 0) diff = -diff;
+            if (diff <= kTouchConfirmTapTolerance) { winner = o; break; }
+        }
+        if (winner < 0) {
+            m_touchPoolFailed = true;
+            return;
+        }
+        m_touchDataOffset = winner;
+        m_touchPhase      = TouchPhase::RangeX;
+    } else if (m_touchPhase == TouchPhase::RangeX) {
+        m_touchPhase = TouchPhase::RangeY;
+        m_touchRangeMaxY = 0;
+        m_touchRangeTouchedFrames = 0;
+    } else { // RangeY
+        m_touchSurfaceResult = { true, m_touchDataOffset, m_touchRangeMaxX, m_touchRangeMaxY };
+        finishTouchSurfaceStep();
+        return;
+    }
+    m_touchPhaseFrames        = 0;
+    m_touchRangeTouchedFrames = 0;
+    m_touchPhaseStarted       = false;
+    m_touchAwaitingRelease    = true;
+    snapshotBaseline(); // resync m_prevButtonMask so a repeated start-button press is detected as new
+}
+
+// Shared tail of the touch_surface BindStep, reached either after RangeY succeeds or after a
+// failure (m_touchPoolFailed's own "Continuar" — see renderBinding()) — same bookkeeping
+// finishGyroStep() does.
+void BindingWizard::finishTouchSurfaceStep() {
+    const BindStep& step = m_steps[m_currentStep];
+    if (step.compIndex >= 0)
+        m_overlayLabels[step.compIndex] = m_touchSurfaceResult.ok ? "Touch OK" : "Touch?";
+    m_stepCooldown = kAxisCooldown;
+    ++m_currentStep;
+    beginStep();
+}
+
 // See BindingWizard.h for what clearVotes gates. Round-scoped fields (rest streak/HoldA
 // reading/this-round move amplitude) are always reset; axis-scoped fields (vote tallies, round
 // counter, this axis's slice of m_gyroSamples) only when starting a genuinely fresh axis.
@@ -1042,6 +1320,9 @@ void BindingWizard::goBack() {
         m_gyroPoolFailed   = false;
         for (int i = 0; i < 3; ++i) { m_gyroAxisGyroOffset[i] = -1; m_gyroAxisAccelOffset[i] = -1; }
         resetGyroRoundState(/*clearVotes=*/true);
+    } else if (t == "touch_surface") {
+        // Re-entering a completed/failed touch_surface step: start the whole discovery over.
+        resetTouchSurfaceState();
     }
 
     snapshotBaseline();
@@ -1060,19 +1341,29 @@ void BindingWizard::cancel() {
 // Input capture
 // ---------------------------------------------------------------------------
 
-// Shared "Continuar" control for the gyro sub-phases: draws the button (disabled until
-// canAdvance) and also accepts any controller button press as a confirm, so the user never
-// has to let go of the controller to reach for the mouse. Returns true once confirmed.
-bool BindingWizard::renderGyroAdvanceControl(bool canAdvance) {
+// Shared "Continuar" control for the gyro and touch_surface sub-phases: draws the button
+// (disabled until canAdvance) and, when acceptAnyButton is true, also accepts any controller
+// button press (other than excludePhysIndex) as a confirm, so the user never has to let go of the
+// controller to reach for the mouse. Returns true once confirmed.
+//
+// excludePhysIndex matters for touch_surface's RangeX/RangeY phases: unlike the gyro gesture
+// (which never touches a button by itself), sliding a finger toward the touchpad's edge can
+// trigger its own physical click — without excluding it, that accidental click would end the
+// phase the instant it fires, well before the finger actually reaches the true edge (confirmed
+// for real 2026/08/30: max_x/max_y came in short — 1893/900 instead of 1919/942). Passing the
+// touchpad's own physIndex here still lets any OTHER button confirm normally.
+bool BindingWizard::renderPhaseAdvanceControl(bool canAdvance, bool acceptAnyButton, int excludePhysIndex) {
     if (!canAdvance) ImGui::BeginDisabled();
     bool clicked = ImGui::Button(trid("wizard.gyro_continue", "bind").c_str(), { 180.0f, 0.0f });
     if (!canAdvance) ImGui::EndDisabled();
 
     // Always poll captureButton (not just once canAdvance) so a button already held during the
-    // gesture doesn't read as a fresh press the instant the threshold flips.
-    int dummyIdx = 0;
-    bool pressedAnyButton = captureButton(dummyIdx);
-    return clicked || (canAdvance && pressedAnyButton);
+    // gesture doesn't read as a fresh press the instant the threshold flips. Polled even when
+    // acceptAnyButton is false, to keep m_prevButtonMask in sync either way.
+    int  idx = 0;
+    bool pressedAnyButton = captureButton(idx);
+    if (pressedAnyButton && excludePhysIndex >= 0 && idx == excludePhysIndex) pressedAnyButton = false;
+    return clicked || (canAdvance && acceptAnyButton && pressedAnyButton);
 }
 
 bool BindingWizard::captureButton(int& outIndex) {
@@ -1986,6 +2277,21 @@ void BindingWizard::saveResult() {
             (*bestMatch)[k] = v;
     } else {
         root["controllers"].push_back(entry);
+    }
+
+    // Touch surface discovery — deliberately NOT folded into `entry` above. Unlike "imu" (which
+    // the merge loop just overwrote wholesale), "touchpad" also carries surface_mode/
+    // analog_stick_target/zone_template_id/zones set by the Mapeador outside the wizard — a
+    // wholesale overwrite here would silently wipe them. Only touch the 3 keys this step actually
+    // discovered, on whichever json object this entry ended up being (existing match or the one
+    // just appended).
+    if (m_hasTouchSurfaceStep && m_touchSurfaceResult.ok) {
+        json& target = bestMatch ? *bestMatch : root["controllers"].back();
+        auto& tp = target["touchpad"];
+        tp["enabled"]     = true;
+        tp["data_offset"] = m_touchSurfaceResult.dataOffset;
+        tp["max_x"]       = m_touchSurfaceResult.maxX;
+        tp["max_y"]       = m_touchSurfaceResult.maxY;
     }
 
     // Write back
