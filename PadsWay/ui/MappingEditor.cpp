@@ -321,6 +321,15 @@ static std::string physButtonDisplayLabel(const std::string& shortCode) {
     return shortCode;
 }
 
+// Action-type sets for ActionPanel::renderActionTypeTabs (see ActionPanel.h) — every one of the 6
+// action panels below passes one of these two, in the same fixed display order they always used.
+// kAxisActionTypes (Analogico/Gyro only) adds Raton-movimiento, absent everywhere else.
+static const std::vector<ActionType> kStdActionTypes  = {
+    ActionType::Xbox, ActionType::Macro, ActionType::Keyboard, ActionType::Mouse, ActionType::Bot };
+static const std::vector<ActionType> kAxisActionTypes = {
+    ActionType::Xbox, ActionType::Macro, ActionType::Keyboard, ActionType::Mouse,
+    ActionType::MouseMove, ActionType::Bot };
+
 // ---------------------------------------------------------------------------
 // render — full mapping editor UI (called each frame when active)
 // ---------------------------------------------------------------------------
@@ -2020,25 +2029,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
             // Left half: type buttons, one row, left-aligned. Right half (same row, via the
             // Indent trick — see the H5 panel above): content for the selected type (2026/09/03).
-            auto typeBtnZone = [&](const char* label, ActionType type, float w) {
-                bool sel = (m_sel.actionType == type);
-                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                if (ImGui::Button(label, { w, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
-                if (sel) ImGui::PopStyleColor();
-            };
-            char lblGamepadZ[64], lblMacroZ[64], lblKbZ[64], lblMouseZ[64], lblBotZ[64];
-            snprintf(lblGamepadZ, sizeof(lblGamepadZ), "%s##btnGamepadZ", tr("action.type_gamepad"));
-            snprintf(lblMacroZ, sizeof(lblMacroZ), "%s##btnMacroZ", tr("action.type_macro"));
-            snprintf(lblKbZ,    sizeof(lblKbZ),    "%s##btnKbZ",    tr("action.type_keyboard"));
-            snprintf(lblMouseZ, sizeof(lblMouseZ), "%s##btnMouseZ", tr("action.type_mouse"));
-            snprintf(lblBotZ,   sizeof(lblBotZ),   "%s##btnBotZ",   tr("action.type_bot"));
-
-            float zBtnW = (halfW - ImGui::GetStyle().ItemSpacing.x * (kNBtn - 1)) / kNBtn;
-            typeBtnZone(lblGamepadZ, ActionType::Xbox,     zBtnW); ImGui::SameLine();
-            typeBtnZone(lblMacroZ,   ActionType::Macro,    zBtnW); ImGui::SameLine();
-            typeBtnZone(lblKbZ,      ActionType::Keyboard, zBtnW); ImGui::SameLine();
-            typeBtnZone(lblMouseZ,   ActionType::Mouse,    zBtnW); ImGui::SameLine();
-            typeBtnZone(lblBotZ,     ActionType::Bot,      zBtnW);
+            ActionPanel::renderActionTypeTabs("typeBtnZone", m_sel.actionType, m_sel.captureKeys,
+                                              kStdActionTypes, halfW);
 
             ImGui::SameLine();
             ImGui::Indent(indentW);
@@ -2078,7 +2070,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
                 }
             } else if (m_sel.actionType == ActionType::Keyboard) {
-                bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                bool cancel = ActionPanel::isCancelSelectionCombo(physNow);
                 if (cancel) {
                     m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                     ImGui::NewLine();
@@ -2145,25 +2137,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
             // Left half: type buttons, one row, left-aligned. Right half (same row, via the
             // Indent trick — see the H5 panel above): content for the selected type (2026/09/03).
-            auto typeBtnGesture = [&](const char* label, ActionType type, float w) {
-                bool sel = (m_sel.actionType == type);
-                if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                if (ImGui::Button(label, { w, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
-                if (sel) ImGui::PopStyleColor();
-            };
-            char lblGamepadG[64], lblMacroG[64], lblKbG[64], lblMouseG[64], lblBotG[64];
-            snprintf(lblGamepadG, sizeof(lblGamepadG), "%s##btnGamepadG", tr("action.type_gamepad"));
-            snprintf(lblMacroG, sizeof(lblMacroG), "%s##btnMacroG", tr("action.type_macro"));
-            snprintf(lblKbG,    sizeof(lblKbG),    "%s##btnKbG",    tr("action.type_keyboard"));
-            snprintf(lblMouseG, sizeof(lblMouseG), "%s##btnMouseG", tr("action.type_mouse"));
-            snprintf(lblBotG,   sizeof(lblBotG),   "%s##btnBotG",   tr("action.type_bot"));
-
-            float gBtnW = (halfW - ImGui::GetStyle().ItemSpacing.x * (kNBtn - 1)) / kNBtn;
-            typeBtnGesture(lblGamepadG, ActionType::Xbox,     gBtnW); ImGui::SameLine();
-            typeBtnGesture(lblMacroG,   ActionType::Macro,    gBtnW); ImGui::SameLine();
-            typeBtnGesture(lblKbG,      ActionType::Keyboard, gBtnW); ImGui::SameLine();
-            typeBtnGesture(lblMouseG,   ActionType::Mouse,    gBtnW); ImGui::SameLine();
-            typeBtnGesture(lblBotG,     ActionType::Bot,      gBtnW);
+            ActionPanel::renderActionTypeTabs("typeBtnGesture", m_sel.actionType, m_sel.captureKeys,
+                                              kStdActionTypes, halfW);
 
             ImGui::SameLine();
             ImGui::Indent(indentW);
@@ -2202,7 +2177,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
                 }
             } else if (m_sel.actionType == ActionType::Keyboard) {
-                bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                bool cancel = ActionPanel::isCancelSelectionCombo(physNow);
                 if (cancel) {
                     m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                     ImGui::NewLine();
@@ -2309,29 +2284,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         float halfW   = (availW - colGap) * 0.5f;
         float indentW = halfW + colGap;
 
-        auto typeBtn = [&](const char* label, ActionType type, float w) {
-            bool sel = (m_sel.actionType == type);
-            if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-            if (ImGui::Button(label, { w, 0.0f })) {
-                m_sel.actionType = type;
-                m_sel.captureKeys.clear();
-            }
-            if (sel) ImGui::PopStyleColor();
-        };
-        char lblGamepad[64], lblMacro[64], lblKeyboard[64], lblMouse[64], lblBot[64];
-        snprintf(lblGamepad,  sizeof(lblGamepad),  "%s##btnXbox",   tr("action.type_gamepad"));
-        snprintf(lblMacro,    sizeof(lblMacro),    "%s##btnMacro",  tr("action.type_macro"));
-        snprintf(lblKeyboard, sizeof(lblKeyboard), "%s##btnKb",     tr("action.type_keyboard"));
-        snprintf(lblMouse,    sizeof(lblMouse),    "%s##btnMouse",  tr("action.type_mouse"));
-        snprintf(lblBot,      sizeof(lblBot),      "%s##btnBot",    tr("action.type_bot"));
-
-        constexpr int kNBtn = ActionPanel::kActionTypeBtnRefCount;
-        float btnW = (halfW - ImGui::GetStyle().ItemSpacing.x * (kNBtn - 1)) / kNBtn;
-        typeBtn(lblGamepad,      ActionType::Xbox,     btnW); ImGui::SameLine();
-        typeBtn(lblMacro,        ActionType::Macro,    btnW); ImGui::SameLine();
-        typeBtn(lblKeyboard,     ActionType::Keyboard, btnW); ImGui::SameLine();
-        typeBtn(lblMouse,        ActionType::Mouse,    btnW); ImGui::SameLine();
-        typeBtn(lblBot,          ActionType::Bot,       btnW);
+        ActionPanel::renderActionTypeTabs("typeBtn", m_sel.actionType, m_sel.captureKeys,
+                                          kStdActionTypes, halfW);
 
         // Jump to the right half, same row (Indent() repositions the cursor immediately and
         // also becomes the left margin every subsequent line inside this block wraps to, so
@@ -2383,7 +2337,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
 
         } else if (m_sel.actionType == ActionType::Keyboard) {
-            bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+            bool cancel = ActionPanel::isCancelSelectionCombo(physNow);
             if (cancel) {
                 m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                 ImGui::NewLine();
@@ -2485,20 +2439,6 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 float colGap  = 16.0f;
                 float halfW   = (availW - colGap) * 0.5f;
                 float indentW = halfW + colGap;
-                auto renderTypeTab = [&](const char* label, ActionType type, float w) {
-                    bool s = (m_sel.actionType == type);
-                    if (s) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                    if (ImGui::Button(label, { w, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
-                    if (s) ImGui::PopStyleColor();
-                };
-                char lblGamepad[64], lblMacro[64], lblKeyboard[64], lblMouse[64], lblMouseMove[64], lblBot[64];
-                snprintf(lblGamepad,   sizeof(lblGamepad),   "%s##axGamepad", tr("action.type_gamepad"));
-                snprintf(lblMacro,     sizeof(lblMacro),     "%s##axMacro",   tr("action.type_macro"));
-                snprintf(lblKeyboard,  sizeof(lblKeyboard),  "%s##axKb",      tr("action.type_keyboard"));
-                snprintf(lblMouse,     sizeof(lblMouse),     "%s##axMouse",   tr("action.type_mouse"));
-                snprintf(lblMouseMove, sizeof(lblMouseMove), "%s##axMMove",   tr("action.type_mousemove"));
-                snprintf(lblBot,       sizeof(lblBot),       "%s##axBot",     tr("action.type_bot"));
-
                 auto axisEdit = m_model.axisActionEdits.find(axisKey);
                 bool hasRanges = (axisEdit != m_model.axisActionEdits.end() &&
                                   axisEdit->second.type == HalfAxisActionType::Ranges &&
@@ -2518,20 +2458,12 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
                 // 1 row, all 7 buttons — kActionTypeBtnRefCount is 7 precisely so this row (the
                 // widest of the 6 panels) fits without wrapping (2026/09/04).
-                constexpr int kNBtn = ActionPanel::kActionTypeBtnRefCount;
-                float btnW = (halfW - ImGui::GetStyle().ItemSpacing.x * (kNBtn - 1)) / kNBtn;
-                renderTypeTab(lblGamepad,   ActionType::Xbox,      btnW); ImGui::SameLine();
-                renderTypeTab(lblMacro,     ActionType::Macro,     btnW); ImGui::SameLine();
-                renderTypeTab(lblKeyboard,  ActionType::Keyboard,  btnW); ImGui::SameLine();
-                renderTypeTab(lblMouse,     ActionType::Mouse,     btnW); ImGui::SameLine();
-                renderTypeTab(lblMouseMove, ActionType::MouseMove, btnW); ImGui::SameLine();
-                renderTypeTab(lblBot,       ActionType::Bot,       btnW); ImGui::SameLine();
-                {
-                    if (hasRanges) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                    if (ImGui::Button(trid("btn.ranges", "axisRanges").c_str(), { btnW, 0.0f }))
-                        openAxisRanges();
-                    if (hasRanges) ImGui::PopStyleColor();
-                }
+                ActionPanel::ActionTypeExtra rangesExtra;
+                rangesExtra.label   = trid("btn.ranges", "axisRanges");
+                rangesExtra.active  = hasRanges;
+                rangesExtra.onClick = openAxisRanges;
+                ActionPanel::renderActionTypeTabs("typeBtnAxis", m_sel.actionType, m_sel.captureKeys,
+                                                  kAxisActionTypes, halfW, &rangesExtra);
 
                 // Jump to the right half, same row (see the H5 panel above for how Indent()
                 // keeps multi-row content like keyboard capture confined to the right half).
@@ -2573,7 +2505,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                         m_macroModal.open(MacroCreatorModal::Mode::kInline, "", currentDsl);
                     }
                 } else if (m_sel.actionType == ActionType::Keyboard) {
-                    bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                    bool cancel = ActionPanel::isCancelSelectionCombo(physNow);
                     if (cancel) {
                         m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                         ImGui::NewLine();
@@ -2785,20 +2717,6 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             // Left half: type buttons (incl. Raton-movimiento/Rangos, the gyro panel's 2 "extra"
             // buttons beyond the standard 5), one row, left-aligned. Right half (same row, via
             // the Indent trick — see the H5 panel above): content for the selected type (2026/09/03).
-            auto renderTypeTab = [&](const char* label, ActionType type, float w) {
-                bool s = (m_sel.actionType == type);
-                if (s) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                if (ImGui::Button(label, { w, 0.0f })) { m_sel.actionType = type; m_sel.captureKeys.clear(); }
-                if (s) ImGui::PopStyleColor();
-            };
-            char lblGamepad2[64], lblMacro2[64], lblKeyboard2[64], lblMouse2[64], lblMouseMove2[64], lblBot2[64];
-            snprintf(lblGamepad2,   sizeof(lblGamepad2),   "%s##gyGamepad", tr("action.type_gamepad"));
-            snprintf(lblMacro2,     sizeof(lblMacro2),     "%s##gyMacro",   tr("action.type_macro"));
-            snprintf(lblKeyboard2,  sizeof(lblKeyboard2),  "%s##gyKb",      tr("action.type_keyboard"));
-            snprintf(lblMouse2,     sizeof(lblMouse2),     "%s##gyMouse",   tr("action.type_mouse"));
-            snprintf(lblMouseMove2, sizeof(lblMouseMove2), "%s##gyMMove",   tr("action.type_mousemove"));
-            snprintf(lblBot2,       sizeof(lblBot2),       "%s##gyBot",     tr("action.type_bot"));
-
             std::string rangesKey;
             auto& rangesMap = resolveImuTargetMap(dir, HalfAxisActionType::Ranges, rangesKey);
             auto gyAxisEdit = rangesMap.find(rangesKey);
@@ -2822,20 +2740,12 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
 
             // 1 row, all 7 buttons — kActionTypeBtnRefCount is 7 precisely so this row (the
             // widest of the 6 panels) fits without wrapping (2026/09/04).
-            constexpr int kNBtn = ActionPanel::kActionTypeBtnRefCount;
-            float btnW = (halfW - ImGui::GetStyle().ItemSpacing.x * (kNBtn - 1)) / kNBtn;
-            renderTypeTab(lblGamepad2,   ActionType::Xbox,      btnW); ImGui::SameLine();
-            renderTypeTab(lblMacro2,     ActionType::Macro,     btnW); ImGui::SameLine();
-            renderTypeTab(lblKeyboard2,  ActionType::Keyboard,  btnW); ImGui::SameLine();
-            renderTypeTab(lblMouse2,     ActionType::Mouse,     btnW); ImGui::SameLine();
-            renderTypeTab(lblMouseMove2, ActionType::MouseMove, btnW); ImGui::SameLine();
-            renderTypeTab(lblBot2,       ActionType::Bot,       btnW); ImGui::SameLine();
-            {
-                if (hasRanges) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-                if (ImGui::Button(trid("btn.ranges", "gyroRanges").c_str(), { btnW, 0.0f }))
-                    openGyroRanges();
-                if (hasRanges) ImGui::PopStyleColor();
-            }
+            ActionPanel::ActionTypeExtra rangesExtra;
+            rangesExtra.label   = trid("btn.ranges", "gyroRanges");
+            rangesExtra.active  = hasRanges;
+            rangesExtra.onClick = openGyroRanges;
+            ActionPanel::renderActionTypeTabs("typeBtnGyro", m_sel.actionType, m_sel.captureKeys,
+                                              kAxisActionTypes, halfW, &rangesExtra);
 
             ImGui::SameLine();
             ImGui::Indent(indentW);
@@ -2883,7 +2793,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     m_macroModal.open(MacroCreatorModal::Mode::kInline, "", currentDsl);
                 }
             } else if (m_sel.actionType == ActionType::Keyboard) {
-                bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+                bool cancel = ActionPanel::isCancelSelectionCombo(physNow);
                 if (cancel) {
                     m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                     ImGui::NewLine();
@@ -3039,38 +2949,19 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
         float colGap  = 16.0f;
         float halfW   = (availW - colGap) * 0.5f;
         float indentW = halfW + colGap;
-        auto renderTypeTab = [&](const char* label, ActionType type, float w) {
-            bool sel = (m_sel.actionType == type);
-            if (sel) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-            if (ImGui::Button(label, { w, 0.0f })) {
-                m_sel.actionType = type; m_sel.captureKeys.clear();
-            }
-            if (sel) ImGui::PopStyleColor();
-        };
-        char lblGamepad[64], lblMacro[64], lblKeyboard[64], lblMouse[64], lblBot[64];
-        snprintf(lblGamepad,  sizeof(lblGamepad),  "%s##trigXbox",  tr("action.type_gamepad"));
-        snprintf(lblMacro,    sizeof(lblMacro),    "%s##trigMacro",  tr("action.type_macro"));
-        snprintf(lblKeyboard, sizeof(lblKeyboard), "%s##trigKb",     tr("action.type_keyboard"));
-        snprintf(lblMouse,    sizeof(lblMouse),    "%s##trigMouse",  tr("action.type_mouse"));
-        snprintf(lblBot,      sizeof(lblBot),      "%s##trigBot",    tr("action.type_bot"));
-
         const std::vector<RangeEdit>& curRanges = (m_sel.triggerSrc == "l2") ? m_model.trigLRangeEdits : m_model.trigRRangeEdits;
         bool hasRanges = !curRanges.empty();
 
-        constexpr int kNBtn = ActionPanel::kActionTypeBtnRefCount;
-        float btnW = (halfW - ImGui::GetStyle().ItemSpacing.x * (kNBtn - 1)) / kNBtn;
-        renderTypeTab(lblGamepad,             ActionType::Xbox,     btnW); ImGui::SameLine();
-        renderTypeTab(lblMacro,               ActionType::Macro,    btnW); ImGui::SameLine();
-        renderTypeTab(lblKeyboard,            ActionType::Keyboard, btnW); ImGui::SameLine();
-        renderTypeTab(lblMouse,               ActionType::Mouse,    btnW); ImGui::SameLine();
-        renderTypeTab(lblBot,                 ActionType::Bot,      btnW); ImGui::SameLine();
-        if (hasRanges) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
-        if (ImGui::Button(trid("btn.ranges", "trigRanges").c_str(), { btnW, 0.0f })) {
+        ActionPanel::ActionTypeExtra rangesExtra;
+        rangesExtra.label   = trid("btn.ranges", "trigRanges");
+        rangesExtra.active  = hasRanges;
+        rangesExtra.onClick = [&]() {
             m_trigRangeModal.open(m_sel.triggerSrc, curRanges, m_engine->getLoadedBotNames());
             m_sel.actionType = ActionType::Xbox;
             m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
-        }
-        if (hasRanges) ImGui::PopStyleColor();
+        };
+        ActionPanel::renderActionTypeTabs("typeBtnTrigger", m_sel.actionType, m_sel.captureKeys,
+                                          kStdActionTypes, halfW, &rangesExtra);
 
         ImGui::SameLine();
         ImGui::Indent(indentW);
@@ -3110,7 +3001,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             }
 
         } else if (m_sel.actionType == ActionType::Keyboard) {
-            bool cancel = (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+            bool cancel = ActionPanel::isCancelSelectionCombo(physNow);
             if (cancel) {
                 m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                 ImGui::NewLine();

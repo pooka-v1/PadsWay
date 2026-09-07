@@ -187,3 +187,15 @@ float HIDDevice::normalizeAxis(USHORT usage, ULONG rawValue) const
     float norm = (static_cast<float>(static_cast<LONG>(rawValue) - logMin) / range) * 2.0f - 1.0f;
     return std::clamp(norm, -1.0f, 1.0f);
 }
+
+bool HIDDevice::getUsageValue(USHORT page, USHORT usage, PULONG value, PCHAR buf, ULONG bufLen) const
+{
+    NTSTATUS status = HidP_GetUsageValue(HidP_Input, page, 0, usage, value, PREPARSED, buf, bufLen);
+    if (status == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_buttonReportId != 0xFF) {
+        char savedId = buf[0];
+        buf[0] = static_cast<char>(m_buttonReportId);
+        status = HidP_GetUsageValue(HidP_Input, page, 0, usage, value, PREPARSED, buf, bufLen);
+        buf[0] = savedId;
+    }
+    return status == HIDP_STATUS_SUCCESS;
+}
