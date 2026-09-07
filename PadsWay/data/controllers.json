@@ -768,11 +768,70 @@
         }
       },
       "axis_actions": {
+        "left_x_neg": {
+          "virtual": "left_x_neg"
+        },
         "left_x_pos": {
           "virtual": "left_x_pos"
         },
+        "left_y_neg": {
+          "virtual": "left_y_neg"
+        },
         "left_y_pos": {
           "virtual": "left_y_pos"
+        },
+        "right_x_pos": {
+          "ranges": [
+            {
+              "action": {
+                "virtual": "x"
+              },
+              "from": 0.10000000149011612,
+              "to": 0.2800000011920929
+            },
+            {
+              "action": {
+                "name": "CastlevaniaDropDown",
+                "type": "macro"
+              },
+              "from": 0.2800000011920929,
+              "to": 0.4599999785423279
+            },
+            {
+              "action": {
+                "keys": [
+                  "r",
+                  "t",
+                  "e"
+                ],
+                "type": "keyboard"
+              },
+              "from": 0.4599999785423279,
+              "to": 0.6399999856948853
+            },
+            {
+              "action": {
+                "button": "x1",
+                "type": "mouse_click"
+              },
+              "from": 0.6399999856948853,
+              "to": 0.8199999928474426
+            },
+            {
+              "action": {
+                "name": "LightningBot",
+                "type": "bot"
+              },
+              "from": 0.8199999928474426,
+              "to": 1.0
+            }
+          ]
+        },
+        "right_y_neg": {
+          "virtual": "right_y_neg"
+        },
+        "right_y_pos": {
+          "virtual": "right_y_pos"
         }
       },
       "buttons": {
