@@ -199,8 +199,8 @@ struct PhysicalAnalogDir {
                  StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;
 };
 
-// Botón/Superficie split (see ARCHITECTURE.md "Touchpad"). Mouse/Analog surfaceModes have real
-// behavior in process() below; Gesture/Zones are still to grow (two-finger combos, touch zones).
+// Boton/Superficie split (see ARCHITECTURE.md "Touchpad"). All 5 surface modes (Unassigned,
+// Mouse, Analog, Gesture, Zones) have real behavior in process() below.
 struct PhysicalTouchpad {
     TouchpadConfig cfg;
     // Boton channel (btnTouch) target — same mechanism as PhysicalButton::target, applied on top

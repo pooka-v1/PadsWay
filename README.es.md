@@ -23,7 +23,7 @@ Soporta macros, bots y configuración por JSON sin tocar el código.
 
 ### Para compilar
 
-- **Visual Studio 2022** (con soporte C++17 y Windows SDK).
+- **Visual Studio 2026** (con soporte C++20 y Windows SDK).
 - El resto de dependencias están incluidas en el repositorio (`imgui/`, `nlohmann/`, `spdlog/`).
 - **Compila la configuración `Release | x64`.** `ViGEmClient.lib` es solo Release, así que una
   build Debug no enlaza. Para depurar, ejecuta Release con F5 (genera el PDB).
