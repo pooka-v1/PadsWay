@@ -148,11 +148,13 @@
     <ClCompile Include="tests\test_MacroStep.cpp" />
     <ClCompile Include="tests\test_MappingModel.cpp" />
     <ClCompile Include="tests\test_MappingSelection.cpp" />
+    <ClCompile Include="tests\test_PadEngineActionHolder.cpp" />
     <ClCompile Include="tests\test_TouchGestures.cpp" />
     <ClCompile Include="tests\test_TouchZones.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />
+    <ClInclude Include="..\PadsWay\PadEngineActionHolder.h" />
     <ClInclude Include="resource.h" />
   </ItemGroup>
   <ItemGroup>

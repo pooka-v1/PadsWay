@@ -204,6 +204,7 @@
     <ClInclude Include="Paths.h" />
     <ClInclude Include="output\HidHideClient.h" />
     <ClInclude Include="PadEngine.h" />
+    <ClInclude Include="PadEngineActionHolder.h" />
     <ClInclude Include="AppWindow.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
