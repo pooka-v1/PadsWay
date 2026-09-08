@@ -79,13 +79,21 @@ static bool isProportionalTarget(const VirtualTarget& vt) {
 
 // Applies a RangedHalfAxis given the current physical value in [0.0, 1.0].
 // passthrough: called when the active range targets VirtualPassthrough or ranges are empty.
+// directDeadzone/directMax: deadzone/max shaping for targets that bypass the stick accumulator
+// (MouseMove, Keyboard, Trigger, Bot, Macro, Button, Dpad...). VirtualStickSlot targets still
+// land in the accumulator, whose own flush() already applies the stick's radial deadzone/max —
+// shaping here too would apply it twice, so those keep reading the raw value. Callers that
+// already shape `value` themselves before this call (Trigger, Gyro, Accel) pass the defaults
+// (no-op), since their target never round-trips through an accumulator either way.
 template<typename PassthroughFn>
 static void applyRangedHalfAxis(const RangedHalfAxis& rha, float value,
                                   PassthroughFn passthrough,
                                   GamepadState& out,
                                   StickAccumulator& left, StickAccumulator& right,
                                   GyroAccumulator& gyro,
-                                  float dirSign = 1.0f) {
+                                  float dirSign = 1.0f,
+                                  float directDeadzone = 0.0f,
+                                  float directMax = 1.0f) {
     if (rha.ranges.empty()) {
         passthrough(value);
         return;
@@ -95,9 +103,12 @@ static void applyRangedHalfAxis(const RangedHalfAxis& rha, float value,
         if (std::holds_alternative<VirtualPassthrough>(r.target)) {
             passthrough(value);
         } else {
+            float dispatchValue = std::holds_alternative<VirtualStickSlot>(r.target)
+                                   ? value
+                                   : applyDeadzoneMax(value, directDeadzone, directMax);
             // Proportional only when from==0.0f (direct passthrough assignment).
             // Explicit range entries (from>0) are always binary per mapping invariant.
-            float effective = (isProportionalTarget(r.target) && r.from == 0.0f) ? value : 1.0f;
+            float effective = (isProportionalTarget(r.target) && r.from == 0.0f) ? dispatchValue : 1.0f;
             applyVirtualTarget(r.target, effective, out, left, right, gyro, dirSign);
         }
         break;  // first matching range wins
@@ -188,7 +199,7 @@ void PhysicalTrigger::process(float value, GamepadState& out,
 
 void PhysicalAnalogDir::process(float value, GamepadState& out,
                                   StickAccumulator& left, StickAccumulator& right,
-                                  GyroAccumulator& gyro) const {
+                                  GyroAccumulator& gyro, const StickCalibration& calib) const {
     // Neg slots carry the magnitude of the negative direction (always [0,1]).
     // VirtualMouseMove needs the signed value to know which way to move the cursor.
     float dirSign = (slot == StickSlotId::LeftXNeg  || slot == StickSlotId::LeftYNeg ||
@@ -207,7 +218,8 @@ void PhysicalAnalogDir::process(float value, GamepadState& out,
             case StickSlotId::RightYNeg: right.yNeg = std::max(right.yNeg, v); break;
         }
     };
-    applyRangedHalfAxis(axis, value, passthrough, out, left, right, gyro, dirSign);
+    applyRangedHalfAxis(axis, value, passthrough, out, left, right, gyro, dirSign,
+                         calib.deadzone, calib.max);
 }
 
 // ─── PhysicalTouchpad ────────────────────────────────────────────────────────
@@ -455,8 +467,12 @@ void PhysicalController::process(const GamepadState& physical, GamepadState& out
                 c.process(applyDeadzoneMax(raw, tc.deadzone, tc.max),
                           output, accumLeft, accumRight, accumGyro);
             }
-            else if constexpr (std::is_same_v<T, PhysicalAnalogDir>)
-                c.process(physHalfAxis(c.slot, physical), output, accumLeft, accumRight, accumGyro);
+            else if constexpr (std::is_same_v<T, PhysicalAnalogDir>) {
+                bool isLeftSlot = c.slot == StickSlotId::LeftXPos || c.slot == StickSlotId::LeftXNeg ||
+                                  c.slot == StickSlotId::LeftYPos || c.slot == StickSlotId::LeftYNeg;
+                c.process(physHalfAxis(c.slot, physical), output, accumLeft, accumRight, accumGyro,
+                          isLeftSlot ? leftStickCalib : rightStickCalib);
+            }
             else if constexpr (std::is_same_v<T, PhysicalTouchpad>)
                 c.process(physical, output, accumLeft, accumRight, accumGyro);
             else if constexpr (std::is_same_v<T, PhysicalGyro>)

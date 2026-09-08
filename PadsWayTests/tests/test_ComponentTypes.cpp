@@ -497,7 +497,7 @@ TEST_CASE("PhysicalAnalogDir::process pos slot moves the mouse in the positive d
     StickAccumulator   left, right;
     GyroAccumulator    gyro;
 
-    ad.process(0.5f, out, left, right, gyro);
+    ad.process(0.5f, out, left, right, gyro, StickCalibration{});
 
     REQUIRE(out.mouseX == Catch::Approx(10.0f));
 }
@@ -512,9 +512,68 @@ TEST_CASE("PhysicalAnalogDir::process neg slot moves the mouse in the negative d
     StickAccumulator   left, right;
     GyroAccumulator    gyro;
 
-    ad.process(0.5f, out, left, right, gyro);
+    ad.process(0.5f, out, left, right, gyro, StickCalibration{});
 
     REQUIRE(out.mouseX == Catch::Approx(-10.0f));
+}
+
+// ─── PhysicalController::process — stick deadzone reaches non-stick targets ───
+// Regression coverage: a half-axis assigned directly to VirtualMouseMove used to read the raw
+// physical value with no deadzone/max shaping at all (unlike Trigger/Gyro/Accel), so ordinary
+// stick drift near center kept nudging the cursor forever. See SESSION_CONTEXT.md "RATON-
+// MOVIMIENTO" for the reported symptom.
+
+TEST_CASE("PhysicalController::process stick deadzone silences MouseMove below threshold",
+          "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.leftStickCalib = {0.3f, 1.0f};
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.0f, 1.0f, VirtualMouseMove{MouseAxis::X, 20.0f}});
+    pc[ComponentId::LeftXPos] = PhysicalAnalogDir{StickSlotId::LeftXPos, axis};
+
+    GamepadState physical;
+    physical.leftX = 0.1f;  // drift-level noise, below the 0.3 deadzone
+    GamepadState output;
+    pc.process(physical, output);
+
+    REQUIRE(output.mouseX == Catch::Approx(0.0f));
+}
+
+TEST_CASE("PhysicalController::process stick deadzone rescales MouseMove above threshold",
+          "[ComponentTypes][Calibration]") {
+    PhysicalController pc;
+    pc.leftStickCalib = {0.3f, 1.0f};
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.0f, 1.0f, VirtualMouseMove{MouseAxis::X, 20.0f}});
+    pc[ComponentId::LeftXPos] = PhysicalAnalogDir{StickSlotId::LeftXPos, axis};
+
+    GamepadState physical;
+    physical.leftX = 0.65f;
+    GamepadState output;
+    pc.process(physical, output);
+
+    float expectedShaped = applyDeadzoneMax(0.65f, 0.3f, 1.0f);  // proportional ramp, not binary
+    REQUIRE(output.mouseX == Catch::Approx(expectedShaped * 20.0f).epsilon(0.001f));
+}
+
+TEST_CASE("PhysicalController::process leaves VirtualStickSlot passthrough unshaped by directDeadzone",
+          "[ComponentTypes][Calibration]") {
+    // Explicitly assigning a half-axis to its own VirtualStickSlot must keep going through the
+    // accumulator's own flush() shaping, not the new direct-target shaping — otherwise the
+    // deadzone would apply twice for the ordinary analog-stick passthrough case.
+    PhysicalController pc;
+    pc.leftStickCalib = {0.1f, 0.9f};
+    RangedHalfAxis axis;
+    axis.ranges.push_back({0.0f, 1.0f, VirtualStickSlot{StickSlotId::LeftXPos}});
+    pc[ComponentId::LeftXPos] = PhysicalAnalogDir{StickSlotId::LeftXPos, axis};
+    pc[ComponentId::LeftXNeg] = PhysicalAnalogDir{StickSlotId::LeftXNeg, {}};
+
+    GamepadState physical;
+    physical.leftX = 0.6f;
+    GamepadState output;
+    pc.process(physical, output);
+
+    REQUIRE(output.leftX == Catch::Approx(applyDeadzoneMax(0.6f, 0.1f, 0.9f)).epsilon(0.001f));
 }
 
 // ─── PhysicalGyro::process ────────────────────────────────────────────────────
