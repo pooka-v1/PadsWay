@@ -163,6 +163,7 @@
     <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="ui\MappingEditor.cpp" />
+    <ClCompile Include="ui\MappingSourceSelector.cpp" />
     <ClCompile Include="ui\MacroManagerPanel.cpp" />
     <ClCompile Include="ui\CalibrationPanel.cpp" />
     <ClCompile Include="ui\MacroCreatorModal.cpp" />

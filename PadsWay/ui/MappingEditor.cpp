@@ -2,6 +2,7 @@
 #include "../config/Strings.h"
 #include "MappingHelpers.h"
 #include "ActionPanel.h"
+#include "MappingSourceSelector.h"
 #include "../imgui/imgui.h"
 #include "../nlohmann/json.hpp"
 using json = nlohmann::json;
@@ -524,319 +525,21 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             touch1Y = applyTouchAxisCalib(physNow.touch1Y, activeTouchCfg->touchpad.yMax);
         }
     }
-    // Movimiento (Gestos): pick the SPECIFIC gesture while already INSIDE the picker panel —
-    // covers every way the touchpad can already be the selected source (mouse click on the
-    // touchpad body, a prior gesture that only armed the surface, H9 Paso 1 below from a fresh
-    // -1 state, etc.), not just the "nothing selected yet" case the block below handles. Runs
-    // unconditionally, outside the `physComp < 0` H9 gate below — that gate exists to arbitrate
-    // WHICH physical thing becomes the source when nothing is picked yet; once the touchpad
-    // already IS the source, picking a specific gesture is a separate step (the 14-icon grid),
-    // and a real gesture should do exactly what clicking an icon does there. Found 2026/08/26:
-    // without this, any gesture made while the grid was already open (touchpad pre-selected via
-    // mouse) was silently ignored — confirmed with real hardware, dozens of gestures classified
-    // correctly by HIDInputSource but never reaching touchGestureSelected.
-    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
-        m_sel.physComp >= 0 && m_sel.touchSurfaceSelected &&
-        m_sel.touchGestureSelected.empty() && !physNow.touchGestureFired.empty()) {
-        m_sel.touchGestureSelected = physNow.touchGestureFired;
-        m_sel.actionType = ActionType::Xbox;
-        m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
-    }
-    // Zonas: same gap, same fix — switch to whichever region the finger is currently over,
-    // INSTANTLY, while already inside the picker (physComp >= 0, touchSurfaceSelected), mirroring
-    // onPhysTouchpadHit's mouse-click behavior (which always re-picks on click, live in
-    // TouchZones.h below via hitTestTouchZone). Touch could only ever resolve a region through
-    // the physComp<0 hold gate further down, so once a region was already selected — by mouse OR
-    // by an earlier touch — touching a DIFFERENT region did nothing (found 2026/08/26, reported
-    // with real hardware: touched the top-left region while top-left was already selected from a
-    // previous run, top-right did nothing).
-    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones && !m_model.touchZones.empty() &&
-        m_sel.physComp >= 0 && m_sel.touchSurfaceSelected && physNow.touch1Active) {
-        const TouchZoneRegion* hit = hitTestTouchZone(m_model.touchZones, touch1X, touch1Y);
-        if (hit && hit->id != m_sel.touchZoneRegionSelected) {
-            m_sel.touchZoneRegionSelected = hit->id;
-            m_sel.actionType = ActionType::Xbox;
-            m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
-        }
-    }
-    {
+    // H9 Paso 1 (selección de fuente) — extraído a MappingSourceSelector (Tarea 3, parte 1). Ver
+    // MappingSourceSelector.h para el detalle de qué cubre y por qué Paso 2 (justo debajo) se
+    // queda aquí. paso1Gate se calcula ANTES de llamar a update() y se usa, sin recalcular, para
+    // decidir si Paso 2 corre este mismo frame — preserva la exclusión mutua del if/else-if
+    // original: si Paso 1 corría este frame, Paso 2 nunca corría en el mismo frame, aunque Paso 1
+    // dejara m_sel.physComp listo para que Paso 2 lo viera.
+    bool paso1Gate = (m_sel.physComp < 0 && m_sel.triggerSrc.empty());
+    MappingSourceSelector::update(phys, m_model, m_sel, physNow, touch1X, touch1Y,
+                                  *m_engine, m_configs,
+                                  m_stickSelectThreshold, m_stickHoldMs,
+                                  m_gyroSelectThreshold, m_accelSelectThreshold, dt);
+
+    if (!paso1Gate) {
         const auto& physComps = phys.getLayout().components;
-
-        if (m_sel.h9ErrorTimer > 0.0f)
-            m_sel.h9ErrorTimer -= dt;
-
-        if (m_sel.physComp < 0 && m_sel.triggerSrc.empty()) {
-            // ── Paso 1a: stick al tope → seleccionar eje ──────────────────────
-            int         activeStickComp = -1;
-            std::string activeStickDir;
-            for (int i = 0; i < (int)physComps.size(); ++i) {
-                const PadComponent& c = physComps[i];
-                if (c.type != "stick") continue;
-                float x = 0.0f, y = 0.0f;
-                readStickXY(physNow, c.stateX, x, y);
-                std::string dir;
-                if      (y >=  m_stickSelectThreshold) dir = "up";
-                else if (y <= -m_stickSelectThreshold) dir = "down";
-                else if (x <= -m_stickSelectThreshold) dir = "left";
-                else if (x >=  m_stickSelectThreshold) dir = "right";
-                if (!dir.empty()) { activeStickComp = i; activeStickDir = dir; break; }
-            }
-
-            if (activeStickComp >= 0) {
-                if (m_sel.h9HoldComp != activeStickComp || m_sel.h9HoldStickDir != activeStickDir) {
-                    m_sel.h9HoldComp      = activeStickComp;
-                    m_sel.h9HoldStickDir  = activeStickDir;
-                    m_sel.h9HoldTimer     = 0.0f;
-                } else {
-                    m_sel.h9HoldTimer += dt;
-                    if (m_sel.h9HoldTimer >= m_stickHoldMs / 1000.0f) {
-                        m_sel.physComp      = activeStickComp;
-                        m_sel.stickDir      = activeStickDir;
-                        m_sel.stickAsButton = false;
-                        m_sel.h9HoldComp    = -1;
-                        m_sel.h9HoldStickDir.clear();
-                        m_sel.h9HoldTimer   = 0.0f;
-                    }
-                }
-            } else {
-                // ── Paso 1b: botón mantenido 1s → seleccionarlo ── (gyro/accel arming is
-                // handled independently below, after this if/else chain — see the
-                // per-direction progressive-sweep block.)
-                if (!m_sel.h9HoldStickDir.empty()) {
-                    m_sel.h9HoldComp = -1;
-                    m_sel.h9HoldStickDir.clear();
-                    m_sel.h9HoldDpadDir.clear();
-                    m_sel.h9HoldTouchZoneRegion.clear();
-                    m_sel.h9HoldTimer = 0.0f;
-                } else {
-                    int  activeComp          = -1;
-                    bool activeIsStickBtn    = false;
-                    bool activeIsTouchSurface = false;
-                    std::string activeDpadDir;
-                    std::string activeTouchZoneRegion;
-                    for (int i = 0; i < (int)physComps.size(); ++i) {
-                        const PadComponent& c = physComps[i];
-                        if (c.type == "button" && isStateActive(physNow, c.state)) {
-                            activeComp = i; activeIsStickBtn = false; break;
-                        }
-                        if (c.type == "stick" && !c.stateClick.empty() &&
-                            isStateActive(physNow, c.stateClick)) {
-                            activeComp = i; activeIsStickBtn = true; break;
-                        }
-                        if (c.type == "dpad") {
-                            for (const char* d : {"up","down","left","right"}) {
-                                std::string st = dpadDirToState(c, d);
-                                if (!st.empty() && isStateActive(physNow, st)) {
-                                    activeComp = i; activeDpadDir = d; break;
-                                }
-                            }
-                            if (activeComp >= 0) break;
-                        }
-                        if (c.type == "touchpad") {
-                            // Botón (physical click, c.state == "btnTouch") takes priority over
-                            // Superficie (just touching, touch1Active) — a real click implies the
-                            // finger is already touching, so a firmer press is the more deliberate
-                            // signal. See MappingEditor.cpp's onPhysTouchpadHit for the mouse-click
-                            // equivalent of this same left/right-half split.
-                            if (isStateActive(physNow, c.state)) {
-                                activeComp = i; activeIsTouchSurface = false; break;
-                            }
-                            // Movimiento (Gestos): a recognized gesture commits INSTANTLY here,
-                            // fully (physComp + touchSurfaceSelected + touchGestureSelected all at
-                            // once) instead of going through the activeComp/h9HoldTimer arm-then-
-                            // wait dance below. Two reasons: (1) the classifier already requires a
-                            // deliberate minimum travel distance before firing at all, a stronger
-                            // intent filter than "sat still for 1s"; (2) the 6 two-finger gestures
-                            // only ever fire as a single-frame pulse AT RELEASE — by then
-                            // physNow.touch1Active is already false, so they could never satisfy a
-                            // hold gate anyway. Must NOT just set touchGestureSelected alone and
-                            // leave physComp untouched — that was tried first and found to be a
-                            // real bug with real hardware (2026/08/26): the generic touch1Active
-                            // branch right below kept running in parallel (nothing had closed the
-                            // outer physComp<0 guard), so its own independent 1s hold could commit
-                            // LATER and pop the panel open showing whatever gesture id happened to
-                            // be sitting in touchGestureSelected at that point — not necessarily
-                            // the one just performed. Setting physComp here closes that guard
-                            // immediately, so the branch below never gets a chance to race this.
-                            if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
-                                m_sel.touchGestureSelected.empty() &&
-                                !physNow.touchGestureFired.empty()) {
-                                m_sel.physComp = i;
-                                m_sel.touchSurfaceSelected = true;
-                                m_sel.touchGestureSelected = physNow.touchGestureFired;
-                                m_sel.actionType = ActionType::Xbox;
-                                m_sel.captureKeys.clear(); m_sel.macroSel.clear(); m_sel.botSel.clear();
-                                m_sel.h9HoldComp = -1; m_sel.h9HoldDpadDir.clear();
-                                m_sel.h9HoldTouchZoneRegion.clear(); m_sel.h9HoldTimer = 0.0f;
-                                break;
-                            }
-                            if (physNow.touch1Active) {
-                                // Zonas: resolve which region the finger is over, same hit-test
-                                // onPhysTouchpadHit uses for the mouse-click path — a touch
-                                // outside every region (shouldn't happen for a full-coverage
-                                // template) counts as no touch for hold-selection purposes.
-                                if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
-                                    !m_model.touchZones.empty()) {
-                                    const TouchZoneRegion* hit =
-                                        hitTestTouchZone(m_model.touchZones, touch1X, touch1Y);
-                                    if (hit) {
-                                        activeComp = i; activeIsTouchSurface = true;
-                                        activeTouchZoneRegion = hit->id; break;
-                                    }
-                                } else {
-                                    activeComp = i; activeIsTouchSurface = true; break;
-                                }
-                            }
-                        }
-                    }
-                    if (activeComp >= 0) {
-                        if (m_sel.h9HoldComp != activeComp) {
-                            m_sel.h9HoldComp    = activeComp;
-                            m_sel.h9HoldDpadDir = activeDpadDir;
-                            m_sel.h9HoldTouchZoneRegion = activeTouchZoneRegion;
-                            m_sel.h9HoldTimer   = 0.0f;
-                        } else {
-                            m_sel.h9HoldDpadDir = activeDpadDir;
-                            m_sel.h9HoldTouchZoneRegion = activeTouchZoneRegion;
-                            m_sel.h9HoldTimer += dt;
-                            if (m_sel.h9HoldTimer >= 1.0f) {
-                                m_sel.physComp      = activeComp;
-                                m_sel.stickAsButton = activeIsStickBtn;
-                                m_sel.dpadDir        = activeDpadDir;
-                                m_sel.touchSurfaceSelected = activeIsTouchSurface;
-                                m_sel.touchZoneRegionSelected = activeTouchZoneRegion;
-                                m_sel.actionType    = ActionType::Xbox;
-                                m_sel.h9HoldComp    = -1;
-                                m_sel.h9HoldDpadDir.clear();
-                                m_sel.h9HoldTouchZoneRegion.clear();
-                                m_sel.h9HoldTimer   = 0.0f;
-                            }
-                        }
-                    } else {
-                        m_sel.h9HoldComp    = -1;
-                        m_sel.h9HoldDpadDir.clear();
-                        m_sel.h9HoldTouchZoneRegion.clear();
-                        m_sel.h9HoldTimer   = 0.0f;
-                        // ── Paso 1c: gatillo al tope 2s → seleccionar como fuente ──
-                        constexpr float kTrigSelThresh = 0.75f;
-                        if (physNow.triggerL > kTrigSelThresh || physNow.triggerR > kTrigSelThresh) {
-                            std::string tSrc = (physNow.triggerL >= physNow.triggerR) ? "l2" : "r2";
-                            if (m_sel.h9HoldTriggerSrc != tSrc) {
-                                m_sel.h9HoldTriggerSrc   = tSrc;
-                                m_sel.h9HoldTriggerTimer = 0.0f;
-                            } else {
-                                m_sel.h9HoldTriggerTimer += dt;
-                                if (m_sel.h9HoldTriggerTimer >= 2.0f) {
-                                    m_sel.triggerSrc         = tSrc;
-                                    m_sel.actionType         = ActionType::Xbox;
-                                    m_sel.captureKeys.clear();
-                                    m_sel.macroSel.clear();
-                                    m_sel.botSel.clear();
-                                    m_sel.h9HoldTriggerSrc.clear();
-                                    m_sel.h9HoldTriggerTimer = 0.0f;
-                                }
-                            }
-                        } else {
-                            m_sel.h9HoldTriggerSrc.clear();
-                            m_sel.h9HoldTriggerTimer = 0.0f;
-                        }
-                    }
-                }
-            }
-
-            // ── Paso 1a-bis: gyro/accel → barrido de reposo a extremo, confirmado ──────────
-            // Runs unconditionally (not part of the if/else chain above) so it never competes
-            // with stick/button/trigger selection for a shared "candidate" slot — each of the 6
-            // logical directions (up/down/left/right/cw/ccw) is tracked independently via
-            // m_sel.h9ImuSweep (see MappingSelection.h for the full rationale): must be seen at
-            // rest, then sustain near its calibrated max for kImuConfirmSec before arming.
-            // up/down/left/right read accel (orientation — holds steady while tilted); cw/ccw
-            // read gyro (angular velocity — sustaining near-max here means "keep spinning", the
-            // only thing yaw can sustain).
-            {
-                int gyroCompIdx = -1;
-                for (int i = 0; i < (int)physComps.size(); ++i)
-                    if (physComps[i].type == "gyro") { gyroCompIdx = i; break; }
-
-                if (gyroCompIdx >= 0 && m_sel.physComp < 0) {
-                    // Accel's rest threshold is higher than gyro's: just holding the controller
-                    // normally (to be able to rotate it at all) already tilts it back a fair
-                    // amount, and that alone shouldn't count as "left rest". Gyro (angular
-                    // velocity) doesn't have this problem — it reads ~0 whenever the controller
-                    // isn't actively rotating, static tilt included, so its rest threshold stays
-                    // low.
-                    constexpr float kImuAccelRestThresh = 0.45f;
-                    constexpr float kImuGyroRestThresh  = 0.20f;
-                    float restThresh[6] = { kImuAccelRestThresh, kImuAccelRestThresh,
-                                             kImuAccelRestThresh, kImuAccelRestThresh,
-                                             kImuGyroRestThresh,  kImuGyroRestThresh };
-                    static const char* kImuDirs[6] = { "up", "down", "left", "right", "cw", "ccw" };
-
-                    // Accel-only: getting the controller into position to rotate it tilts it back
-                    // in a single continuous motion that usually overshoots close to the sensor's
-                    // calibrated ceiling — a deliberate "hold this tilt" calibration gesture
-                    // rarely does, since there's no reason to push all the way to the mechanical/
-                    // sensor limit just to hold a cardinal direction. So: if an ascent ever
-                    // touches near-max, it's disqualified as "positioning" (not armed) until the
-                    // axis returns to rest; only an ascent that stays in the [armThresh, nearMax)
-                    // band for the whole confirm window counts as a deliberate hold.
-                    constexpr float kImuNearMaxFrac = 0.90f;
-
-                    // m_gyroSelectThreshold/m_accelSelectThreshold are calibrated-space
-                    // constants, but physNow carries the RAW pre-calibration reading — shape it
-                    // through the active device's own per-axis deadzone/max first (see the
-                    // identical reasoning that used to live here for the old design).
-                    DeviceCandidate dev = m_engine->getActiveDevice();
-                    const ControllerConfig* activeCfg =
-                        findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
-                    float accelX = physNow.accelX, accelY = physNow.accelY, gyroY = physNow.gyroY;
-                    if (activeCfg) {
-                        const auto& imu = activeCfg->imu;
-                        accelX = applyDeadzoneMaxSigned(accelX, imu.accelXDeadzone, imu.accelXMax);
-                        accelY = applyDeadzoneMaxSigned(accelY, imu.accelYDeadzone, imu.accelYMax);
-                        gyroY  = applyDeadzoneMaxSigned(gyroY,  imu.gyroYDeadzone,  imu.gyroYMax);
-                    }
-
-                    // Magnitude in the direction of travel (can be negative — that's fine, the
-                    // rest/arm comparisons below treat it as "not there yet") for each of the 6
-                    // directions, paired with the threshold that counts as "reached the extreme".
-                    float mags[6]      = { accelY, -accelY, -accelX, accelX, gyroY, -gyroY };
-                    float armThresh[6] = { m_accelSelectThreshold, m_accelSelectThreshold,
-                                            m_accelSelectThreshold, m_accelSelectThreshold,
-                                            m_gyroSelectThreshold,  m_gyroSelectThreshold };
-
-                    // Core state transition lives in advanceImuSweep() (MappingSelection.h) so
-                    // it can run under Catch2 without pulling in D3D11/HWND/PadEngine — see
-                    // PadsWayTests/tests/test_MappingSelection.cpp.
-                    ImuSweepResult sweep = advanceImuSweep(m_sel.h9ImuSweep, mags, restThresh,
-                                                           armThresh, kImuNearMaxFrac,
-                                                           kImuConfirmSec, dt);
-                    int   armedIdx     = sweep.armedIdx;
-                    int   bestDisplay  = sweep.bestDisplay;
-                    float bestProgress = sweep.bestProgress;
-
-                    if (armedIdx >= 0) {
-                        m_sel.physComp      = gyroCompIdx;
-                        m_sel.stickDir      = kImuDirs[armedIdx];
-                        m_sel.stickAsButton = false;
-                        m_sel.actionType    = ActionType::Xbox;
-                        m_sel.imuUseAccel = false; m_sel.imuSourceOverridden = false;
-                        m_sel.h9ImuSweep   = {};  // force a fresh rest-to-max sweep for the next gesture
-                        m_sel.h9HoldGyroDir.clear();
-                        m_sel.h9HoldGyroTimer = 0.0f;
-                    } else if (bestDisplay >= 0) {
-                        m_sel.h9HoldGyroDir   = kImuDirs[bestDisplay];
-                        m_sel.h9HoldGyroTimer = bestProgress;
-                    } else {
-                        m_sel.h9HoldGyroDir.clear();
-                        m_sel.h9HoldGyroTimer = 0.0f;
-                    }
-                } else {
-                    m_sel.h9HoldGyroDir.clear();
-                    m_sel.h9HoldGyroTimer = 0.0f;
-                }
-            }
-        } else if (m_sel.physComp >= 0 && m_sel.actionType == ActionType::Xbox) {
+        if (m_sel.physComp >= 0 && m_sel.actionType == ActionType::Xbox) {
             // Xbox mode: detect rising edge on physical input → assign virtual button
             const PadComponent& selPhysComp = physComps[m_sel.physComp];
             // Gyro/accel source: target maps live in gyroActionEdits/accelActionEdits (resolved
@@ -1422,9 +1125,11 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 }
             }
         }
-
-        m_sel.h9PrevPhysState = physNow;
     }
+    // Unconditional every frame, regardless of whether Paso 1 or Paso 2 ran above — Paso 2's
+    // rising-edge detection next frame (isStateActive(m_sel.h9PrevPhysState, ...) vs physNow)
+    // depends on this never being skipped.
+    m_sel.h9PrevPhysState = physNow;
 
     // ── Construir estados de display ──────────────────────────────────────────
     m_sel.flashTimer -= dt;
