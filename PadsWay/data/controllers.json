@@ -121,20 +121,16 @@
           "virtual": "left_y_pos"
         },
         "right_x_neg": {
-          "speed": 10.0,
-          "target": "mouse_x"
+          "virtual": "right_x_neg"
         },
         "right_x_pos": {
-          "speed": 10.0,
-          "target": "mouse_x"
+          "virtual": "right_x_pos"
         },
         "right_y_neg": {
-          "speed": 10.0,
-          "target": "mouse_y"
+          "virtual": "right_y_neg"
         },
         "right_y_pos": {
-          "speed": 10.0,
-          "target": "mouse_y"
+          "virtual": "right_y_pos"
         }
       },
       "buttons": {
@@ -772,8 +768,17 @@
         }
       },
       "axis_actions": {
+        "left_x_neg": {
+          "virtual": "left_x_neg"
+        },
+        "left_x_pos": {
+          "virtual": "left_x_pos"
+        },
+        "left_y_neg": {
+          "virtual": "left_y_neg"
+        },
         "left_y_pos": {
-          "virtual": "left_y_pos"
+          "virtual": "l2"
         },
         "right_x_neg": {
           "virtual": "right_x_neg"
@@ -798,7 +803,8 @@
           "virtual": "start"
         },
         "11": {
-          "physical": "l3"
+          "physical": "l3",
+          "virtual": "l3"
         },
         "12": {
           "physical": "r3",
@@ -838,6 +844,13 @@
       },
       "connection": "usb",
       "dpad": "hid_hat",
+      "dpad_remap": {
+        "up": {
+          "physical": "dpad_up",
+          "target": "l2",
+          "type": "trigger"
+        }
+      },
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -884,27 +897,62 @@
       },
       "touch_gesture_actions": {
         "down": {
-          "virtual": "a"
+          "virtual": "left_y_neg"
         },
         "left": {
           "virtual": "x"
         },
+        "parallel_down": {
+          "button": "middle",
+          "type": "mouse_click"
+        },
+        "parallel_up": {
+          "name": "CastlevaniaSubWeaponAttack",
+          "type": "macro"
+        },
+        "pinch_close": {
+          "name": "LightningBot",
+          "type": "bot"
+        },
         "right": {
-          "virtual": "y"
+          "target": "l2",
+          "type": "trigger"
+        },
+        "twist_down_up": {
+          "keys": [
+            "down",
+            "up"
+          ],
+          "type": "keyboard"
         },
         "up": {
-          "virtual": "y"
+          "virtual": "dpad_up"
         }
       },
       "touch_zone_actions": {
-        "nw": {
-          "virtual": "a"
+        "r0c0": {
+          "button": "left",
+          "type": "mouse_click"
         },
-        "se": {
-          "virtual": "b"
+        "r0c1": {
+          "virtual": "y"
         },
-        "sw": {
-          "virtual": "a"
+        "r0c2": {
+          "target": "l2",
+          "type": "trigger"
+        },
+        "r1c0": {
+          "name": "LightningBot",
+          "type": "bot"
+        },
+        "r1c1": {
+          "virtual": "left_y_neg"
+        },
+        "r1c2": {
+          "keys": [
+            "y"
+          ],
+          "type": "keyboard"
         }
       },
       "touchpad": {
@@ -916,16 +964,16 @@
         "surface_mode": "unassigned",
         "x_max": 1.0099999904632568,
         "y_max": 1.0099999904632568,
-        "zone_template_id": "cross-plus-4",
+        "zone_template_id": "grid-6",
         "zones": [
           {
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "nw",
+            "id": "r0c0",
             "radius": 0.0,
             "shape": "rect",
-            "x_max": 0.5,
+            "x_max": 0.33333298563957214,
             "x_min": 0.0,
             "y_max": 0.5,
             "y_min": 0.0
@@ -934,11 +982,11 @@
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "ne",
+            "id": "r0c1",
             "radius": 0.0,
             "shape": "rect",
-            "x_max": 1.0,
-            "x_min": 0.5,
+            "x_max": 0.6666669845581055,
+            "x_min": 0.33333298563957214,
             "y_max": 0.5,
             "y_min": 0.0
           },
@@ -946,10 +994,22 @@
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "sw",
+            "id": "r0c2",
             "radius": 0.0,
             "shape": "rect",
-            "x_max": 0.5,
+            "x_max": 1.0,
+            "x_min": 0.6666669845581055,
+            "y_max": 0.5,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "r1c0",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.33333298563957214,
             "x_min": 0.0,
             "y_max": 1.0,
             "y_min": 0.5
@@ -958,11 +1018,23 @@
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "se",
+            "id": "r1c1",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.6666669845581055,
+            "x_min": 0.33333298563957214,
+            "y_max": 1.0,
+            "y_min": 0.5
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "r1c2",
             "radius": 0.0,
             "shape": "rect",
             "x_max": 1.0,
-            "x_min": 0.5,
+            "x_min": 0.6666669845581055,
             "y_max": 1.0,
             "y_min": 0.5
           }
@@ -970,7 +1042,10 @@
       },
       "trigger_actions": {
         "l2": {
-          "target": "l2",
+          "virtual": "l1"
+        },
+        "r2": {
+          "target": "r2",
           "type": "trigger_passthrough"
         }
       },
