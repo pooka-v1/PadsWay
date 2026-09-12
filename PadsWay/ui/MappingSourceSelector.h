@@ -5,18 +5,23 @@
 #include "../PadEngine.h"
 
 // ---------------------------------------------------------------------------
-// MappingSourceSelector — H9 Paso 1: decides which physical component becomes the mapping
-// source (stick/button/dpad/touchpad/trigger/gyro-accel) while none is selected yet, plus the
-// 2 instant re-pick adjustments for Movimiento/Zonas that apply even once the touchpad already
-// IS the selected source. Extracted verbatim from MappingEditor::render() (Tarea 3, part 1) —
-// see SESSION_CONTEXT.md/BITACORA.md for the extraction record.
+// MappingSourceSelector — the full H9 state machine, extracted verbatim from
+// MappingEditor::render() across two tasks (Tarea 3, parts 1 and 2 / "3b") — see
+// SESSION_CONTEXT.md/BITACORA.md for the extraction record.
 //
-// Deliberately stateless: everything it reads/writes lives in MappingSelection (passed by
-// reference) or is passed in already computed (physNow, calibrated touch1X/Y, dt). H9 Paso 2
-// (writing the actual mapping into MappingModel once a source is selected) stays in
-// MappingEditor::render(), unchanged — it is far more coupled to MappingEditor's own private
-// helpers (resolveImuTargetMap/clearImuOtherMap) and to MappingModel's edit maps, and extracting
-// it is left for a follow-up task (Tarea 3b) to keep this extraction low-risk.
+// - update() — H9 Paso 1: decides which physical component becomes the mapping source
+//   (stick/button/dpad/touchpad/trigger/gyro-accel) while none is selected yet, plus the 2
+//   instant re-pick adjustments for Movimiento/Zonas that apply even once the touchpad already
+//   IS the selected source.
+// - assign() — H9 Paso 2: once a source IS already selected, detects a rising edge on physical
+//   input and writes the actual mapping into MappingModel.
+//
+// Deliberately stateless: everything it reads/writes lives in MappingSelection/MappingModel
+// (passed by reference) or is passed in already computed (physNow, calibrated touch1X/Y, dt).
+// The 3 gyro/accel source-resolution helpers this class's assign() shares with MappingEditor's
+// own action-panel/modal code (resolveImuTargetMap/clearImuOtherMap/assignImuAction) live as free
+// functions in MappingSelection.h, not as methods of either class, precisely to avoid a
+// dependency in either direction.
 // ---------------------------------------------------------------------------
 class MappingSourceSelector {
 public:
@@ -26,7 +31,33 @@ public:
                         float stickSelectThreshold, int stickHoldMs,
                         float gyroSelectThreshold, float accelSelectThreshold, float dt);
 
+    // H9 Paso 2 (Tarea 3b): once a source is already selected, detect a rising edge on physical
+    // input and write the actual mapping into MappingModel. Call only when update() above did NOT
+    // arm a new selection this same frame (see MappingEditor::render()'s paso1Gate) - mirrors the
+    // original if/else-if mutual exclusion between Paso 1 and Paso 2. No `dt` needed - Paso 2 does
+    // rising-edge detection only, no timers.
+    static void assign(const PadView& phys, const PadView& virt, MappingModel& model,
+                        MappingSelection& sel, const GamepadState& physNow,
+                        const std::vector<std::string>& acceptedXbox,
+                        float stickSelectThreshold);
+
 private:
+    // Paso 2, non-trigger source (m_sel.physComp >= 0): rising-edge dispatch to VirtualButton/
+    // Dpad/StickSlot targets, covering generic button/dpad/stick-click, stick-axis, gyro/accel,
+    // and touch zone/gesture sources. Also handles the physical L2/R2 -> trigger-target and
+    // virtual-stick-tilt -> stick-slot-target assignment paths.
+    static void assignNonTriggerTarget(const PadView& phys, const PadView& virt, MappingModel& model,
+                                        MappingSelection& sel, const GamepadState& physNow,
+                                        const std::vector<std::string>& acceptedXbox,
+                                        float stickSelectThreshold);
+
+    // Paso 2, trigger source (m_sel.triggerSrc non-empty): much simpler than the non-trigger
+    // branch - no gyro, no touch, writes only into MappingModel::trigActionEdits.
+    static void assignTriggerTarget(const PadView& phys, const PadView& virt, MappingModel& model,
+                                     MappingSelection& sel, const GamepadState& physNow,
+                                     const std::vector<std::string>& acceptedXbox,
+                                     float stickSelectThreshold);
+
     // Movimiento/Zonas instant re-pick — runs unconditionally, even with physComp >= 0 already
     // selected (once the touchpad already IS the source, picking a different gesture/region is a
     // separate step from arbitrating WHICH physical thing becomes the source in the first place).

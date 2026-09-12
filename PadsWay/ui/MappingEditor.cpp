@@ -180,42 +180,14 @@ static std::pair<int, std::string> slotKeyToArrow(const PadLayout& vLayout, cons
 }
 
 // ---------------------------------------------------------------------------
-// Gyro/accel logical direction ("up"/"down"/"left"/"right"/"cw"/"ccw") -> each sensor's own
-// native half-axis key. Unlike stick slots (left_x_pos…), gyro is a single fixed axis set per
-// controller, so this is a static table, not a per-instance lookup. cw/ccw have no accel
-// equivalent — the accelerometer cannot sense rotation around the vertical axis while flat.
-// See PhysicalAccel's comment in ComponentTypes.h for the letter-to-gesture mapping per sensor.
-static std::string gyroKeyFromDir(const std::string& dir) {
-    if (dir == "up")    return "x_pos";   // pitch+
-    if (dir == "down")  return "x_neg";   // pitch-
-    if (dir == "right") return "z_pos";   // roll+
-    if (dir == "left")  return "z_neg";   // roll-
-    if (dir == "cw")    return "y_pos";   // yaw+
-    if (dir == "ccw")   return "y_neg";   // yaw-
-    return "";
-}
+// gyroKeyFromDir/accelKeyFromDir/imuDefaultUsesAccel moved to free functions in
+// MappingSelection.h (Tarea 3b) — resolveImuTargetMap() (also moved there) needs them, and it is
+// called both from this file and from MappingSourceSelector's H9 Paso 2.
+
 // Sustain time required at/above the arm threshold for the gyro/accel progressive-sweep arming
 // (see the H9 block in render() and MappingSelection.h's h9ImuSweep). Shared with the
 // progress-bar display code so both sides agree on the same duration.
 constexpr float kImuConfirmSec = 0.18f;
-
-static std::string accelKeyFromDir(const std::string& dir) {
-    if (dir == "up")    return "y_pos";   // frontal+
-    if (dir == "down")  return "y_neg";   // frontal-
-    if (dir == "right") return "x_pos";   // lateral+
-    if (dir == "left")  return "x_neg";   // lateral-
-    return "";   // cw/ccw: no accel equivalent, always resolves to gyro
-}
-
-// Default source per destination type, agreed with the user: proportional/held-position targets
-// (dpad hold, analog stick, trigger) default to accel (it sustains a value while tilted); every
-// other target (a discrete press/toggle, or mouse-move which already accumulates like a gyro
-// mouse) defaults to gyro.
-static bool imuDefaultUsesAccel(HalfAxisActionType t) {
-    return t == HalfAxisActionType::Dpad ||
-           t == HalfAxisActionType::StickSlot ||
-           t == HalfAxisActionType::Trigger;
-}
 
 // The other half of the same logical axis (for MouseMove's bidirectional auto-assign and Clear).
 static std::string oppositeGyroDir(const std::string& dir) {
@@ -537,594 +509,11 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                                   m_stickSelectThreshold, m_stickHoldMs,
                                   m_gyroSelectThreshold, m_accelSelectThreshold, dt);
 
+    // H9 Paso 2 (asignación) — extraído a MappingSourceSelector (Tarea 3b). Llamada solo cuando
+    // Paso 1 NO corrió este frame (paso1Gate en false), igual que el if/else-if original.
     if (!paso1Gate) {
-        const auto& physComps = phys.getLayout().components;
-        if (m_sel.physComp >= 0 && m_sel.actionType == ActionType::Xbox) {
-            // Xbox mode: detect rising edge on physical input → assign virtual button
-            const PadComponent& selPhysComp = physComps[m_sel.physComp];
-            // Gyro/accel source: target maps live in gyroActionEdits/accelActionEdits (resolved
-            // per-direction via resolveImuTargetMap), never in axisActionEdits — that map is
-            // keyed by stick slot ids derived from selPhysComp.stateX, which gyro components
-            // don't have. Mirrors the mouse-click path (onVirtHitGyroAction).
-            bool isGyroSource = selPhysComp.type == "gyro";
-            // Touch zone/gesture source: target maps live in touchZoneActionEdits/
-            // touchGestureActionEdits, never in buttonEdits/actionEdits — keyed by region/gesture
-            // id (m_sel.touchZoneRegionSelected/touchGestureSelected), which selPhysComp.state
-            // (a "touchpad" component's own state, e.g. btnTouch) has no relation to. Mirrors the
-            // mouse-click path (onVirtHitTouchZone/onVirtHitTouchGesture in this same file).
-            // IMPORTANT — see also that comment: every H9 "Paso 2" site below (button/dpad target,
-            // trigger target, StickSlot target) needs its OWN touch branch, same as isGyroSource
-            // needed one in each when gyro was added (BITACORA.md, 2026/08/05, bugs 1/4/5) — the
-            // mouse-click path and this physical-press path are two independent implementations of
-            // the same assignment; a new source type must be wired into BOTH or one silently stops
-            // working while the other keeps compiling fine.
-            bool isTouchZoneSource = m_sel.touchSurfaceSelected &&
-                m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones &&
-                !m_sel.touchZoneRegionSelected.empty();
-            bool isTouchGestureSource = m_sel.touchSurfaceSelected &&
-                m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture &&
-                !m_sel.touchGestureSelected.empty();
-            // Touch editor's own mode navigator: at the TOP level only (Superficie selected, no
-            // specific zone/gesture drilled into yet — the 4 mode buttons are the only thing
-            // showing), the A button cycles Ratón -> Analógico -> Gestos -> Zonas -> Ratón instead
-            // of falling into the generic Botón-channel assignment below (which would otherwise
-            // bind the touchpad's click to A and close the editor — physShort there is always
-            // "btnTouch", unrelated to which half was picked). The moment a specific zone/gesture
-            // is selected, A goes back to being a normal assignable target — same physical button,
-            // different meaning depending on how deep into the touch editor you are. User's idea,
-            // 2026/08/27 (see SESSION_CONTEXT.md "selector físico").
-            bool isTouchTopLevelNav = m_sel.touchSurfaceSelected &&
-                selPhysComp.type == "touchpad" &&
-                m_sel.touchZoneRegionSelected.empty() && m_sel.touchGestureSelected.empty();
-            std::string selState;
-            if (m_sel.stickAsButton)
-                selState = selPhysComp.stateClick;
-            else if (selPhysComp.type == "dpad" && !m_sel.dpadDir.empty())
-                selState = dpadDirToState(selPhysComp, m_sel.dpadDir);
-            else
-                selState = selPhysComp.state;
-            std::string physShort = stateToShort(selState);
-
-            std::vector<std::string> candidateStates;
-            for (int i = 0; i < (int)physComps.size(); ++i) {
-                const PadComponent& c = physComps[i];
-                if (c.type == "button" && !c.state.empty())
-                    candidateStates.push_back(c.state);
-                else if (c.type == "stick" && !c.stateClick.empty())
-                    candidateStates.push_back(c.stateClick);
-                else if (c.type == "dpad") {
-                    for (const char* d : {"up","down","left","right"}) {
-                        std::string st = dpadDirToState(c, d);
-                        if (!st.empty()) candidateStates.push_back(st);
-                    }
-                }
-            }
-            for (const auto& compState : candidateStates) {
-                bool wasActive = isStateActive(m_sel.h9PrevPhysState, compState);
-                bool isActive  = isStateActive(physNow, compState);
-                if (!isActive || wasActive) continue;
-
-                std::string virtShort = stateToShort(compState);
-                bool valid = false;
-                for (const auto& s : m_acceptedXbox) if (virtShort == s) { valid = true; break; }
-
-                // ── Touch editor mode navigator — see isTouchTopLevelNav above. Checked before
-                // the touch zone/gesture and generic Botón paths below, so A never falls into
-                // either while at the top level. ──
-                if (isTouchTopLevelNav && virtShort == "a") {
-                    // 5th stop, "Sin asignar" (see BITACORA.md 2026/09/02) — user's explicit call:
-                    // reachable from the pad alone, not just via the Mapeador's Limpiar button.
-                    static const TouchpadSurfaceMode kTouchModeCycle[] = {
-                        TouchpadSurfaceMode::Mouse, TouchpadSurfaceMode::Analog,
-                        TouchpadSurfaceMode::Gesture, TouchpadSurfaceMode::Zones,
-                        TouchpadSurfaceMode::Unassigned,
-                    };
-                    constexpr int kCycleLen = sizeof(kTouchModeCycle) / sizeof(kTouchModeCycle[0]);
-                    int cycleIdx = 0;
-                    for (int k = 0; k < kCycleLen; ++k)
-                        if (kTouchModeCycle[k] == m_model.touchSurfaceMode) { cycleIdx = k; break; }
-                    m_model.touchSurfaceMode = kTouchModeCycle[(cycleIdx + 1) % kCycleLen];
-                    if (m_model.touchSurfaceMode == TouchpadSurfaceMode::Analog &&
-                        m_model.touchAnalogStickTarget.empty())
-                        m_model.touchAnalogStickTarget = "left";
-                    break;
-                }
-
-                // ── Touch zone/gesture source → VirtualButton target. Mirrors onVirtHitTouchZone/
-                // onVirtHitTouchGesture's plain-button branch — see the isTouchZoneSource comment
-                // above for why this can't share the buttonEdits/actionEdits path below. ──
-                if (isTouchZoneSource || isTouchGestureSource) {
-                    if (valid) {
-                        const std::string& srcId = isTouchZoneSource ? m_sel.touchZoneRegionSelected
-                                                                      : m_sel.touchGestureSelected;
-                        auto& editsMap = isTouchZoneSource ? m_model.touchZoneActionEdits
-                                                            : m_model.touchGestureActionEdits;
-                        auto it = editsMap.find(srcId);
-                        bool already = (it != editsMap.end() &&
-                                        it->second.type == ButtonActionType::VirtualButton &&
-                                        it->second.name == virtShort);
-                        if (already) {
-                            editsMap.erase(srcId);
-                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                        } else {
-                            ButtonAction act;
-                            act.type = ButtonActionType::VirtualButton; act.physical = srcId; act.name = virtShort;
-                            editsMap[srcId] = act;
-                            int flashComp = findCompByState(virt.getLayout(), shortToState(virtShort));
-                            m_sel.flashComp      = flashComp;
-                            m_sel.flashTimer     = 0.5f;
-                            m_sel.flashVirtShort = virtShort;
-                        }
-                    } else {
-                        m_sel.h9ErrorTimer = 2.0f;
-                    }
-                    m_sel.physComp = -1;
-                    m_sel.touchSurfaceSelected = false;
-                    m_sel.touchZoneRegionSelected.clear();
-                    m_sel.touchGestureSelected.clear();
-                    m_sel.actionType = ActionType::Xbox;
-                    break;
-                }
-
-                // ── Axis-action mode: stick/gyro direction seleccionada → asignar VirtualButton/Dpad ──
-                if (!m_sel.stickDir.empty() && isGyroSource) {
-                    bool isDpad9 = (virtShort.rfind("dpad_", 0) == 0);
-                    if (valid || isDpad9) {
-                        HalfAxisAction ha;
-                        if (isDpad9) {
-                            ha.type = HalfAxisActionType::Dpad;
-                            ha.target = virtShort.substr(5); // "up"/"down"/"left"/"right"
-                        } else {
-                            ha.type = HalfAxisActionType::VirtualButton;
-                            ha.target = virtShort;
-                        }
-                        std::string key;
-                        auto& map = resolveImuTargetMap(m_sel.stickDir, ha.type, key);
-                        auto it = map.find(key);
-                        bool alreadyAssigned = (it != map.end() && it->second.type == ha.type &&
-                                                 it->second.target == ha.target);
-                        if (alreadyAssigned) {
-                            map.erase(key);
-                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                        } else {
-                            clearImuOtherMap(m_sel.stickDir, &map == &m_model.accelActionEdits);
-                            map[key] = ha;
-                            if (!isDpad9) {
-                                int fc = findCompByState(virt.getLayout(), shortToState(virtShort));
-                                m_sel.flashComp = fc; m_sel.flashTimer = 0.5f;
-                                m_sel.flashVirtShort = shortToState(virtShort);
-                            } else {
-                                m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                            }
-                        }
-                        m_sel.flashPhysArrowComp = m_sel.physComp;
-                        m_sel.flashPhysArrowDir  = m_sel.stickDir;
-                        if (m_sel.flashTimer < 1.0f) m_sel.flashTimer = 1.0f;
-                        m_sel.physComp = -1; m_sel.stickDir.clear();
-                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
-                    } else {
-                        m_sel.h9ErrorTimer = 2.0f;
-                    }
-                    break;
-                } else if (!m_sel.stickDir.empty()) {
-                    auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
-                    std::string axisKey;
-                    if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
-                    else if (m_sel.stickDir == "down")  axisKey = yId + "_neg";
-                    else if (m_sel.stickDir == "right") axisKey = xId + "_pos";
-                    else if (m_sel.stickDir == "left")  axisKey = xId + "_neg";
-                    bool isDpad9 = (virtShort.rfind("dpad_", 0) == 0);
-                    if ((valid || isDpad9) && !axisKey.empty()) {
-                        HalfAxisAction axisAction;
-                        if (isDpad9) {
-                            axisAction.type = HalfAxisActionType::Dpad;
-                            axisAction.target = virtShort.substr(5); // "up"/"down"/"left"/"right"
-                        } else {
-                            axisAction.type = HalfAxisActionType::VirtualButton;
-                            axisAction.target = virtShort;
-                        }
-                        auto axisEditIt = m_model.axisActionEdits.find(axisKey);
-                        bool alreadyAssigned = (axisEditIt != m_model.axisActionEdits.end() &&
-                                         axisEditIt->second.type == axisAction.type &&
-                                         axisEditIt->second.target == axisAction.target);
-                        if (alreadyAssigned) {
-                            m_model.axisActionEdits.erase(axisKey);
-                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                        } else {
-                            m_model.axisActionEdits[axisKey] = axisAction;
-                            if (!isDpad9) {
-                                int fc = findCompByState(virt.getLayout(), shortToState(virtShort));
-                                m_sel.flashComp = fc; m_sel.flashTimer = 0.5f;
-                                m_sel.flashVirtShort = shortToState(virtShort);
-                            } else {
-                                m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                            }
-                        }
-                        m_sel.flashPhysArrowComp = m_sel.physComp;
-                        m_sel.flashPhysArrowDir  = m_sel.stickDir;
-                        if (m_sel.flashTimer < 1.0f) m_sel.flashTimer = 1.0f;
-                        m_sel.physComp = -1; m_sel.stickDir.clear();
-                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
-                    } else {
-                        m_sel.h9ErrorTimer = 2.0f;
-                    }
-                    break;
-                }
-
-                if (valid) {
-                    if (!physShort.empty()) {
-                        m_model.actionEdits.erase(physShort);
-                        auto it = m_model.buttonEdits.find(physShort);
-                        bool alreadyAssigned = (it != m_model.buttonEdits.end() && it->second == virtShort);
-                        m_model.buttonEdits[physShort] = alreadyAssigned ? "" : virtShort;
-                        int flashComp = findCompByState(virt.getLayout(), shortToState(virtShort));
-                        m_sel.flashComp      = alreadyAssigned ? -1 : flashComp;
-                        m_sel.flashTimer     = alreadyAssigned ? 0.0f : 0.5f;
-                        m_sel.flashVirtShort = alreadyAssigned ? "" : virtShort;
-                    }
-                    m_sel.physComp    = -1;
-                    m_sel.stickAsButton = false;
-                    m_sel.dpadDir.clear();
-                    m_sel.actionType = ActionType::Xbox;
-                } else {
-                    bool hasAssignment = m_model.actionEdits.count(physShort) > 0 ||
-                        (m_model.buttonEdits.count(physShort) && !m_model.buttonEdits.at(physShort).empty());
-                    if (hasAssignment && !physShort.empty()) {
-                        m_model.buttonEdits[physShort] = "";
-                        m_model.actionEdits.erase(physShort);
-                        m_sel.physComp    = -1;
-                        m_sel.stickAsButton = false;
-                        m_sel.dpadDir.clear();
-                        m_sel.actionType = ActionType::Xbox;
-                    } else {
-                        m_sel.h9ErrorTimer = 2.0f;
-                    }
-                }
-                break;
-            }
-
-            // Physical L2/R2 → asignar componente seleccionado como gatillo virtual
-            {
-                constexpr float kTrigThresh = 0.5f;
-                auto doAxisTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
-                    if (isGyroSource) {
-                        HalfAxisAction ha;
-                        ha.type = HalfAxisActionType::Trigger; ha.target = trigTarget;
-                        std::string key;
-                        auto& map = resolveImuTargetMap(m_sel.stickDir, ha.type, key);
-                        auto it = map.find(key);
-                        bool already = (it != map.end() && it->second.type == ha.type &&
-                                        it->second.target == ha.target);
-                        if (already) {
-                            map.erase(key);
-                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                        } else {
-                            clearImuOtherMap(m_sel.stickDir, &map == &m_model.accelActionEdits);
-                            map[key] = ha;
-                            m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
-                            m_sel.flashTimer     = 1.0f;
-                            m_sel.flashVirtShort = trigState;
-                            m_sel.flashPhysArrowComp = m_sel.physComp;
-                            m_sel.flashPhysArrowDir  = m_sel.stickDir;
-                        }
-                        m_sel.physComp = -1; m_sel.stickDir.clear();
-                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
-                        return;
-                    }
-                    auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
-                    std::string axisKey;
-                    if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
-                    else if (m_sel.stickDir == "down")  axisKey = yId + "_neg";
-                    else if (m_sel.stickDir == "right") axisKey = xId + "_pos";
-                    else if (m_sel.stickDir == "left")  axisKey = xId + "_neg";
-                    if (axisKey.empty()) return;
-                    HalfAxisAction axisAction;
-                    axisAction.type = HalfAxisActionType::Trigger;
-                    axisAction.target = trigTarget;
-                    auto axisEditIt = m_model.axisActionEdits.find(axisKey);
-                    bool alreadyAssigned = (axisEditIt != m_model.axisActionEdits.end() &&
-                                     axisEditIt->second.type == axisAction.type &&
-                                     axisEditIt->second.target == axisAction.target);
-                    if (alreadyAssigned) {
-                        m_model.axisActionEdits.erase(axisKey);
-                        m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                    } else {
-                        m_model.axisActionEdits[axisKey] = axisAction;
-                        m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
-                        m_sel.flashTimer     = 1.0f;
-                        m_sel.flashVirtShort = trigState;
-                        m_sel.flashPhysArrowComp = m_sel.physComp;
-                        m_sel.flashPhysArrowDir  = m_sel.stickDir;
-                    }
-                    m_sel.physComp = -1; m_sel.stickDir.clear();
-                    m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
-                };
-                auto doTrigAssign = [&](const std::string& trigTarget, const std::string& trigState) {
-                    // Touch zone/gesture source → Trigger target. Mirrors onVirtHitTouchZone/
-                    // onVirtHitTouchGesture's trigger branch — see isTouchZoneSource's comment
-                    // above; physShort is meaningless for a touchpad component, so this must be
-                    // handled before the physShort.empty() early-return below.
-                    if (isTouchZoneSource || isTouchGestureSource) {
-                        const std::string& srcId = isTouchZoneSource ? m_sel.touchZoneRegionSelected
-                                                                      : m_sel.touchGestureSelected;
-                        auto& editsMap = isTouchZoneSource ? m_model.touchZoneActionEdits
-                                                            : m_model.touchGestureActionEdits;
-                        auto it = editsMap.find(srcId);
-                        bool already = (it != editsMap.end() &&
-                                        it->second.type == ButtonActionType::Trigger &&
-                                        it->second.target == trigTarget);
-                        if (already) {
-                            editsMap.erase(srcId);
-                            m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                        } else {
-                            ButtonAction act;
-                            act.type = ButtonActionType::Trigger; act.physical = srcId; act.target = trigTarget;
-                            editsMap[srcId] = act;
-                            m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
-                            m_sel.flashTimer     = 0.5f;
-                            m_sel.flashVirtShort = trigState;
-                        }
-                        m_sel.physComp = -1;
-                        m_sel.touchSurfaceSelected = false;
-                        m_sel.touchZoneRegionSelected.clear();
-                        m_sel.touchGestureSelected.clear();
-                        m_sel.actionType = ActionType::Xbox;
-                        return;
-                    }
-                    if (physShort.empty()) return;
-                    auto trigAssignIt = m_model.actionEdits.find(physShort);
-                    bool already = (trigAssignIt != m_model.actionEdits.end() &&
-                                    trigAssignIt->second.type == ButtonActionType::Trigger &&
-                                    trigAssignIt->second.target == trigTarget);
-                    if (already) {
-                        m_model.actionEdits.erase(physShort);
-                        m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                    } else {
-                        ButtonAction act;
-                        act.type = ButtonActionType::Trigger; act.physical = physShort; act.target = trigTarget;
-                        m_model.actionEdits[physShort] = act;
-                        m_model.buttonEdits.erase(physShort);
-                        m_sel.flashComp      = findCompByState(virt.getLayout(), trigState);
-                        m_sel.flashTimer     = 0.5f;
-                        m_sel.flashVirtShort = trigState;
-                    }
-                    m_sel.physComp = -1; m_sel.stickAsButton = false;
-                    m_sel.dpadDir.clear(); m_sel.actionType = ActionType::Xbox;
-                };
-                if (physNow.triggerL > kTrigThresh && m_sel.h9PrevPhysState.triggerL <= kTrigThresh) {
-                    if (!m_sel.stickDir.empty()) doAxisTrigAssign("l2", "triggerL");
-                    else doTrigAssign("l2", "triggerL");
-                } else if (physNow.triggerR > kTrigThresh && m_sel.h9PrevPhysState.triggerR <= kTrigThresh) {
-                    if (!m_sel.stickDir.empty()) doAxisTrigAssign("r2", "triggerR");
-                    else doTrigAssign("r2", "triggerR");
-                }
-            }
-
-            // Analog stick tilt → assign source to a stick slot destination.
-            // physShort is empty for stick and touch zone/gesture sources (state field unused for
-            // either), so also check stickDir/isTouchZoneSource/isTouchGestureSource.
-            if (m_sel.physComp >= 0 && (!physShort.empty() || !m_sel.stickDir.empty() ||
-                                         isTouchZoneSource || isTouchGestureSource)) {
-                const auto& virtComps = virt.getLayout().components;
-                for (int i = 0; i < (int)virtComps.size(); ++i) {
-                    if (virtComps[i].type != "stick") continue;
-                    // Rising-edge: require stick to have been below threshold last frame.
-                    // Prevents immediate fire when physComp is set while a stick is held.
-                    float prevSx = 0.0f, prevSy = 0.0f;
-                    readStickXY(m_sel.h9PrevPhysState, virtComps[i].stateX, prevSx, prevSy);
-                    if (prevSx >=  m_stickSelectThreshold || prevSx <= -m_stickSelectThreshold ||
-                        prevSy >=  m_stickSelectThreshold || prevSy <= -m_stickSelectThreshold) continue;
-                    float sx = 0.0f, sy = 0.0f;
-                    readStickXY(physNow, virtComps[i].stateX, sx, sy);
-                    std::string slotDir;
-                    if      (sy >=  m_stickSelectThreshold) slotDir = "up";
-                    else if (sy <= -m_stickSelectThreshold) slotDir = "down";
-                    else if (sx >=  m_stickSelectThreshold) slotDir = "right";
-                    else if (sx <= -m_stickSelectThreshold) slotDir = "left";
-                    if (slotDir.empty()) continue;
-
-                    auto [vxId, vyId] = stickIdsFromStateX(virtComps[i].stateX);
-                    std::string slotKey;
-                    if      (slotDir == "up")    slotKey = vyId + "_pos";
-                    else if (slotDir == "down")  slotKey = vyId + "_neg";
-                    else if (slotDir == "right") slotKey = vxId + "_pos";
-                    else if (slotDir == "left")  slotKey = vxId + "_neg";
-
-                    if (!m_sel.stickDir.empty() && isGyroSource) {
-                        // Gyro/accel source: assign StickSlot target via resolveImuTargetMap.
-                        HalfAxisAction ha;
-                        ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
-                        std::string key;
-                        auto& map = resolveImuTargetMap(m_sel.stickDir, ha.type, key);
-                        auto it = map.find(key);
-                        bool alreadyAssigned = (it != map.end() && it->second.type == ha.type &&
-                                                 it->second.target == ha.target);
-                        if (alreadyAssigned) {
-                            map.erase(key);
-                            m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f; m_sel.flashComp = -1;
-                        } else {
-                            clearImuOtherMap(m_sel.stickDir, &map == &m_model.accelActionEdits);
-                            map[key] = ha;
-                            m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
-                            m_sel.flashPhysArrowComp = m_sel.physComp;
-                            m_sel.flashPhysArrowDir  = m_sel.stickDir;
-                        }
-                        m_sel.physComp = -1; m_sel.stickDir.clear();
-                        m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
-                    } else if (!m_sel.stickDir.empty()) {
-                        // Axis-action source: assign StickSlot target.
-                        auto [xId, yId] = stickIdsFromStateX(selPhysComp.stateX);
-                        std::string axisKey;
-                        if      (m_sel.stickDir == "up")    axisKey = yId + "_pos";
-                        else if (m_sel.stickDir == "down")  axisKey = yId + "_neg";
-                        else if (m_sel.stickDir == "right") axisKey = xId + "_pos";
-                        else if (m_sel.stickDir == "left")  axisKey = xId + "_neg";
-                        if (!axisKey.empty()) {
-                            HalfAxisAction ha;
-                            ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
-                            auto axisEditIt = m_model.axisActionEdits.find(axisKey);
-                            bool alreadyAssigned = (axisEditIt != m_model.axisActionEdits.end() &&
-                                             axisEditIt->second.type == ha.type &&
-                                             axisEditIt->second.target == ha.target);
-                            if (alreadyAssigned) {
-                                m_model.axisActionEdits.erase(axisKey);
-                                m_sel.flashSlotKey.clear(); m_sel.flashTimer = 0.0f; m_sel.flashComp = -1;
-                            } else {
-                                m_model.axisActionEdits[axisKey] = ha;
-                                m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
-                                m_sel.flashPhysArrowComp = m_sel.physComp;
-                                m_sel.flashPhysArrowDir  = m_sel.stickDir;
-                            }
-                            m_sel.physComp = -1; m_sel.stickDir.clear();
-                            m_sel.stickAsButton = false; m_sel.actionType = ActionType::Xbox;
-                        }
-                    } else if (isTouchZoneSource || isTouchGestureSource) {
-                        // Touch zone/gesture source → StickSlot target. Mirrors
-                        // onVirtHitTouchZone/onVirtHitTouchGesture's arrow-hit branch — see
-                        // isTouchZoneSource's comment above.
-                        const std::string& srcId = isTouchZoneSource ? m_sel.touchZoneRegionSelected
-                                                                      : m_sel.touchGestureSelected;
-                        auto& editsMap = isTouchZoneSource ? m_model.touchZoneActionEdits
-                                                            : m_model.touchGestureActionEdits;
-                        auto it = editsMap.find(srcId);
-                        bool already = (it != editsMap.end() &&
-                                        it->second.type == ButtonActionType::VirtualButton &&
-                                        it->second.name == slotKey);
-                        if (already) {
-                            editsMap.erase(srcId);
-                        } else {
-                            ButtonAction act;
-                            act.type = ButtonActionType::VirtualButton; act.physical = srcId; act.name = slotKey;
-                            editsMap[srcId] = act;
-                        }
-                        m_sel.physComp = -1;
-                        m_sel.touchSurfaceSelected = false;
-                        m_sel.touchZoneRegionSelected.clear();
-                        m_sel.touchGestureSelected.clear();
-                        m_sel.actionType = ActionType::Xbox;
-                    } else {
-                        auto it = m_model.buttonEdits.find(physShort);
-                        if (it != m_model.buttonEdits.end() && it->second == slotKey) {
-                            m_model.buttonEdits.erase(physShort);
-                        } else {
-                            m_model.actionEdits.erase(physShort);
-                            m_model.buttonEdits[physShort] = slotKey;
-                        }
-                        m_sel.physComp = -1; m_sel.stickAsButton = false;
-                        m_sel.dpadDir.clear(); m_sel.actionType = ActionType::Xbox;
-                    }
-                    break;
-                }
-            }
-        } else if (!m_sel.triggerSrc.empty() && m_sel.actionType == ActionType::Xbox) {
-            // Paso 2 — gatillo como fuente: asignar target por botón/gatillo físico
-            std::vector<std::string> candStates;
-            for (int i = 0; i < (int)physComps.size(); ++i) {
-                const PadComponent& c = physComps[i];
-                if (c.type == "button" && !c.state.empty())
-                    candStates.push_back(c.state);
-                else if (c.type == "stick" && !c.stateClick.empty())
-                    candStates.push_back(c.stateClick);
-                else if (c.type == "dpad") {
-                    for (const char* d : {"up","down","left","right"}) {
-                        std::string st = dpadDirToState(c, d);
-                        if (!st.empty()) candStates.push_back(st);
-                    }
-                }
-            }
-            for (const auto& cState : candStates) {
-                if (!isStateActive(physNow, cState) || isStateActive(m_sel.h9PrevPhysState, cState)) continue;
-                std::string vShort = stateToShort(cState);
-                bool valid = false;
-                for (const auto& s : m_acceptedXbox) if (vShort == s) { valid = true; break; }
-                if (!valid) { m_sel.h9ErrorTimer = 2.0f; break; }
-                auto it = m_model.trigActionEdits.find(m_sel.triggerSrc);
-                bool already = (it != m_model.trigActionEdits.end() &&
-                                it->second.type == ButtonActionType::VirtualButton &&
-                                it->second.name == vShort);
-                if (already) {
-                    m_model.trigActionEdits.erase(m_sel.triggerSrc);
-                    m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                } else {
-                    ButtonAction act;
-                    act.type = ButtonActionType::VirtualButton; act.physical = m_sel.triggerSrc; act.name = vShort;
-                    m_model.trigActionEdits[m_sel.triggerSrc] = act;
-                    m_sel.flashComp = findCompByState(virt.getLayout(), shortToState(vShort));
-                    m_sel.flashTimer = 0.5f; m_sel.flashVirtShort = shortToState(vShort);
-                }
-                m_sel.triggerSrc.clear(); m_sel.actionType = ActionType::Xbox;
-                break;
-            }
-            // Virtual stick tilt → assign trigger source to a stick slot.
-            if (!m_sel.triggerSrc.empty()) {
-                const auto& virtComps = virt.getLayout().components;
-                for (int i = 0; i < (int)virtComps.size(); ++i) {
-                    if (virtComps[i].type != "stick") continue;
-                    float sx = 0.0f, sy = 0.0f;
-                    readStickXY(physNow, virtComps[i].stateX, sx, sy);
-                    std::string slotDir;
-                    if      (sy >=  m_stickSelectThreshold) slotDir = "up";
-                    else if (sy <= -m_stickSelectThreshold) slotDir = "down";
-                    else if (sx >=  m_stickSelectThreshold) slotDir = "right";
-                    else if (sx <= -m_stickSelectThreshold) slotDir = "left";
-                    if (slotDir.empty()) continue;
-
-                    auto [vxId, vyId] = stickIdsFromStateX(virtComps[i].stateX);
-                    std::string slotKey;
-                    if      (slotDir == "up")    slotKey = vyId + "_pos";
-                    else if (slotDir == "down")  slotKey = vyId + "_neg";
-                    else if (slotDir == "right") slotKey = vxId + "_pos";
-                    else if (slotDir == "left")  slotKey = vxId + "_neg";
-
-                    auto it = m_model.trigActionEdits.find(m_sel.triggerSrc);
-                    bool already = (it != m_model.trigActionEdits.end() &&
-                                    it->second.type == ButtonActionType::VirtualButton &&
-                                    it->second.name == slotKey);
-                    if (already) {
-                        m_model.trigActionEdits.erase(m_sel.triggerSrc);
-                    } else {
-                        auto& ranges = (m_sel.triggerSrc == "l2") ? m_model.trigLRangeEdits
-                                                                   : m_model.trigRRangeEdits;
-                        ranges.clear();
-                        ButtonAction act;
-                        act.type = ButtonActionType::VirtualButton;
-                        act.name = slotKey;
-                        m_model.trigActionEdits[m_sel.triggerSrc] = act;
-                    }
-                    m_sel.triggerSrc.clear(); m_sel.actionType = ActionType::Xbox;
-                    break;
-                }
-            }
-
-            // Trigger press: rising edge → TriggerPassthrough target
-            {
-                constexpr float kTrigThresh2 = 0.5f;
-                auto doTrigTgtAssign = [&](const std::string& trigTarget, const std::string& trigState) {
-                    auto it = m_model.trigActionEdits.find(m_sel.triggerSrc);
-                    bool already = (it != m_model.trigActionEdits.end() &&
-                                    it->second.type == ButtonActionType::TriggerPassthrough &&
-                                    it->second.target == trigTarget);
-                    if (already) {
-                        m_model.trigActionEdits.erase(m_sel.triggerSrc);
-                        m_sel.flashComp = -1; m_sel.flashTimer = 0.0f; m_sel.flashVirtShort.clear();
-                    } else {
-                        ButtonAction act;
-                        act.type = ButtonActionType::TriggerPassthrough; act.physical = m_sel.triggerSrc;
-                        act.target = trigTarget;
-                        m_model.trigActionEdits[m_sel.triggerSrc] = act;
-                        m_sel.flashComp = findCompByState(virt.getLayout(), trigState);
-                        m_sel.flashTimer = 0.5f; m_sel.flashVirtShort = trigState;
-                    }
-                    m_sel.triggerSrc.clear(); m_sel.actionType = ActionType::Xbox;
-                };
-                if (!m_sel.triggerSrc.empty()) {
-                    if (physNow.triggerL > kTrigThresh2 && m_sel.h9PrevPhysState.triggerL <= kTrigThresh2)
-                        doTrigTgtAssign("l2", "triggerL");
-                    else if (physNow.triggerR > kTrigThresh2 && m_sel.h9PrevPhysState.triggerR <= kTrigThresh2)
-                        doTrigTgtAssign("r2", "triggerR");
-                }
-            }
-        }
+        MappingSourceSelector::assign(phys, virt, m_model, m_sel, physNow,
+                                       m_acceptedXbox, m_stickSelectThreshold);
     }
     // Unconditional every frame, regardless of whether Paso 1 or Paso 2 ran above — Paso 2's
     // rising-edge detection next frame (isStateActive(m_sel.h9PrevPhysState, ...) vs physNow)
@@ -2423,7 +1812,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             // buttons beyond the standard 5), one row, left-aligned. Right half (same row, via
             // the Indent trick — see the H5 panel above): content for the selected type (2026/09/03).
             std::string rangesKey;
-            auto& rangesMap = resolveImuTargetMap(dir, HalfAxisActionType::Ranges, rangesKey);
+            auto& rangesMap = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Ranges, rangesKey);
             auto gyAxisEdit = rangesMap.find(rangesKey);
             bool hasRanges = (gyAxisEdit != rangesMap.end() &&
                               gyAxisEdit->second.type == HalfAxisActionType::Ranges &&
@@ -2480,13 +1869,13 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     // which analog output still uses in full. No UI control on purpose (2026/08/10
                     // discussion): revisit this number by hand if it still feels excessive.
                     ha.threshold = 0.4f;
-                    assignImuAction(dir, ha);
+                    assignImuAction(m_sel, m_model, dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox; m_sel.macroSel.clear(); m_sel.botSel.clear();
                 }
                 if (editInlineMacro) {
                     std::string key;
-                    auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Macro, key);
+                    auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Macro, key);
                     bool usedAccel = (&map == &m_model.accelActionEdits);
                     m_macroModalPending.ctx = MacroModalPending::Ctx::Gyro;
                     m_macroModalPending.key = (usedAccel ? "accel_" : "gyro_") + key;
@@ -2507,7 +1896,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     ha.type = HalfAxisActionType::Keyboard;
                     for (const auto& p : m_sel.captureKeys) ha.keys.push_back(p.first);
                     ha.threshold = 0.4f;  // see Macro assign above
-                    assignImuAction(dir, ha);
+                    assignImuAction(m_sel, m_model, dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox; m_sel.captureKeys.clear();
                 }
@@ -2517,7 +1906,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::MouseClick; ha.mouseButton = mbResult;
                     ha.threshold = 0.4f;  // see Macro assign above
-                    assignImuAction(dir, ha);
+                    assignImuAction(m_sel, m_model, dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox;
                 }
@@ -2559,12 +1948,12 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::MouseMove;
                     ha.target = m_sel.axisMouseAxis; ha.speed = m_sel.axisMouseSpeed; ha.invert = m_sel.axisMouseInvert;
-                    assignImuAction(dir, ha);
+                    assignImuAction(m_sel, m_model, dir, ha);
                     // Auto-assign the opposite logical direction too, so the whole axis controls
                     // the mouse bidirectionally (same sensor, resolved independently but
                     // consistently since the override/default only depends on type+yaw-ness).
                     std::string oppDir = oppositeGyroDir(dir);
-                    if (!oppDir.empty()) assignImuAction(oppDir, ha);
+                    if (!oppDir.empty()) assignImuAction(m_sel, m_model, oppDir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox;
                 }
@@ -2572,7 +1961,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::vector<std::string> availableBots = m_engine->getLoadedBotNames();
                 if (m_sel.botSel.empty()) {
                     std::string key;
-                    auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Bot, key);
+                    auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Bot, key);
                     auto it = map.find(key);
                     if (it != map.end() && it->second.type == HalfAxisActionType::Bot)
                         m_sel.botSel = it->second.target;
@@ -2581,7 +1970,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::Bot; ha.target = m_sel.botSel;
                     ha.threshold = 0.4f;  // see Macro assign above
-                    assignImuAction(dir, ha);
+                    assignImuAction(m_sel, m_model, dir, ha);
                     m_sel.physComp = -1; m_sel.stickDir.clear();
                     m_sel.actionType = ActionType::Xbox; m_sel.botSel.clear();
                 }
@@ -2773,7 +2162,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     tr.action = re.action; tr.hasAction = re.hasAction;
                     ha.ranges.push_back(tr);
                 }
-                if (!dir.empty()) clearImuOtherMap(dir, isAccel);
+                if (!dir.empty()) clearImuOtherMap(m_model, dir, isAccel);
                 map[sensorKey] = ha;
             }
             m_sel.physComp = -1; m_sel.stickDir.clear();
@@ -2826,7 +2215,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 auto& map = isAccel ? m_model.accelActionEdits : m_model.gyroActionEdits;
                 HalfAxisAction ha;
                 ha.type = HalfAxisActionType::Macro; ha.target = ""; ha.execution = ex;
-                if (!dir.empty()) clearImuOtherMap(dir, isAccel);
+                if (!dir.empty()) clearImuOtherMap(m_model, dir, isAccel);
                 map[sensorKey] = ha;
             }
         }
@@ -2964,37 +2353,8 @@ void MappingEditor::onGyroArrowHit(int arrowComp, const std::string& dir) {
     }
 }
 
-// ---------------------------------------------------------------------------
-std::unordered_map<std::string, HalfAxisAction>& MappingEditor::resolveImuTargetMap(
-        const std::string& dir, HalfAxisActionType targetType, std::string& outKey) {
-    bool useAccel = (dir != "cw" && dir != "ccw") &&
-                     (m_sel.imuSourceOverridden ? m_sel.imuUseAccel : imuDefaultUsesAccel(targetType));
-    if (useAccel) {
-        outKey = accelKeyFromDir(dir);
-        return m_model.accelActionEdits;
-    }
-    outKey = gyroKeyFromDir(dir);
-    return m_model.gyroActionEdits;
-}
-
-// ---------------------------------------------------------------------------
-void MappingEditor::clearImuOtherMap(const std::string& dir, bool chosenIsAccel) {
-    if (chosenIsAccel) {
-        std::string gk = gyroKeyFromDir(dir);
-        if (!gk.empty()) m_model.gyroActionEdits.erase(gk);
-    } else {
-        std::string ak = accelKeyFromDir(dir);
-        if (!ak.empty()) m_model.accelActionEdits.erase(ak);
-    }
-}
-
-// ---------------------------------------------------------------------------
-void MappingEditor::assignImuAction(const std::string& dir, const HalfAxisAction& ha) {
-    std::string key;
-    auto& map = resolveImuTargetMap(dir, ha.type, key);
-    clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
-    map[key] = ha;
-}
+// resolveImuTargetMap/clearImuOtherMap/assignImuAction moved to free functions in
+// MappingSelection.h (Tarea 3b) — see the call sites below, now passing m_sel/m_model explicitly.
 
 // ---------------------------------------------------------------------------
 void MappingEditor::onPhysButtonHit(PadView& phys, int physHit) {
@@ -3678,7 +3038,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             else if (virtArrowDir == "left")  slotKey = vxId + "_neg";
             if (!slotKey.empty()) {
                 std::string key;
-                auto& map = resolveImuTargetMap(dir, HalfAxisActionType::StickSlot, key);
+                auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::StickSlot, key);
                 auto it = map.find(key);
                 bool already = (it != map.end() && it->second.type == HalfAxisActionType::StickSlot &&
                                 it->second.target == slotKey);
@@ -3688,7 +3048,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
                 } else {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
-                    clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                    clearImuOtherMap(m_model, dir, &map == &m_model.accelActionEdits);
                     map[key] = ha;
                     m_sel.flashSlotKey = slotKey; m_sel.flashTimer = 1.0f; m_sel.flashComp = -1;
                     m_sel.flashPhysArrowComp = m_sel.physComp;
@@ -3711,7 +3071,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
         if (vState == "triggerL" || vState == "triggerR") {
             std::string trigTarget = (vState == "triggerL") ? "l2" : "r2";
             std::string key;
-            auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Trigger, key);
+            auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Trigger, key);
             auto it = map.find(key);
             bool already = (it != map.end() && it->second.type == HalfAxisActionType::Trigger &&
                             it->second.target == trigTarget);
@@ -3719,7 +3079,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             else {
                 HalfAxisAction ha;
                 ha.type = HalfAxisActionType::Trigger; ha.target = trigTarget;
-                clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                clearImuOtherMap(m_model, dir, &map == &m_model.accelActionEdits);
                 map[key] = ha;
             }
             assigned = true;
@@ -3727,7 +3087,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             std::string vShort = stateToShort(vState);
             if (!vShort.empty()) {
                 std::string key;
-                auto& map = resolveImuTargetMap(dir, HalfAxisActionType::VirtualButton, key);
+                auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::VirtualButton, key);
                 auto it = map.find(key);
                 bool already = (it != map.end() && it->second.type == HalfAxisActionType::VirtualButton &&
                                 it->second.target == vShort);
@@ -3735,7 +3095,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
                 else {
                     HalfAxisAction ha;
                     ha.type = HalfAxisActionType::VirtualButton; ha.target = vShort;
-                    clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                    clearImuOtherMap(m_model, dir, &map == &m_model.accelActionEdits);
                     map[key] = ha;
                 }
                 assigned = true;
@@ -3745,7 +3105,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
         std::string vShort = stateToShort(virtComp.stateClick);
         if (!vShort.empty()) {
             std::string key;
-            auto& map = resolveImuTargetMap(dir, HalfAxisActionType::VirtualButton, key);
+            auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::VirtualButton, key);
             auto it = map.find(key);
             bool already = (it != map.end() && it->second.type == HalfAxisActionType::VirtualButton &&
                             it->second.target == vShort);
@@ -3753,7 +3113,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             else {
                 HalfAxisAction ha;
                 ha.type = HalfAxisActionType::VirtualButton; ha.target = vShort;
-                clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                clearImuOtherMap(m_model, dir, &map == &m_model.accelActionEdits);
                 map[key] = ha;
             }
             assigned = true;
@@ -3763,7 +3123,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             m_virtOrigin.x + virtComp.cx, m_virtOrigin.y + virtComp.cy);
         if (!vdir.empty()) {
             std::string key;
-            auto& map = resolveImuTargetMap(dir, HalfAxisActionType::Dpad, key);
+            auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Dpad, key);
             auto it = map.find(key);
             bool already = (it != map.end() && it->second.type == HalfAxisActionType::Dpad &&
                             it->second.target == vdir);
@@ -3771,7 +3131,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             else {
                 HalfAxisAction ha;
                 ha.type = HalfAxisActionType::Dpad; ha.target = vdir;
-                clearImuOtherMap(dir, &map == &m_model.accelActionEdits);
+                clearImuOtherMap(m_model, dir, &map == &m_model.accelActionEdits);
                 map[key] = ha;
             }
             assigned = true;
