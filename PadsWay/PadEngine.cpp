@@ -1417,15 +1417,18 @@ void PadEngine::threadFunc() {
             bool trigLWasCrossTarget = false;
             bool trigRWasCrossTarget = false;
 
-            if (cfg->triggerLHasAction && cfg->triggerLRanges.empty()) {
+            // VirtualButton targets are already resolved by the Component System
+            // (PhysicalTrigger::process, using the real physical trigger value) — only the
+            // remaining types (marker targets + TriggerPassthrough, which the Component System
+            // can't fully express) need picking up here.
+            if (cfg->triggerLHasAction && cfg->triggerLRanges.empty() &&
+                cfg->triggerLAction.type != ButtonActionType::VirtualButton) {
                 const auto& lAct = cfg->triggerLAction;
-                // Marker targets (Macro/KB/Mouse/Bot) are not written by the Component System,
-                // so read the physical value directly — same pattern as dpadActive().
-                bool lNeedsPhys = lAct.type == ButtonActionType::Macro    ||
-                                  lAct.type == ButtonActionType::Keyboard  ||
-                                  lAct.type == ButtonActionType::MouseClick ||
-                                  lAct.type == ButtonActionType::Bot;
-                float physL = lNeedsPhys ? input->getPhysicalState().triggerL : state.triggerL;
+                // Always read the raw physical trigger value, never `state.triggerL` — by this
+                // point in the frame it may already carry contributions from unrelated sources
+                // (analog stick, dpad, touch zone/gesture) that also target the virtual trigger.
+                // Same invariant as dpadActive(): physical -> virtual, never the other way around.
+                float physL = input->getPhysicalState().triggerL;
                 applyTrigAct(physL, lAct,
                              trigLKbPrev, trigLMousPrev, trigLMacro, trigLMacroOk,
                              trigLBotPrev, state.triggerL);
@@ -1433,13 +1436,10 @@ void PadEngine::threadFunc() {
                     lAct.target == "r2" && physL > 0.0f)
                     trigRWasCrossTarget = true;
             }
-            if (cfg->triggerRHasAction && cfg->triggerRRanges.empty()) {
+            if (cfg->triggerRHasAction && cfg->triggerRRanges.empty() &&
+                cfg->triggerRAction.type != ButtonActionType::VirtualButton) {
                 const auto& rAct = cfg->triggerRAction;
-                bool rNeedsPhys = rAct.type == ButtonActionType::Macro    ||
-                                  rAct.type == ButtonActionType::Keyboard  ||
-                                  rAct.type == ButtonActionType::MouseClick ||
-                                  rAct.type == ButtonActionType::Bot;
-                float physR = rNeedsPhys ? input->getPhysicalState().triggerR : state.triggerR;
+                float physR = input->getPhysicalState().triggerR;
                 applyTrigAct(physR, rAct,
                              trigRKbPrev, trigRMousPrev, trigRMacro, trigRMacroOk,
                              trigRBotPrev, state.triggerR);
