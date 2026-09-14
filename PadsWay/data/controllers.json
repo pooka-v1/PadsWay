@@ -778,7 +778,7 @@
           "virtual": "left_y_neg"
         },
         "left_y_pos": {
-          "virtual": "l2"
+          "virtual": "left_y_pos"
         },
         "right_x_neg": {
           "virtual": "right_x_neg"
@@ -796,38 +796,47 @@
       "buttons": {
         "1": {
           "physical": "x",
-          "virtual": "x"
+          "virtual": "l1"
         },
         "10": {
+          "name": "LightningBot",
           "physical": "start",
-          "virtual": "start"
+          "type": "bot"
         },
         "11": {
+          "name": "CrossDL",
           "physical": "l3",
-          "virtual": "l3"
+          "type": "macro"
         },
         "12": {
+          "keys": [
+            "r",
+            "3"
+          ],
           "physical": "r3",
-          "virtual": "r3"
+          "type": "keyboard"
         },
         "13": {
           "physical": "home",
           "virtual": "home"
         },
         "14": {
-          "physical": "touch_btn"
+          "button": "middle",
+          "physical": "touch_btn",
+          "type": "mouse_click"
         },
         "2": {
           "physical": "a",
-          "virtual": "a"
+          "virtual": "dpad_down"
         },
         "3": {
           "physical": "b",
-          "virtual": "b"
+          "virtual": "left_x_pos"
         },
         "4": {
           "physical": "y",
-          "virtual": "y"
+          "target": "l2",
+          "type": "trigger"
         },
         "5": {
           "physical": "l1",
@@ -844,11 +853,9 @@
       },
       "connection": "usb",
       "dpad": "hid_hat",
-      "dpad_remap": {
-        "up": {
-          "physical": "dpad_up",
-          "target": "l2",
-          "type": "trigger"
+      "gyro_actions": {
+        "x_neg": {
+          "virtual": "l1"
         }
       },
       "imu": {
