@@ -524,7 +524,7 @@ void MappingSourceSelector::assignNonTriggerTarget(const PadView& phys, const Pa
                     ha.target = virtShort;
                 }
                 std::string key;
-                auto& map = resolveImuTargetMap(sel, model, sel.stickDir, ha.type, key);
+                auto& map = resolveImuTargetMap(sel, model, sel.stickDir, key);
                 auto it = map.find(key);
                 bool alreadyAssigned = (it != map.end() && it->second.type == ha.type &&
                                          it->second.target == ha.target);
@@ -636,7 +636,7 @@ void MappingSourceSelector::assignNonTriggerTarget(const PadView& phys, const Pa
                 HalfAxisAction ha;
                 ha.type = HalfAxisActionType::Trigger; ha.target = trigTarget;
                 std::string key;
-                auto& map = resolveImuTargetMap(sel, model, sel.stickDir, ha.type, key);
+                auto& map = resolveImuTargetMap(sel, model, sel.stickDir, key);
                 auto it = map.find(key);
                 bool already = (it != map.end() && it->second.type == ha.type &&
                                 it->second.target == ha.target);
@@ -780,7 +780,7 @@ void MappingSourceSelector::assignNonTriggerTarget(const PadView& phys, const Pa
                 HalfAxisAction ha;
                 ha.type = HalfAxisActionType::StickSlot; ha.target = slotKey;
                 std::string key;
-                auto& map = resolveImuTargetMap(sel, model, sel.stickDir, ha.type, key);
+                auto& map = resolveImuTargetMap(sel, model, sel.stickDir, key);
                 auto it = map.find(key);
                 bool alreadyAssigned = (it != map.end() && it->second.type == ha.type &&
                                          it->second.target == ha.target);

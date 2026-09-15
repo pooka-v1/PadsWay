@@ -271,28 +271,33 @@ inline std::string accelKeyFromDir(const std::string& dir) {
     return "";   // cw/ccw: no accel equivalent, always resolves to gyro
 }
 
-// Default source per destination type, agreed with the user: proportional/held-position targets
-// (dpad hold, analog stick, trigger) default to accel (it sustains a value while tilted); every
-// other target (a discrete press/toggle, or mouse-move which already accumulates like a gyro
-// mouse) defaults to gyro.
-inline bool imuDefaultUsesAccel(HalfAxisActionType t) {
-    return t == HalfAxisActionType::Dpad ||
-           t == HalfAxisActionType::StickSlot ||
-           t == HalfAxisActionType::Trigger;
+// Whether this direction's source already resolves to accel going by what's actually saved in
+// the model — i.e. there's an existing accelActionEdits entry for it — rather than guessing from
+// the HalfAxisActionType the user is about to assign. An earlier version defaulted per target
+// type (dpad/stick/trigger -> accel, everything else -> gyro) to guess which sensor the user
+// probably wanted before they'd picked a target; in practice the guess and the actual target
+// often disagreed (e.g. previewing gyro while about to assign a stick slot, which defaulted to
+// accel), and worse, re-clicking an existing assignment could silently move it from one sensor's
+// map to the other. There is no default left to guess: nothing assigned yet is gyro, anything
+// already assigned is whatever it already is.
+inline bool imuDirIsAssignedToAccel(const MappingModel& model, const std::string& dir) {
+    std::string accelKey = accelKeyFromDir(dir);
+    return !accelKey.empty() && model.accelActionEdits.count(accelKey) > 0;
 }
 
 // PURE lookup, no side effects — safe to call every frame for display purposes as well as right
 // before a write. Resolves which map (model.gyroActionEdits or accelActionEdits) a gyro-widget
-// logical direction should read/write for the given HalfAxisActionType, and writes the native key
-// for that sensor to outKey (gyro and accel use different keys for the same direction — see
-// PhysicalAccel's comment in ComponentTypes.h). cw/ccw always resolve to gyro (accel can't sense
-// yaw). Otherwise: sel.imuSourceOverridden wins if set, else the type's own default
-// (Dpad/StickSlot/Trigger -> accel, everything else -> gyro).
+// logical direction should read/write, and writes the native key for that sensor to outKey (gyro
+// and accel use different keys for the same direction — see PhysicalAccel's comment in
+// ComponentTypes.h). cw/ccw always resolve to gyro (accel can't sense yaw). Otherwise:
+// sel.imuSourceOverridden wins if the user has touched the Gyro/Accel toggle by hand for this
+// direction; else it follows whatever is already assigned (imuDirIsAssignedToAccel), defaulting
+// to gyro only when nothing is assigned yet.
 inline std::unordered_map<std::string, HalfAxisAction>& resolveImuTargetMap(
         const MappingSelection& sel, MappingModel& model,
-        const std::string& dir, HalfAxisActionType targetType, std::string& outKey) {
+        const std::string& dir, std::string& outKey) {
     bool useAccel = (dir != "cw" && dir != "ccw") &&
-                     (sel.imuSourceOverridden ? sel.imuUseAccel : imuDefaultUsesAccel(targetType));
+                     (sel.imuSourceOverridden ? sel.imuUseAccel : imuDirIsAssignedToAccel(model, dir));
     if (useAccel) {
         outKey = accelKeyFromDir(dir);
         return model.accelActionEdits;
@@ -319,7 +324,7 @@ inline void clearImuOtherMap(MappingModel& model, const std::string& dir, bool c
 inline void assignImuAction(const MappingSelection& sel, MappingModel& model,
                              const std::string& dir, const HalfAxisAction& ha) {
     std::string key;
-    auto& map = resolveImuTargetMap(sel, model, dir, ha.type, key);
+    auto& map = resolveImuTargetMap(sel, model, dir, key);
     clearImuOtherMap(model, dir, &map == &model.accelActionEdits);
     map[key] = ha;
 }

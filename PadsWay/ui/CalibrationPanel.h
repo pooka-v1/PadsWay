@@ -101,6 +101,26 @@ private:
     static constexpr float kCompassPad      = 14.0f;
     static constexpr float kCompassDiameter = (kCompassRadius + kCompassPad) * 2.0f;
 
+    // Shared by renderGyroCompass/renderAccelCompass's hit-test and drag math (see their
+    // "solo vale pinchar en la puntita" comment on why the grab tolerance is split in two).
+    static constexpr float kCompassOuterCeiling = 1.20f;
+    static constexpr float kCompassHitTol       = 12.0f;
+    static constexpr float kCompassAxisTol      = 14.0f;
+
+    // One candidate handle in a compass widget's hit-test: how far the mouse is from it (d) and
+    // whether it's even in the right band to be considered (valid, e.g. onVAxis/onHAxis/onArc).
+    // renderGyroCompass and renderAccelCompass each build their own list (6 vs 4 candidates —
+    // gyro adds the yaw arc) and hand it to pickCompassHandle so both axes and the arc compete
+    // in the same single distance comparison, exactly as before this was split into two
+    // functions — splitting the candidate pool by phase would change which handle wins when two
+    // are both within tolerance.
+    struct CompassCandidate {
+        CompassHandle h;
+        float         d;
+        bool          valid;
+    };
+    static CompassHandle pickCompassHandle(const CompassCandidate* candidates, size_t count, float hitTol);
+
     void reload();
     void save();
 

@@ -180,7 +180,7 @@ static std::pair<int, std::string> slotKeyToArrow(const PadLayout& vLayout, cons
 }
 
 // ---------------------------------------------------------------------------
-// gyroKeyFromDir/accelKeyFromDir/imuDefaultUsesAccel moved to free functions in
+// gyroKeyFromDir/accelKeyFromDir/imuDirIsAssignedToAccel moved to free functions in
 // MappingSelection.h (Tarea 3b) — resolveImuTargetMap() (also moved there) needs them, and it is
 // called both from this file and from MappingSourceSelector's H9 Paso 2.
 
@@ -1764,27 +1764,16 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             float halfW   = (availW - colGap) * 0.5f;
             float indentW = halfW + colGap;
 
-            // Source toggle: Gyro / Accel. Whichever is the type's own default shows marked
-            // until the user picks one explicitly. Hidden for yaw (cw/ccw) - accel cannot sense
-            // rotation around the vertical axis while flat, always gyro. Centered within the left
-            // half (2026/09/04, was centered on the full width) so it sits above the type-button
-            // row instead of floating separately over the whole panel.
+            // Source toggle: Gyro / Accel. Shows whichever sensor this direction is actually
+            // assigned to right now (imuDirIsAssignedToAccel — nothing assigned yet defaults to
+            // gyro), until the user overrides it by hand for this direction. Hidden for yaw
+            // (cw/ccw) - accel cannot sense rotation around the vertical axis while flat, always
+            // gyro. Centered within the left half (2026/09/04, was centered on the full width) so
+            // it sits above the type-button row instead of floating separately over the whole
+            // panel.
             if (!dirIsYaw) {
-                // Representative HalfAxisActionType per tab, used only to preview the default
-                // before a concrete target is picked. The "Mando" tab covers 4 different target
-                // kinds (button/dpad/trigger/stick) decided only at click time — VirtualButton
-                // (gyro-default) previews it since button is the most common case there.
-                HalfAxisActionType previewType = HalfAxisActionType::VirtualButton;
-                switch (m_sel.actionType) {
-                    case ActionType::Macro:     previewType = HalfAxisActionType::Macro;      break;
-                    case ActionType::Keyboard:  previewType = HalfAxisActionType::Keyboard;   break;
-                    case ActionType::Mouse:     previewType = HalfAxisActionType::MouseClick; break;
-                    case ActionType::MouseMove: previewType = HalfAxisActionType::MouseMove;  break;
-                    case ActionType::Bot:       previewType = HalfAxisActionType::Bot;        break;
-                    default: break;
-                }
                 bool displayAccel = m_sel.imuSourceOverridden ? m_sel.imuUseAccel
-                                                               : imuDefaultUsesAccel(previewType);
+                                                               : imuDirIsAssignedToAccel(m_model, dir);
 
                 constexpr float kSrcBtnW = 70.0f;
                 float totalSrcW = kSrcBtnW * 2 + ImGui::GetStyle().ItemSpacing.x;
@@ -1812,7 +1801,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             // buttons beyond the standard 5), one row, left-aligned. Right half (same row, via
             // the Indent trick — see the H5 panel above): content for the selected type (2026/09/03).
             std::string rangesKey;
-            auto& rangesMap = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Ranges, rangesKey);
+            auto& rangesMap = resolveImuTargetMap(m_sel, m_model, dir, rangesKey);
             auto gyAxisEdit = rangesMap.find(rangesKey);
             bool hasRanges = (gyAxisEdit != rangesMap.end() &&
                               gyAxisEdit->second.type == HalfAxisActionType::Ranges &&
@@ -1875,7 +1864,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 }
                 if (editInlineMacro) {
                     std::string key;
-                    auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Macro, key);
+                    auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
                     bool usedAccel = (&map == &m_model.accelActionEdits);
                     m_macroModalPending.ctx = MacroModalPending::Ctx::Gyro;
                     m_macroModalPending.key = (usedAccel ? "accel_" : "gyro_") + key;
@@ -1961,7 +1950,7 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                 std::vector<std::string> availableBots = m_engine->getLoadedBotNames();
                 if (m_sel.botSel.empty()) {
                     std::string key;
-                    auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Bot, key);
+                    auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
                     auto it = map.find(key);
                     if (it != map.end() && it->second.type == HalfAxisActionType::Bot)
                         m_sel.botSel = it->second.target;
@@ -3038,7 +3027,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             else if (virtArrowDir == "left")  slotKey = vxId + "_neg";
             if (!slotKey.empty()) {
                 std::string key;
-                auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::StickSlot, key);
+                auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
                 auto it = map.find(key);
                 bool already = (it != map.end() && it->second.type == HalfAxisActionType::StickSlot &&
                                 it->second.target == slotKey);
@@ -3071,7 +3060,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
         if (vState == "triggerL" || vState == "triggerR") {
             std::string trigTarget = (vState == "triggerL") ? "l2" : "r2";
             std::string key;
-            auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Trigger, key);
+            auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
             auto it = map.find(key);
             bool already = (it != map.end() && it->second.type == HalfAxisActionType::Trigger &&
                             it->second.target == trigTarget);
@@ -3087,7 +3076,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             std::string vShort = stateToShort(vState);
             if (!vShort.empty()) {
                 std::string key;
-                auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::VirtualButton, key);
+                auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
                 auto it = map.find(key);
                 bool already = (it != map.end() && it->second.type == HalfAxisActionType::VirtualButton &&
                                 it->second.target == vShort);
@@ -3105,7 +3094,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
         std::string vShort = stateToShort(virtComp.stateClick);
         if (!vShort.empty()) {
             std::string key;
-            auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::VirtualButton, key);
+            auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
             auto it = map.find(key);
             bool already = (it != map.end() && it->second.type == HalfAxisActionType::VirtualButton &&
                             it->second.target == vShort);
@@ -3123,7 +3112,7 @@ void MappingEditor::onVirtHitGyroAction(PadView& phys, PadView& virt, ImVec2 mou
             m_virtOrigin.x + virtComp.cx, m_virtOrigin.y + virtComp.cy);
         if (!vdir.empty()) {
             std::string key;
-            auto& map = resolveImuTargetMap(m_sel, m_model, dir, HalfAxisActionType::Dpad, key);
+            auto& map = resolveImuTargetMap(m_sel, m_model, dir, key);
             auto it = map.find(key);
             bool already = (it != map.end() && it->second.type == HalfAxisActionType::Dpad &&
                             it->second.target == vdir);
