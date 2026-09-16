@@ -48,6 +48,17 @@ private:
     void renderPadsTab();
     void renderLayoutTab();
 
+    // --- Scanner tab internals (split out of renderScannerTab, see BITACORA.md) ---
+    void kickHidScan();                  // starts the async HID scan if not already running
+    void updateScannerHidScan();         // re-kicks it on its timer, applies results once ready
+    void renderScannerDeviceList();      // left panel: splitter + device list + drag handle
+    void updateScannerImuDetection(const RawHIDState& snap);  // gyro/accel byte-run auto-detect
+    void renderScannerDpadAndButtons(const RawHIDState& snap);
+    void renderScannerAxesAndImu(const RawHIDState& snap);
+    void renderScannerTouch(const RawHIDState& snap);
+    void renderScannerRawBytes(const RawHIDState& snap);
+    void renderScannerInputMonitor();    // right panel body, called inside the ##InputMonitor child
+
     // Re-scan data/*.json for game profiles and update m_profilePaths/Names.
     void refreshProfileList();
 
