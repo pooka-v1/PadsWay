@@ -159,6 +159,7 @@
     <ClCompile Include="output\ViGEmDs4OutputAdapter.cpp" />
     <ClCompile Include="output\HidHideClient.cpp" />
     <ClCompile Include="PadEngine.cpp" />
+    <ClCompile Include="PadEngineActionDispatch.cpp" />
     <ClCompile Include="AppWindow.cpp" />
     <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
@@ -206,6 +207,7 @@
     <ClInclude Include="output\HidHideClient.h" />
     <ClInclude Include="PadEngine.h" />
     <ClInclude Include="PadEngineActionHolder.h" />
+    <ClInclude Include="PadEngineActionDispatch.h" />
     <ClInclude Include="AppWindow.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />
