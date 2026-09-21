@@ -796,47 +796,38 @@
       "buttons": {
         "1": {
           "physical": "x",
-          "virtual": "l1"
+          "virtual": "x"
         },
         "10": {
-          "name": "LightningBot",
           "physical": "start",
-          "type": "bot"
+          "virtual": "start"
         },
         "11": {
-          "name": "CrossDL",
           "physical": "l3",
-          "type": "macro"
+          "virtual": "l3"
         },
         "12": {
-          "keys": [
-            "r",
-            "3"
-          ],
           "physical": "r3",
-          "type": "keyboard"
+          "virtual": "r3"
         },
         "13": {
           "physical": "home",
           "virtual": "home"
         },
         "14": {
-          "button": "middle",
-          "physical": "touch_btn",
-          "type": "mouse_click"
+          "physical": "touch_btn"
         },
         "2": {
           "physical": "a",
-          "virtual": "dpad_down"
+          "virtual": "a"
         },
         "3": {
           "physical": "b",
-          "virtual": "left_x_pos"
+          "virtual": "b"
         },
         "4": {
           "physical": "y",
-          "target": "l2",
-          "type": "trigger"
+          "virtual": "y"
         },
         "5": {
           "physical": "l1",
@@ -853,11 +844,6 @@
       },
       "connection": "usb",
       "dpad": "hid_hat",
-      "gyro_actions": {
-        "x_neg": {
-          "virtual": "l1"
-        }
-      },
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -900,66 +886,6 @@
         "right": {
           "deadzone": 0.03999999910593033,
           "max": 0.9900000095367432
-        }
-      },
-      "touch_gesture_actions": {
-        "down": {
-          "virtual": "left_y_neg"
-        },
-        "left": {
-          "virtual": "x"
-        },
-        "parallel_down": {
-          "button": "middle",
-          "type": "mouse_click"
-        },
-        "parallel_up": {
-          "name": "CastlevaniaSubWeaponAttack",
-          "type": "macro"
-        },
-        "pinch_close": {
-          "name": "LightningBot",
-          "type": "bot"
-        },
-        "right": {
-          "target": "l2",
-          "type": "trigger"
-        },
-        "twist_down_up": {
-          "keys": [
-            "down",
-            "up"
-          ],
-          "type": "keyboard"
-        },
-        "up": {
-          "virtual": "dpad_up"
-        }
-      },
-      "touch_zone_actions": {
-        "r0c0": {
-          "button": "left",
-          "type": "mouse_click"
-        },
-        "r0c1": {
-          "virtual": "y"
-        },
-        "r0c2": {
-          "target": "l2",
-          "type": "trigger"
-        },
-        "r1c0": {
-          "name": "LightningBot",
-          "type": "bot"
-        },
-        "r1c1": {
-          "virtual": "left_y_neg"
-        },
-        "r1c2": {
-          "keys": [
-            "y"
-          ],
-          "type": "keyboard"
         }
       },
       "touchpad": {
@@ -1049,7 +975,8 @@
       },
       "trigger_actions": {
         "l2": {
-          "virtual": "l1"
+          "target": "l2",
+          "type": "trigger_passthrough"
         },
         "r2": {
           "target": "r2",
