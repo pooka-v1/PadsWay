@@ -1206,6 +1206,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             // Gestos — gesture action sub-panel, below the row above (unchanged from before,
             // still spans the full width, only reached once a specific gesture icon is picked).
             ImGui::Spacing();
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 2.0f);  // claw back 2px (2026/09/22, kills a
+                                                                   // vertical scrollbar by that much)
             const std::string& gestureSel = m_sel.touchGestureSelected;
 
             // Label + merged hint (2026/09/03), centered like the other panels.
@@ -1313,33 +1315,14 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
             ImGui::TextDisabled("%s", tr("action.touch_gestures_hint"));
         }
 
-        // Explicit close button — only for the Zonas/Gestos region-or-gesture action sub-panel
-        // (2026/09/04: gated to that, was firing for every mode since m_sel.actionType defaults
-        // to Xbox — showed a stray extra "Asignar" under Mov.Raton/Analogico/Limpiar too, which
-        // already got their own close button, or none at all, up in the mode row), and only for
-        // action types with no self-committing widget of their own: Mando waits silently for a
-        // virtual-pad click, Ratón has no combo/capture step to commit through. Macro/Teclado/Bot
-        // already assign and close themselves via their own inner "Asignar"
-        // (ActionPanel::renderMacroCombo/renderKeyboardCapture/renderBotCombo) — a second button
-        // with the same label there would assign nothing, just close, so it's hidden to avoid two
-        // "Asignar" on screen at once.
-        bool inTouchSubPanel =
-            (m_model.touchSurfaceMode == TouchpadSurfaceMode::Zones && !m_sel.touchZoneRegionSelected.empty()) ||
-            (m_model.touchSurfaceMode == TouchpadSurfaceMode::Gesture && !m_sel.touchGestureSelected.empty());
-        if (inTouchSubPanel &&
-            (m_sel.actionType == ActionType::Xbox || m_sel.actionType == ActionType::Mouse)) {
-            ImGui::Spacing();
-            float assignW  = 110.0f;
-            float assignOffX = (availW - assignW) * 0.5f;
-            if (assignOffX > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + assignOffX);
-            const char* closeLabel = (m_sel.actionType == ActionType::Mouse) ? tr("btn.back") : tr("btn.assign");
-            if (ImGui::Button(closeLabel, { assignW, 0.0f })) {
-                m_sel.physComp = -1;
-                m_sel.touchSurfaceSelected = false;
-                m_sel.touchZoneRegionSelected.clear();
-                m_sel.touchGestureSelected.clear();
-            }
-        }
+        // The Zonas/Gestos region-or-gesture action sub-panel used to have an explicit close
+        // button here for Mando/Ratón (removed 2026/09/22 — user confirmed neither needs it:
+        // Mando assigns via a physical-pad press or a virtual-pad click, both already handled by
+        // onVirtHitTouchZone/onVirtHitTouchGesture; Ratón self-commits and closes on its own
+        // button click, same as Macro/Teclado/Bot). No dedicated "unassign" affordance either —
+        // clicking the same virtual target a zone/gesture is already bound to toggles it off
+        // (see the `already` check in onVirtHitTouchZone/onVirtHitTouchGesture), which is the only
+        // way to clear one for now. Known rough edge, accepted for now.
     } else if ((selType != "stick" && selType != "gyro") || m_sel.stickAsButton) {
         // ── H5: botón seleccionado ─────────────────────────────────────────
         const auto& selPhysComp = physComps[m_sel.physComp];
@@ -1683,34 +1666,12 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
                     }
                 } else {
                     // Mando mode: user clicks virtual pad → onVirtHitAxisAction — silent, just
-                    // close the row (nothing to draw on the right).
+                    // close the row (nothing to draw on the right). Clicking the same StickSlot/
+                    // Trigger target again toggles the assignment off (see onVirtHitAxisAction's
+                    // `already` check) — that's the only way to unassign now, same as Zonas/Gestos.
                     ImGui::NewLine();
                 }
                 ImGui::Unindent(indentW);
-
-                // Clear button if already assigned
-                if (m_model.axisActionEdits.count(axisKey)) {
-                    ImGui::Spacing();
-                    float clearW = 100.0f;
-                    float offX3 = (availW - clearW) * 0.5f;
-                    if (offX3 > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offX3);
-                    if (ImGui::Button(trid("btn.clear", "axisClear").c_str(), { clearW, 0.0f })) {
-                        auto it = m_model.axisActionEdits.find(axisKey);
-                        bool isMouseMove = (it != m_model.axisActionEdits.end() &&
-                                            it->second.type == HalfAxisActionType::MouseMove);
-                        m_model.axisActionEdits.erase(axisKey);
-                        if (isMouseMove) {
-                            auto oppositeKey = [](const std::string& k) {
-                                size_t p = k.rfind("_pos");
-                                if (p != std::string::npos) { auto r = k; r.replace(p, 4, "_neg"); return r; }
-                                size_t n = k.rfind("_neg");
-                                if (n != std::string::npos) { auto r = k; r.replace(n, 4, "_pos"); return r; }
-                                return k;
-                            };
-                            m_model.axisActionEdits.erase(oppositeKey(axisKey));
-                        }
-                    }
-                }
             }
         }
     } // stick axis action panel
