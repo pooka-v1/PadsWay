@@ -94,21 +94,22 @@ void sendMouseButton(const std::string& btn, bool press) {
 // PadEngineActionDispatch
 // ---------------------------------------------------------------------------
 
-PadEngineActionDispatch::PadEngineActionDispatch(std::function<void(PadEvent)> pushEvent)
-    : m_pushEvent(std::move(pushEvent)) {}
+PadEngineActionDispatch::PadEngineActionDispatch(std::function<void(PadEvent)> pushEvent,
+                                                 OsInputSender osInput)
+    : m_pushEvent(std::move(pushEvent)), m_osInput(std::move(osInput)) {}
 
 int PadEngineActionDispatch::keyboard(bool editorOpen, bool active, bool& prev,
                                        const std::vector<std::string>& keys) {
     if (editorOpen) return 0;
     int edge = 0;
     if (active && !prev) {
-        sendKeyCombo(keys, true);
+        m_osInput.keyCombo(keys, true);
         std::string combo;
         for (const auto& k : keys) { if (!combo.empty()) combo += '+'; combo += k; }
         m_pushEvent({ PadEventType::KeyboardAction, combo, true });
         edge = 1;
     } else if (!active && prev) {
-        sendKeyCombo(keys, false);
+        m_osInput.keyCombo(keys, false);
         edge = -1;
     }
     prev = active;
@@ -117,7 +118,7 @@ int PadEngineActionDispatch::keyboard(bool editorOpen, bool active, bool& prev,
 
 int PadEngineActionDispatch::mouse(bool editorOpen, bool active, bool& prev, const std::string& btn) {
     if (editorOpen || active == prev) return 0;
-    sendMouseButton(btn, active);
+    m_osInput.mouseButton(btn, active);
     if (active) m_pushEvent({ PadEventType::MouseAction, btn + " click", true });
     prev = active;
     return active ? 1 : -1;
@@ -172,9 +173,9 @@ void PadEngineActionDispatch::rangeAction(bool editorOpen, const std::string& ke
 
     if (prev.has_value()) {
         if (prev->type == ButtonActionType::Keyboard)
-            sendKeyCombo(prev->keys, false);
+            m_osInput.keyCombo(prev->keys, false);
         else if (prev->type == ButtonActionType::MouseClick)
-            sendMouseButton(prev->mouseButton, false);
+            m_osInput.mouseButton(prev->mouseButton, false);
         else if (prev->type == ButtonActionType::Macro) {
             auto mit = rangeMacros.find(key + "|" + prev->name);
             if (mit != rangeMacros.end() && rangeMacroOk[key + "|" + prev->name])
@@ -185,12 +186,12 @@ void PadEngineActionDispatch::rangeAction(bool editorOpen, const std::string& ke
     if (isActive) {
         const ButtonAction& cur = it->second;
         if (cur.type == ButtonActionType::Keyboard) {
-            sendKeyCombo(cur.keys, true);
+            m_osInput.keyCombo(cur.keys, true);
             std::string combo;
             for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
             m_pushEvent({ PadEventType::KeyboardAction, combo, true });
         } else if (cur.type == ButtonActionType::MouseClick) {
-            sendMouseButton(cur.mouseButton, true);
+            m_osInput.mouseButton(cur.mouseButton, true);
             m_pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
         } else if (cur.type == ButtonActionType::Macro) {
             std::string mkey = key + "|" + cur.name;

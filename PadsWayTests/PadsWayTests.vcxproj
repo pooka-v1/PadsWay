@@ -140,15 +140,22 @@
     <ClCompile Include="..\PadsWay\macros\MacroParser.cpp" />
     <ClCompile Include="..\PadsWay\ui\MacroStep.cpp" />
     <ClCompile Include="..\PadsWay\ui\MappingModel.cpp" />
+    <ClCompile Include="..\PadsWay\PadEngineActionDispatch.cpp" />
+    <ClCompile Include="..\PadsWay\bots\BotLoader.cpp" />
     <ClCompile Include="catch2\catch_amalgamated.cpp" />
+    <ClCompile Include="tests\test_BotLoader.cpp" />
     <ClCompile Include="tests\test_ComponentTypes.cpp" />
     <ClCompile Include="tests\test_ConfigLoader.cpp" />
     <ClCompile Include="tests\test_Macro.cpp" />
     <ClCompile Include="tests\test_MacroParser.cpp" />
     <ClCompile Include="tests\test_MacroStep.cpp" />
+    <ClCompile Include="tests\test_MappingHelpers.cpp" />
     <ClCompile Include="tests\test_MappingModel.cpp" />
     <ClCompile Include="tests\test_MappingSelection.cpp" />
+    <ClCompile Include="tests\test_PadEngineActionDispatch.cpp" />
     <ClCompile Include="tests\test_PadEngineActionHolder.cpp" />
+    <ClCompile Include="tests\test_ShippedData.cpp" />
+    <ClCompile Include="tests\test_StickSlotsHelper.cpp" />
     <ClCompile Include="tests\test_TouchGestures.cpp" />
     <ClCompile Include="tests\test_TouchZones.cpp" />
   </ItemGroup>
