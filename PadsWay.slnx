@@ -5,5 +5,6 @@
   <Folder Name="/Elementos de la solución/" />
   <Project Path="PadsWay/PadsWay.vcxproj" Id="51506331-12a2-4ec3-a608-f929699433eb" />
   <Project Path="PadsWayTests/PadsWayTests.vcxproj" Id="f3f80621-4b85-47ca-a667-666ba6c419aa" />
+  <Project Path="PadsWayE2E/PadsWayE2E.vcxproj" Id="078a99de-f2fe-42b7-8600-566c8a2b0472" />
   <Project Path="LightningBotDLL/LightningBotDLL.vcxproj" Id="8a7f6e5d-4c3b-4a29-b8d7-f1e2a3b4c5d6" />
 </Solution>
