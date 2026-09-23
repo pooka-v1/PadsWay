@@ -11,6 +11,21 @@
 
 class BotLoader;
 
+// Sends a key combo via SendInput — press in order, release in reverse. Moved here from
+// PadEngine.cpp alongside the dispatch logic that owns most of its call sites; PadEngine.cpp's
+// trigger-range dispatch (which has its own vector-indexed shape, see the comment at its call site)
+// still calls these directly for its own Keyboard/MouseClick cases.
+void sendKeyCombo(const std::vector<std::string>& keys, bool press);
+void sendMouseButton(const std::string& btn, bool press);
+
+// OS-level input injection used by PadEngineActionDispatch. Defaults to the real SendInput-backed
+// helpers above; PadsWayTests swaps in recording fakes so the edge/dispatch logic can be exercised
+// without pressing real keys on the machine running the tests.
+struct OsInputSender {
+    std::function<void(const std::vector<std::string>&, bool)> keyCombo    = sendKeyCombo;
+    std::function<void(const std::string&, bool)>               mouseButton = sendMouseButton;
+};
+
 // ---------------------------------------------------------------------------
 // PadEngineActionDispatch — shared edge-triggered dispatch mechanics for Macro/Keyboard/
 // MouseClick/Bot actions. Every action-holder (button/dpad/axis/gyro/accel/touch zone/trigger)
@@ -31,7 +46,9 @@ class BotLoader;
 // ---------------------------------------------------------------------------
 class PadEngineActionDispatch {
 public:
-    explicit PadEngineActionDispatch(std::function<void(PadEvent)> pushEvent);
+    // osInput defaults to the real SendInput helpers — only tests pass their own.
+    explicit PadEngineActionDispatch(std::function<void(PadEvent)> pushEvent,
+                                     OsInputSender osInput = {});
 
     // Returns the edge that just fired: 1 = fresh press, -1 = fresh release, 0 = none/suppressed.
     int keyboard(bool editorOpen, bool active, bool& prev, const std::vector<std::string>& keys);
@@ -57,11 +74,5 @@ public:
 
 private:
     std::function<void(PadEvent)> m_pushEvent;
+    OsInputSender                 m_osInput;
 };
-
-// Sends a key combo via SendInput — press in order, release in reverse. Moved here from
-// PadEngine.cpp alongside the dispatch logic that owns most of its call sites; PadEngine.cpp's
-// trigger-range dispatch (which has its own vector-indexed shape, see the comment at its call site)
-// still calls these directly for its own Keyboard/MouseClick cases.
-void sendKeyCombo(const std::vector<std::string>& keys, bool press);
-void sendMouseButton(const std::string& btn, bool press);

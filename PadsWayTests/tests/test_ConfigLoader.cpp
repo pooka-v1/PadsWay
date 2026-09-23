@@ -1222,3 +1222,115 @@ TEST_CASE("saveVirtualPadOutputType on a corrupt file still writes the type", "[
     std::remove(path.c_str());
     REQUIRE(reloaded.outputType == VirtualOutputType::DualShock);
 }
+
+TEST_CASE("saveMacroLibrary round-trips through loadMacroLibrary", "[ConfigLoader]") {
+    const std::string path = "test_tmp_macrolib_roundtrip.json";
+    saveMacroLibrary(path, { { "Hadoken", "CD=30, CDR=50, CR + X=80" }, { "Spin", "(A, B)*UP" } });
+    auto lib = loadMacroLibrary(path);
+    std::remove(path.c_str());
+    REQUIRE(lib.size() == 2);
+    CHECK(lib.at("Hadoken") == "CD=30, CDR=50, CR + X=80");
+    CHECK(lib.at("Spin") == "(A, B)*UP");
+}
+
+TEST_CASE("saveMacroLibrary with an empty list writes an empty library", "[ConfigLoader]") {
+    const std::string path = "test_tmp_macrolib_empty.json";
+    saveMacroLibrary(path, {});
+    auto lib = loadMacroLibrary(path);
+    std::remove(path.c_str());
+    CHECK(lib.empty());
+}
+
+TEST_CASE("saveMacroLibrary throws when the target directory does not exist", "[ConfigLoader]") {
+    CHECK_THROWS(saveMacroLibrary("__no_such_dir_abc__/macros.json", { { "A", "A" } }));
+}
+
+TEST_CASE("savePadLayouts round-trips canvas, geometry, bindings and colors", "[ConfigLoader]") {
+    PadLayout layout;
+    layout.id = "RoundTrip";
+    layout.W = 500.0f; layout.FrontH = 210.0f; layout.TopH = 330.0f;
+
+    PadComponent btn;
+    btn.id = "btnA"; btn.view = "top"; btn.type = "button";
+    btn.image = "a.png"; btn.overlay = "a_ov.png";
+    btn.overlayScaleX = 0.8f; btn.overlayScaleY = 0.6f;   // non-uniform -> saved as an array
+    btn.cx = 100.5f; btn.cy = 50.25f; btn.w = 32.0f; btn.h = 30.0f;
+    btn.state = "btnA"; btn.threshold = 0.2f;
+    btn.colorR = 0.1f; btn.colorG = 0.2f; btn.colorB = 0.3f; btn.colorA = 0.4f;
+    btn.activeColorR = 0.9f;
+    btn.ovColorG = 0.5f;
+    btn.activeOvColorB = 0.25f;
+
+    PadComponent stick;
+    stick.id = "left_stick"; stick.view = "top"; stick.type = "stick";
+    stick.size = 40.0f; stick.maxOffset = 12.0f; stick.overlayScaleX = stick.overlayScaleY = 1.5f;
+    stick.stateX = "leftX"; stick.stateY = "leftY"; stick.stateClick = "btnL3";
+
+    PadComponent dpad;
+    dpad.id = "dpad"; dpad.view = "top"; dpad.type = "dpad";
+    dpad.stateUp = "dpadUp"; dpad.stateDown = "dpadDown";
+    dpad.stateLeft = "dpadLeft"; dpad.stateRight = "dpadRight";
+    dpad.imageUp = "up.png"; dpad.imageRight = "right.png";
+
+    PadComponent gyro;
+    gyro.id = "gyro"; gyro.view = "front"; gyro.type = "decoration"; gyro.stateZ = "gyroY";
+
+    layout.components = { btn, stick, dpad, gyro };
+
+    const std::string path = "test_tmp_layouts_roundtrip.json";
+    savePadLayouts(path, { layout });
+    auto loaded = loadPadLayouts(path);
+    std::remove(path.c_str());
+
+    REQUIRE(loaded.size() == 1);
+    const PadLayout& L = loaded[0];
+    CHECK(L.id == "RoundTrip");
+    CHECK(L.W == 500.0f);
+    CHECK(L.FrontH == 210.0f);
+    CHECK(L.TopH == 330.0f);
+    REQUIRE(L.components.size() == 4);
+
+    const PadComponent& b = L.components[0];
+    CHECK(b.image == "a.png");
+    CHECK(b.overlay == "a_ov.png");
+    CHECK(b.overlayScaleX == 0.8f);
+    CHECK(b.overlayScaleY == 0.6f);
+    CHECK(b.cx == 100.5f);
+    CHECK(b.cy == 50.25f);
+    CHECK(b.w == 32.0f);
+    CHECK(b.h == 30.0f);
+    CHECK(b.state == "btnA");
+    CHECK(b.threshold == 0.2f);
+    CHECK(b.colorR == 0.1f);
+    CHECK(b.colorA == 0.4f);
+    CHECK(b.activeColorR == 0.9f);
+    CHECK(b.ovColorG == 0.5f);
+    CHECK(b.activeOvColorB == 0.25f);
+
+    const PadComponent& s = L.components[1];
+    CHECK(s.size == 40.0f);
+    CHECK(s.maxOffset == 12.0f);
+    CHECK(s.overlayScaleX == 1.5f);   // uniform scale saved as a single number
+    CHECK(s.overlayScaleY == 1.5f);
+    CHECK(s.stateX == "leftX");
+    CHECK(s.stateY == "leftY");
+    CHECK(s.stateClick == "btnL3");
+
+    const PadComponent& d = L.components[2];
+    CHECK(d.stateUp == "dpadUp");
+    CHECK(d.stateDown == "dpadDown");
+    CHECK(d.stateLeft == "dpadLeft");
+    CHECK(d.stateRight == "dpadRight");
+    CHECK(d.imageUp == "up.png");
+    CHECK(d.imageRight == "right.png");
+    CHECK(d.imageDown.empty());
+
+    const PadComponent& g = L.components[3];
+    CHECK(g.view == "front");
+    CHECK(g.stateZ == "gyroY");
+    CHECK(g.threshold == 0.05f);      // default, not written, reloads as default
+}
+
+TEST_CASE("savePadLayouts throws when the target directory does not exist", "[ConfigLoader]") {
+    CHECK_THROWS(savePadLayouts("__no_such_dir_abc__/pad_layouts.json", {}));
+}

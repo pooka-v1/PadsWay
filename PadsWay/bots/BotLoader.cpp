@@ -84,10 +84,14 @@ void BotLoader::scan(const std::string& dir) {
         }
 
         spdlog::info("[BotLoader] Loaded bot '{}' from '{}'.", bot->name, fd.cFileName);
-        m_bots.push_back(std::move(bot));
+        add(std::move(bot));
     } while (FindNextFileA(h, &fd));
 
     FindClose(h);
+}
+
+void BotLoader::add(std::unique_ptr<BotInstance> bot) {
+    m_bots.push_back(std::move(bot));
 }
 
 BotInstance* BotLoader::find(const std::string& name) {

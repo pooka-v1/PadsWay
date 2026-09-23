@@ -36,6 +36,10 @@ public:
     // Scan dir for *.dll; load and validate each. Logs warnings on failures, never throws.
     void scan(const std::string& dir);
 
+    // Takes ownership of an already-validated bot. scan() registers every DLL through this; tests
+    // use it to register an in-process fake (dll = nullptr) without loading anything from disk.
+    void add(std::unique_ptr<BotInstance> bot);
+
     // Find a loaded bot by name (as returned by bot_name()). Returns nullptr if not found.
     BotInstance* find(const std::string& name);
 
