@@ -3,6 +3,7 @@
 #include "config/ConfigLoader.h"
 #include "macros/MacroParser.h"
 #include "Paths.h"
+#include "e2e_checks.h"
 #include <catch2/catch_amalgamated.hpp>
 
 // ─── Fase 0 — smoke: the sandbox DS4 entry exactly as shipped in controllers.json (no profile, no
@@ -25,22 +26,9 @@ PassthroughCase makeCase(const char* name, void (*set)(GamepadState&)) {
     return c;
 }
 
-// Presses `physical`, waits for exactly `expected` on the virtual pad, then releases.
 void checkPassthrough(const PassthroughCase& c) {
     CAPTURE(c.name);
-    REQUIRE(harness().releaseAll());
-
-    harness().press(c.physical);
-    GamepadState seen;
-    const bool matched = harness().waitForVirtual(
-        [&](const GamepadState& s) { return sameVirtualOutput(s, c.expected); },
-        E2EHarness::kWaitMs, &seen);
-    const std::string expectedText = describe(c.expected);
-    const std::string seenText     = describe(seen);
-    CAPTURE(expectedText, seenText);
-    CHECK(matched);
-
-    CHECK(harness().releaseAll());
+    checkPressGives(c.physical, c.expected);
 }
 
 } // namespace

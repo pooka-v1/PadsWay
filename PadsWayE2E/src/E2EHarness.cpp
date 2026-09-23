@@ -122,6 +122,18 @@ bool E2EHarness::releaseAll() {
     return waitForVirtual(isNeutral);
 }
 
+void E2EHarness::clearEvents() { m_engine->pollEvents(); }
+
+bool E2EHarness::waitForEvent(const std::function<bool(const PadEvent&)>& pred, int timeoutMs) {
+    const auto until = Clock::now() + std::chrono::milliseconds(timeoutMs);
+    do {
+        for (const auto& e : m_engine->pollEvents())
+            if (pred(e)) return true;
+        sleepMs(5);
+    } while (Clock::now() < until);
+    return false;
+}
+
 GamepadState E2EHarness::virtualState() const { return m_engine->getLastVirtualState(); }
 
 bool E2EHarness::waitForVirtual(const std::function<bool(const GamepadState&)>& pred, int timeoutMs,

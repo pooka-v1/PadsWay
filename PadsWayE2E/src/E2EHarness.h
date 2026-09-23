@@ -46,6 +46,12 @@ public:
     bool waitForVirtual(const std::function<bool(const GamepadState&)>& pred, int timeoutMs = kWaitMs,
                         GamepadState* lastSeen = nullptr) const;
 
+    // Engine events (bot/macro toggles, keyboard/mouse actions) — the same queue the UI drains
+    // every frame. Nobody else drains it here, so a test sees every event the engine emits.
+    void clearEvents();
+    // Polls events until one matches `pred`; events polled on the way are discarded.
+    bool waitForEvent(const std::function<bool(const PadEvent&)>& pred, int timeoutMs = kWaitMs);
+
     PadEngine& engine() { return *m_engine; }
 
 private:

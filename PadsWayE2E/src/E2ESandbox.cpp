@@ -90,6 +90,11 @@ bool prepare(std::string& error) {
         !writeText(dir / "data" / "virtualpad.json", virtualPad.dump(2), error))
         return false;
 
+    // Optional: no DLL just means the bot tests SKIP (the engine scans data/bots at startup).
+    const fs::path botDll = repoRoot() / "PadsWay" / "data" / "bots" / "LightningBot.dll";
+    if (fs::exists(botDll))
+        fs::copy_file(botDll, dir / "data" / "bots" / "LightningBot.dll", ec);
+
     fs::current_path(dir, ec);
     if (ec) { error = "cannot chdir into " + dir.string() + ": " + ec.message(); return false; }
     return true;

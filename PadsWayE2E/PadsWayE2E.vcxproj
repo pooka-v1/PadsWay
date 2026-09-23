@@ -108,13 +108,17 @@
     <ClCompile Include="..\PadsWayTests\catch2\catch_amalgamated.cpp" />
     <!-- Harness + E2E test cases -->
     <ClCompile Include="src\E2EHarness.cpp" />
+    <ClCompile Include="src\E2EMapping.cpp" />
     <ClCompile Include="src\E2ESandbox.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="tests\e2e_mapeador_buttons.cpp" />
     <ClCompile Include="tests\e2e_smoke.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\E2EHarness.h" />
+    <ClInclude Include="src\E2EMapping.h" />
     <ClInclude Include="src\E2ESandbox.h" />
+    <ClInclude Include="tests\e2e_checks.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
