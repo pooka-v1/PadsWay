@@ -23,7 +23,136 @@ void drawArc(ImDrawList* dl, ImVec2 center, float radius, float angleFrom, float
         prev = cur;
     }
 }
+
+// Shared setup for a compass widget (renderGyroCompass/renderAccelCompass): places the
+// InvisibleButton, then reads back its active/activated state and the mouse offset from center
+// along both axes. Both render functions call this before building their own candidate list
+// (gyro's adds the yaw arc, so it can't be folded into this shared struct).
+struct CompassSetup {
+    ImVec2 center;
+    bool   active;
+    bool   activated;
+    ImVec2 mouse;
+    float  mVOff, mHOff;
+    bool   onVAxis, onHAxis;
+};
+
+CompassSetup beginCompassWidget(const char* buttonId, float radius, float pad, float axisTol) {
+    CompassSetup s{};
+    ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+    s.center = { canvasPos.x + radius + pad, canvasPos.y + radius + pad };
+    float diameter = (radius + pad) * 2.0f;
+
+    ImGui::InvisibleButton(buttonId, { diameter, diameter });
+    s.active    = ImGui::IsItemActive();
+    s.activated = ImGui::IsItemActivated();
+
+    s.mouse   = ImGui::GetIO().MousePos;
+    s.mVOff   = std::fabs(s.mouse.y - s.center.y);
+    s.mHOff   = std::fabs(s.mouse.x - s.center.x);
+    s.onVAxis = s.mHOff <= axisTol;
+    s.onHAxis = s.mVOff <= axisTol;
+    return s;
+}
+
+// Applies one drag update to a linear axis (deadzone if isInner, else max) — the toValue+clamp
+// math shared by the vertical and horizontal axes of both compass widgets.
+void applyAxisDrag(bool isInner, float offsetPx, float radius, float outerCeiling,
+                   float& deadzone, float& max) {
+    float v = std::round(std::clamp((offsetPx / radius) * outerCeiling, 0.0f, outerCeiling) * 100.0f) / 100.0f;
+    if (isInner)
+        deadzone = std::clamp(v, 0.0f, max - 0.02f > 0.0f ? max - 0.02f : 0.0f);
+    else
+        max = std::clamp(v, deadzone + 0.02f, outerCeiling);
+}
+
+// The two concentric rings ("our 1.0", ceiling edge) and the crosshair guide lines behind every
+// compass widget.
+void drawCompassRingAndGuides(ImDrawList* dl, ImVec2 center, float radius, float outerCeiling) {
+    dl->AddCircle(center, radius / outerCeiling, IM_COL32(90, 100, 120, 140), 48, 1.0f);  // "nuestro 1"
+    dl->AddCircle(center, radius, IM_COL32(70, 75, 85, 90), 48, 1.0f);                     // ceiling edge
+
+    dl->AddLine({ center.x, center.y - radius }, { center.x, center.y + radius },
+               IM_COL32(90, 100, 120, 90), 1.0f);
+    dl->AddLine({ center.x - radius, center.y }, { center.x + radius, center.y },
+               IM_COL32(90, 100, 120, 90), 1.0f);
+}
+
+// Draws the paired inner/outer tick marks (deadzone/max) for one linear axis of a compass —
+// vertical (ticks drawn as horizontal marks above/below center, e.g. pitch/Y) or horizontal
+// (ticks drawn as vertical marks left/right of center, e.g. roll/X). Shared by both axes of both
+// renderGyroCompass and renderAccelCompass.
+void drawAxisTicks(ImDrawList* dl, ImVec2 center, bool vertical, float deadzone, float max,
+                   float radius, float outerCeiling, bool innerActive, bool outerActive) {
+    auto toPx = [&](float v) { return radius * (v / outerCeiling); };
+    ImU32 inCol  = innerActive ? IM_COL32(210, 210, 220, 255) : IM_COL32(160, 160, 170, 220);
+    ImU32 outCol = outerActive ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
+    auto tick = [&](float off, ImU32 col, float w) {
+        if (vertical) {
+            dl->AddLine({ center.x - 9.0f, center.y + off }, { center.x + 9.0f, center.y + off }, col, w);
+            dl->AddCircleFilled({ center.x, center.y + off }, 3.5f, col);  // dot marker — easier to spot
+        } else {
+            dl->AddLine({ center.x + off, center.y - 9.0f }, { center.x + off, center.y + 9.0f }, col, w);
+            dl->AddCircleFilled({ center.x + off, center.y }, 3.5f, col);
+        }
+    };
+    tick(-toPx(deadzone), inCol,  innerActive ? 3.0f : 2.0f);
+    tick( toPx(deadzone), inCol,  innerActive ? 3.0f : 2.0f);
+    tick(-toPx(max),      outCol, outerActive ? 3.0f : 2.0f);
+    tick( toPx(max),      outCol, outerActive ? 3.0f : 2.0f);
+}
+
+// The live-reading ball (paired axes: pitch/roll or accelY/accelX), colored by whether either
+// axis is currently outside its max or inside its deadzone.
+void drawCompassBall(ImDrawList* dl, ImVec2 center, float rawV, float rawH,
+                     float vDeadzone, float vMax, float hDeadzone, float hMax,
+                     float radius, float outerCeiling) {
+    auto toPx = [&](float v) { return radius * (v / outerCeiling); };
+    bool vOut = std::fabs(rawV) > vMax, hOut = std::fabs(rawH) > hMax;
+    bool vIn  = std::fabs(rawV) < vDeadzone, hIn = std::fabs(rawH) < hDeadzone;
+    ImU32 ballCol = (vOut || hOut) ? IM_COL32(255, 140, 60, 230)
+                   : (vIn && hIn)  ? IM_COL32(140, 140, 150, 220)
+                                   : IM_COL32(90, 230, 120, 230);
+    ImVec2 ball = { center.x + toPx(rawH), center.y - toPx(rawV) };
+    dl->AddCircleFilled({ ball.x + 1.5f, ball.y + 2.5f }, 7.0f, IM_COL32(0, 0, 0, 80));  // shadow
+    dl->AddCircleFilled(ball, 7.0f, ballCol);
+    dl->AddCircle(ball, 7.0f, IM_COL32(20, 20, 25, 200), 16, 1.5f);
+}
+
+// Sets up the fixed-width invert-checkbox column to the LEFT of the axis readout lines that
+// follow (not after them with SameLine — SameLine's position depends on the text's own variable
+// width, so the checkbox visibly shifted every time a number changed digits, same root cause as
+// the compass-column jitter fixed earlier) and draws the "Invertir" header above it. Returns the
+// text column's fixed x position, to pass to drawInvertRow.
+float beginInvertColumn() {
+    constexpr float kInvertBlockRise = 10.0f;  // 3 tightly-packed rows otherwise sit lower than
+                                               // the stick widget's shorter block below its ring
+    float textColX = ImGui::GetCursorScreenPos().x;
+    ImGui::SetCursorScreenPos({ textColX, ImGui::GetCursorScreenPos().y - kInvertBlockRise });
+    ImGui::TextDisabled("%s", tr("calibration.invert"));
+    return textColX;
+}
+
+// One row: an invert checkbox in the fixed column at textColX, then the printf-formatted axis
+// readout text to its right.
+template <typename... Args>
+void drawInvertRow(float textColX, const char* checkboxId, bool& invert, const char* fmt, Args... args) {
+    constexpr float kCheckboxColWidth = 30.0f;
+    ImVec2 rowPos = ImGui::GetCursorScreenPos();
+    ImGui::Checkbox(checkboxId, &invert);
+    ImGui::SetCursorScreenPos({ textColX + kCheckboxColWidth, rowPos.y });
+    ImGui::Text(fmt, args...);
+}
 }  // namespace
+
+CalibrationPanel::CompassHandle CalibrationPanel::pickCompassHandle(const CompassCandidate* candidates,
+                                                                     size_t count, float hitTol) {
+    CompassHandle best = CompassHandle::None;
+    float bestD = hitTol;
+    for (size_t i = 0; i < count; ++i)
+        if (candidates[i].valid && candidates[i].d <= bestD) { bestD = candidates[i].d; best = candidates[i].h; }
+    return best;
+}
 
 void CalibrationPanel::init(PadEngine* engine) {
     m_engine = engine;
@@ -377,68 +506,45 @@ void CalibrationPanel::renderGyroCompass(const char* label, const char* idSuffix
     // center") and made curves nearly impossible to grab (feedback: "solo vale pinchar en la
     // puntita"). Testing "distance along the axis" instead of "distance to one fixed point"
     // covers both mirrored sides automatically.
-    constexpr float kHitTol      = 12.0f;
-    constexpr float kAxisTol     = 14.0f;
-    constexpr float kOuterCeiling = 1.20f;
+    constexpr float kHitTol      = kCompassHitTol;
+    constexpr float kAxisTol     = kCompassAxisTol;
+    constexpr float kOuterCeiling = kCompassOuterCeiling;
     constexpr float kYawArcDeg   = 70.0f;    // yaw's total sweep is 2x this, centered on "up"
     const float     kYawArcRad  = kYawArcDeg * 3.14159265f / 180.0f;
-    const float     kDiameter   = (kRadius + kPad) * 2.0f;
 
-    ImVec2 canvasPos = ImGui::GetCursorScreenPos();
-    ImVec2 center    = { canvasPos.x + kRadius + kPad, canvasPos.y + kRadius + kPad };
-
-    ImGui::InvisibleButton("##gyro_compass", { kDiameter, kDiameter });
-    bool active = ImGui::IsItemActive();
-
-    auto toPx    = [&](float v) { return kRadius * (v / kOuterCeiling); };
-    auto toValue = [&](float px) { return std::clamp((px / kRadius) * kOuterCeiling, 0.0f, kOuterCeiling); };
-
-    ImVec2 mouse = ImGui::GetIO().MousePos;
+    CompassSetup s = beginCompassWidget("##gyro_compass", kRadius, kPad, kAxisTol);
+    auto toPx = [&](float v) { return kRadius * (v / kOuterCeiling); };
 
     float yawInAng  = std::clamp(yawDeadzone / kOuterCeiling, 0.0f, 1.0f) * kYawArcRad;
     float yawOutAng = std::clamp(yawMax      / kOuterCeiling, 0.0f, 1.0f) * kYawArcRad;
 
-    float mVOff          = std::fabs(mouse.y - center.y);
-    float mHOff          = std::fabs(mouse.x - center.x);
-    float mDistFromCenter = std::sqrt((mouse.x - center.x) * (mouse.x - center.x) +
-                                      (mouse.y - center.y) * (mouse.y - center.y));
-    float mAngle = std::atan2(mouse.x - center.x, center.y - mouse.y);
-    bool  onVAxis = mHOff <= kAxisTol;
-    bool  onHAxis = mVOff <= kAxisTol;
-    bool  onArc   = std::fabs(mDistFromCenter - kRadius) <= kAxisTol &&
-                    std::fabs(mAngle) <= kYawArcRad + 0.35f;  // ~20deg margin past the ceiling tick
+    float mDistFromCenter = std::sqrt((s.mouse.x - s.center.x) * (s.mouse.x - s.center.x) +
+                                      (s.mouse.y - s.center.y) * (s.mouse.y - s.center.y));
+    float mAngle = std::atan2(s.mouse.x - s.center.x, s.center.y - s.mouse.y);
+    bool  onArc  = std::fabs(mDistFromCenter - kRadius) <= kAxisTol &&
+                   std::fabs(mAngle) <= kYawArcRad + 0.35f;  // ~20deg margin past the ceiling tick
 
-    if (ImGui::IsItemActivated()) {
-        struct Cand { CompassHandle h; float d; bool valid; };
-        Cand cands[6] = {
-            { CompassHandle::VInner, std::fabs(mVOff - toPx(pitchDeadzone)), onVAxis },
-            { CompassHandle::VOuter, std::fabs(mVOff - toPx(pitchMax)),      onVAxis },
-            { CompassHandle::HInner, std::fabs(mHOff - toPx(rollDeadzone)),  onHAxis },
-            { CompassHandle::HOuter, std::fabs(mHOff - toPx(rollMax)),      onHAxis },
+    if (s.activated) {
+        CompassCandidate cands[6] = {
+            { CompassHandle::VInner, std::fabs(s.mVOff - toPx(pitchDeadzone)), s.onVAxis },
+            { CompassHandle::VOuter, std::fabs(s.mVOff - toPx(pitchMax)),      s.onVAxis },
+            { CompassHandle::HInner, std::fabs(s.mHOff - toPx(rollDeadzone)), s.onHAxis },
+            { CompassHandle::HOuter, std::fabs(s.mHOff - toPx(rollMax)),      s.onHAxis },
             { CompassHandle::AInner, std::fabs(std::fabs(mAngle) - yawInAng)  * kRadius, onArc },
             { CompassHandle::AOuter, std::fabs(std::fabs(mAngle) - yawOutAng) * kRadius, onArc },
         };
-        CompassHandle best = CompassHandle::None;
-        float bestD = kHitTol;
-        for (const auto& c : cands) if (c.valid && c.d <= bestD) { bestD = c.d; best = c.h; }
-        drag = best;
+        drag = pickCompassHandle(cands, 6, kHitTol);
     }
-    if (!active) drag = CompassHandle::None;
+    if (!s.active) drag = CompassHandle::None;
 
-    if (active && drag != CompassHandle::None) {
-        if (drag == CompassHandle::VInner || drag == CompassHandle::VOuter) {
-            float v = std::round(toValue(mVOff) * 100.0f) / 100.0f;
-            if (drag == CompassHandle::VInner)
-                pitchDeadzone = std::clamp(v, 0.0f, pitchMax - 0.02f > 0.0f ? pitchMax - 0.02f : 0.0f);
-            else
-                pitchMax = std::clamp(v, pitchDeadzone + 0.02f, kOuterCeiling);
-        } else if (drag == CompassHandle::HInner || drag == CompassHandle::HOuter) {
-            float v = std::round(toValue(mHOff) * 100.0f) / 100.0f;
-            if (drag == CompassHandle::HInner)
-                rollDeadzone = std::clamp(v, 0.0f, rollMax - 0.02f > 0.0f ? rollMax - 0.02f : 0.0f);
-            else
-                rollMax = std::clamp(v, rollDeadzone + 0.02f, kOuterCeiling);
-        } else {
+    if (s.active && drag != CompassHandle::None) {
+        if (drag == CompassHandle::VInner || drag == CompassHandle::VOuter)
+            applyAxisDrag(drag == CompassHandle::VInner, s.mVOff, kRadius, kOuterCeiling,
+                         pitchDeadzone, pitchMax);
+        else if (drag == CompassHandle::HInner || drag == CompassHandle::HOuter)
+            applyAxisDrag(drag == CompassHandle::HInner, s.mHOff, kRadius, kOuterCeiling,
+                         rollDeadzone, rollMax);
+        else {
             float ang = std::clamp(mAngle, -kYawArcRad, kYawArcRad);
             float v = std::round((std::fabs(ang) / kYawArcRad * kOuterCeiling) * 100.0f) / 100.0f;
             if (drag == CompassHandle::AInner)
@@ -449,102 +555,48 @@ void CalibrationPanel::renderGyroCompass(const char* label, const char* idSuffix
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
+    drawCompassRingAndGuides(dl, s.center, kRadius, kOuterCeiling);
 
-    dl->AddCircle(center, kRadius / kOuterCeiling, IM_COL32(90, 100, 120, 140), 48, 1.0f);  // "nuestro 1"
-    dl->AddCircle(center, kRadius, IM_COL32(70, 75, 85, 90), 48, 1.0f);                     // ceiling edge
-
-    dl->AddLine({ center.x, center.y - kRadius }, { center.x, center.y + kRadius },
-               IM_COL32(90, 100, 120, 90), 1.0f);                                          // pitch guide
-    dl->AddLine({ center.x - kRadius, center.y }, { center.x + kRadius, center.y },
-               IM_COL32(90, 100, 120, 90), 1.0f);                                          // roll guide
-
-    auto hTick = [&](float y, ImU32 col, float w) {
-        dl->AddLine({ center.x - 9.0f, y }, { center.x + 9.0f, y }, col, w);
-        dl->AddCircleFilled({ center.x, y }, 3.5f, col);  // dot marker — easier to spot than the tick alone
-    };
-    auto vTick = [&](float x, ImU32 col, float w) {
-        dl->AddLine({ x, center.y - 9.0f }, { x, center.y + 9.0f }, col, w);
-        dl->AddCircleFilled({ x, center.y }, 3.5f, col);
-    };
-
-    ImU32 vInCol  = (drag == CompassHandle::VInner) ? IM_COL32(210, 210, 220, 255) : IM_COL32(160, 160, 170, 220);
-    ImU32 vOutCol = (drag == CompassHandle::VOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
-    hTick(center.y - toPx(pitchDeadzone), vInCol,  drag == CompassHandle::VInner ? 3.0f : 2.0f);
-    hTick(center.y + toPx(pitchDeadzone), vInCol,  drag == CompassHandle::VInner ? 3.0f : 2.0f);
-    hTick(center.y - toPx(pitchMax),      vOutCol, drag == CompassHandle::VOuter ? 3.0f : 2.0f);
-    hTick(center.y + toPx(pitchMax),      vOutCol, drag == CompassHandle::VOuter ? 3.0f : 2.0f);
-
-    ImU32 hInCol  = (drag == CompassHandle::HInner) ? IM_COL32(210, 210, 220, 255) : IM_COL32(160, 160, 170, 220);
-    ImU32 hOutCol = (drag == CompassHandle::HOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
-    vTick(center.x - toPx(rollDeadzone), hInCol,  drag == CompassHandle::HInner ? 3.0f : 2.0f);
-    vTick(center.x + toPx(rollDeadzone), hInCol,  drag == CompassHandle::HInner ? 3.0f : 2.0f);
-    vTick(center.x - toPx(rollMax),      hOutCol, drag == CompassHandle::HOuter ? 3.0f : 2.0f);
-    vTick(center.x + toPx(rollMax),      hOutCol, drag == CompassHandle::HOuter ? 3.0f : 2.0f);
+    drawAxisTicks(dl, s.center, /*vertical=*/true, pitchDeadzone, pitchMax, kRadius, kOuterCeiling,
+                 drag == CompassHandle::VInner, drag == CompassHandle::VOuter);
+    drawAxisTicks(dl, s.center, /*vertical=*/false, rollDeadzone, rollMax, kRadius, kOuterCeiling,
+                 drag == CompassHandle::HInner, drag == CompassHandle::HOuter);
 
     auto arcDot = [&](float ang, ImU32 col) {
-        dl->AddCircleFilled({ center.x + kRadius * sinf(ang), center.y - kRadius * cosf(ang) }, 3.5f, col);
+        dl->AddCircleFilled({ s.center.x + kRadius * sinf(ang), s.center.y - kRadius * cosf(ang) }, 3.5f, col);
     };
     ImU32 aInCol  = (drag == CompassHandle::AInner) ? IM_COL32(210, 210, 220, 255) : IM_COL32(160, 160, 170, 220);
     ImU32 aOutCol = (drag == CompassHandle::AOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
-    drawArc(dl, center, kRadius, -yawInAng, yawInAng, aInCol, drag == CompassHandle::AInner ? 3.0f : 2.0f);
-    drawArc(dl, center, kRadius, -kYawArcRad, -yawOutAng, aOutCol, drag == CompassHandle::AOuter ? 3.0f : 2.0f);
-    drawArc(dl, center, kRadius, yawOutAng, kYawArcRad, aOutCol, drag == CompassHandle::AOuter ? 3.0f : 2.0f);
+    drawArc(dl, s.center, kRadius, -yawInAng, yawInAng, aInCol, drag == CompassHandle::AInner ? 3.0f : 2.0f);
+    drawArc(dl, s.center, kRadius, -kYawArcRad, -yawOutAng, aOutCol, drag == CompassHandle::AOuter ? 3.0f : 2.0f);
+    drawArc(dl, s.center, kRadius, yawOutAng, kYawArcRad, aOutCol, drag == CompassHandle::AOuter ? 3.0f : 2.0f);
     arcDot(yawInAng, aInCol);  arcDot(-yawInAng, aInCol);
     arcDot(yawOutAng, aOutCol); arcDot(-yawOutAng, aOutCol);
 
     float yawAngNow = std::clamp((rawYaw / kOuterCeiling) * kYawArcRad, -kYawArcRad, kYawArcRad);
-    ImVec2 yawDot   = { center.x + kRadius * sinf(yawAngNow), center.y - kRadius * cosf(yawAngNow) };
+    ImVec2 yawDot   = { s.center.x + kRadius * sinf(yawAngNow), s.center.y - kRadius * cosf(yawAngNow) };
     ImU32  yawDotCol = std::fabs(rawYaw) < yawDeadzone ? IM_COL32(140, 140, 150, 220)
                      : std::fabs(rawYaw) > yawMax      ? IM_COL32(255, 140, 60, 230)
                                                         : IM_COL32(90, 230, 120, 230);
     dl->AddCircleFilled(yawDot, 4.5f, yawDotCol);
     dl->AddCircle(yawDot, 4.5f, IM_COL32(20, 20, 25, 200), 12, 1.0f);
 
-    bool pitchOut = std::fabs(rawPitch) > pitchMax, rollOut = std::fabs(rawRoll) > rollMax;
-    bool pitchIn  = std::fabs(rawPitch) < pitchDeadzone, rollIn = std::fabs(rawRoll) < rollDeadzone;
-    ImU32 ballCol = (pitchOut || rollOut) ? IM_COL32(255, 140, 60, 230)
-                   : (pitchIn && rollIn)  ? IM_COL32(140, 140, 150, 220)
-                                          : IM_COL32(90, 230, 120, 230);
-    ImVec2 ball = { center.x + toPx(rawRoll), center.y - toPx(rawPitch) };
-    dl->AddCircleFilled({ ball.x + 1.5f, ball.y + 2.5f }, 7.0f, IM_COL32(0, 0, 0, 80));  // shadow
-    dl->AddCircleFilled(ball, 7.0f, ballCol);
-    dl->AddCircle(ball, 7.0f, IM_COL32(20, 20, 25, 200), 16, 1.5f);
+    drawCompassBall(dl, s.center, rawPitch, rawRoll, pitchDeadzone, pitchMax, rollDeadzone, rollMax,
+                   kRadius, kOuterCeiling);
 
-    // Invert checkboxes sit in their own fixed column, to the LEFT of these text lines (not
-    // after them with SameLine — SameLine's position depends on the text's own variable width,
-    // so the checkbox visibly shifted every time a number changed digits, same root cause as
-    // the compass-column jitter fixed earlier). The "Invertir" header sits directly above this
-    // column, at the widget's natural left margin; the text lines are shifted right to make room.
-    constexpr float kCheckboxColWidth = 30.0f;
-    float textColX = ImGui::GetCursorScreenPos().x;
+    // Invert checkboxes sit in their own fixed column, to the LEFT of these text lines — see
+    // beginInvertColumn's comment.
+    float textColX = beginInvertColumn();
 
-    // Nudged up — 3 tightly-packed rows (pitch/roll/yaw) otherwise sit noticeably lower than the
-    // stick widget's shorter block below its own ring.
-    constexpr float kInvertBlockRise = 10.0f;
-    ImGui::SetCursorScreenPos({ textColX, ImGui::GetCursorScreenPos().y - kInvertBlockRise });
-
-    ImGui::TextDisabled("%s", tr("calibration.invert"));
-
-    ImVec2 rowPos = ImGui::GetCursorScreenPos();
-    ImGui::Checkbox("##pitchInvert", &pitchInvert);
-    ImGui::SetCursorScreenPos({ textColX + kCheckboxColWidth, rowPos.y });
-    ImGui::Text("%s: %s %.2f  %s %.2f  %s %.2f", tr("calibration.gyro_x"),
-               tr("calibration.inner"), pitchDeadzone, tr("calibration.outer"), pitchMax,
-               tr("calibration.current"), rawPitch);
-
-    rowPos = ImGui::GetCursorScreenPos();
-    ImGui::Checkbox("##rollInvert", &rollInvert);
-    ImGui::SetCursorScreenPos({ textColX + kCheckboxColWidth, rowPos.y });
-    ImGui::Text("%s: %s %.2f  %s %.2f  %s %.2f", tr("calibration.gyro_z"),
-               tr("calibration.inner"), rollDeadzone, tr("calibration.outer"), rollMax,
-               tr("calibration.current"), rawRoll);
-
-    rowPos = ImGui::GetCursorScreenPos();
-    ImGui::Checkbox("##yawInvert", &yawInvert);
-    ImGui::SetCursorScreenPos({ textColX + kCheckboxColWidth, rowPos.y });
-    ImGui::Text("%s: %s %.2f  %s %.2f  %s %.2f", tr("calibration.gyro_y"),
-               tr("calibration.inner"), yawDeadzone, tr("calibration.outer"), yawMax,
-               tr("calibration.current"), rawYaw);
+    drawInvertRow(textColX, "##pitchInvert", pitchInvert, "%s: %s %.2f  %s %.2f  %s %.2f",
+                 tr("calibration.gyro_x"), tr("calibration.inner"), pitchDeadzone,
+                 tr("calibration.outer"), pitchMax, tr("calibration.current"), rawPitch);
+    drawInvertRow(textColX, "##rollInvert", rollInvert, "%s: %s %.2f  %s %.2f  %s %.2f",
+                 tr("calibration.gyro_z"), tr("calibration.inner"), rollDeadzone,
+                 tr("calibration.outer"), rollMax, tr("calibration.current"), rawRoll);
+    drawInvertRow(textColX, "##yawInvert", yawInvert, "%s: %s %.2f  %s %.2f  %s %.2f",
+                 tr("calibration.gyro_y"), tr("calibration.inner"), yawDeadzone,
+                 tr("calibration.outer"), yawMax, tr("calibration.current"), rawYaw);
 
     ImGui::PopID();
 }
@@ -562,123 +614,50 @@ void CalibrationPanel::renderAccelCompass(const char* label, const char* idSuffi
     // Same kPad as renderGyroCompass — keeps both compasses' diameters (and hence their text
     // rows below) aligned at the same height, even though accel doesn't need arc clearance.
     constexpr float kPad         = kCompassPad;
-    constexpr float kHitTol      = 12.0f;
-    constexpr float kAxisTol     = 14.0f;
-    constexpr float kOuterCeiling = 1.20f;
-    const float     kDiameter    = (kRadius + kPad) * 2.0f;
+    constexpr float kHitTol      = kCompassHitTol;
+    constexpr float kAxisTol     = kCompassAxisTol;
+    constexpr float kOuterCeiling = kCompassOuterCeiling;
 
-    ImVec2 canvasPos = ImGui::GetCursorScreenPos();
-    ImVec2 center    = { canvasPos.x + kRadius + kPad, canvasPos.y + kRadius + kPad };
+    CompassSetup s = beginCompassWidget("##accel_compass", kRadius, kPad, kAxisTol);
+    auto toPx = [&](float v) { return kRadius * (v / kOuterCeiling); };
 
-    ImGui::InvisibleButton("##accel_compass", { kDiameter, kDiameter });
-    bool active = ImGui::IsItemActive();
-
-    auto toPx    = [&](float v) { return kRadius * (v / kOuterCeiling); };
-    auto toValue = [&](float px) { return std::clamp((px / kRadius) * kOuterCeiling, 0.0f, kOuterCeiling); };
-
-    ImVec2 mouse = ImGui::GetIO().MousePos;
-    float  mVOff = std::fabs(mouse.y - center.y);
-    float  mHOff = std::fabs(mouse.x - center.x);
-    bool   onVAxis = mHOff <= kAxisTol;
-    bool   onHAxis = mVOff <= kAxisTol;
-
-    if (ImGui::IsItemActivated()) {
-        struct Cand { CompassHandle h; float d; bool valid; };
-        Cand cands[4] = {
-            { CompassHandle::VInner, std::fabs(mVOff - toPx(yDeadzone)), onVAxis },
-            { CompassHandle::VOuter, std::fabs(mVOff - toPx(yMax)),      onVAxis },
-            { CompassHandle::HInner, std::fabs(mHOff - toPx(xDeadzone)), onHAxis },
-            { CompassHandle::HOuter, std::fabs(mHOff - toPx(xMax)),      onHAxis },
+    if (s.activated) {
+        CompassCandidate cands[4] = {
+            { CompassHandle::VInner, std::fabs(s.mVOff - toPx(yDeadzone)), s.onVAxis },
+            { CompassHandle::VOuter, std::fabs(s.mVOff - toPx(yMax)),      s.onVAxis },
+            { CompassHandle::HInner, std::fabs(s.mHOff - toPx(xDeadzone)), s.onHAxis },
+            { CompassHandle::HOuter, std::fabs(s.mHOff - toPx(xMax)),      s.onHAxis },
         };
-        CompassHandle best = CompassHandle::None;
-        float bestD = kHitTol;
-        for (const auto& c : cands) if (c.valid && c.d <= bestD) { bestD = c.d; best = c.h; }
-        drag = best;
+        drag = pickCompassHandle(cands, 4, kHitTol);
     }
-    if (!active) drag = CompassHandle::None;
+    if (!s.active) drag = CompassHandle::None;
 
-    if (active && drag != CompassHandle::None) {
-        if (drag == CompassHandle::VInner || drag == CompassHandle::VOuter) {
-            float v = std::round(toValue(mVOff) * 100.0f) / 100.0f;
-            if (drag == CompassHandle::VInner)
-                yDeadzone = std::clamp(v, 0.0f, yMax - 0.02f > 0.0f ? yMax - 0.02f : 0.0f);
-            else
-                yMax = std::clamp(v, yDeadzone + 0.02f, kOuterCeiling);
-        } else {
-            float v = std::round(toValue(mHOff) * 100.0f) / 100.0f;
-            if (drag == CompassHandle::HInner)
-                xDeadzone = std::clamp(v, 0.0f, xMax - 0.02f > 0.0f ? xMax - 0.02f : 0.0f);
-            else
-                xMax = std::clamp(v, xDeadzone + 0.02f, kOuterCeiling);
-        }
+    if (s.active && drag != CompassHandle::None) {
+        if (drag == CompassHandle::VInner || drag == CompassHandle::VOuter)
+            applyAxisDrag(drag == CompassHandle::VInner, s.mVOff, kRadius, kOuterCeiling, yDeadzone, yMax);
+        else
+            applyAxisDrag(drag == CompassHandle::HInner, s.mHOff, kRadius, kOuterCeiling, xDeadzone, xMax);
     }
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
+    drawCompassRingAndGuides(dl, s.center, kRadius, kOuterCeiling);
 
-    dl->AddCircle(center, kRadius / kOuterCeiling, IM_COL32(90, 100, 120, 140), 48, 1.0f);
-    dl->AddCircle(center, kRadius, IM_COL32(70, 75, 85, 90), 48, 1.0f);
+    drawAxisTicks(dl, s.center, /*vertical=*/true, yDeadzone, yMax, kRadius, kOuterCeiling,
+                 drag == CompassHandle::VInner, drag == CompassHandle::VOuter);
+    drawAxisTicks(dl, s.center, /*vertical=*/false, xDeadzone, xMax, kRadius, kOuterCeiling,
+                 drag == CompassHandle::HInner, drag == CompassHandle::HOuter);
 
-    dl->AddLine({ center.x, center.y - kRadius }, { center.x, center.y + kRadius },
-               IM_COL32(90, 100, 120, 90), 1.0f);
-    dl->AddLine({ center.x - kRadius, center.y }, { center.x + kRadius, center.y },
-               IM_COL32(90, 100, 120, 90), 1.0f);
-
-    auto hTick = [&](float y, ImU32 col, float w) {
-        dl->AddLine({ center.x - 9.0f, y }, { center.x + 9.0f, y }, col, w);
-        dl->AddCircleFilled({ center.x, y }, 3.5f, col);  // dot marker — easier to spot than the tick alone
-    };
-    auto vTick = [&](float x, ImU32 col, float w) {
-        dl->AddLine({ x, center.y - 9.0f }, { x, center.y + 9.0f }, col, w);
-        dl->AddCircleFilled({ x, center.y }, 3.5f, col);
-    };
-
-    ImU32 vInCol  = (drag == CompassHandle::VInner) ? IM_COL32(210, 210, 220, 255) : IM_COL32(160, 160, 170, 220);
-    ImU32 vOutCol = (drag == CompassHandle::VOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
-    hTick(center.y - toPx(yDeadzone), vInCol,  drag == CompassHandle::VInner ? 3.0f : 2.0f);
-    hTick(center.y + toPx(yDeadzone), vInCol,  drag == CompassHandle::VInner ? 3.0f : 2.0f);
-    hTick(center.y - toPx(yMax),      vOutCol, drag == CompassHandle::VOuter ? 3.0f : 2.0f);
-    hTick(center.y + toPx(yMax),      vOutCol, drag == CompassHandle::VOuter ? 3.0f : 2.0f);
-
-    ImU32 hInCol  = (drag == CompassHandle::HInner) ? IM_COL32(210, 210, 220, 255) : IM_COL32(160, 160, 170, 220);
-    ImU32 hOutCol = (drag == CompassHandle::HOuter) ? IM_COL32(150, 210, 255, 255) : IM_COL32(90, 180, 255, 220);
-    vTick(center.x - toPx(xDeadzone), hInCol,  drag == CompassHandle::HInner ? 3.0f : 2.0f);
-    vTick(center.x + toPx(xDeadzone), hInCol,  drag == CompassHandle::HInner ? 3.0f : 2.0f);
-    vTick(center.x - toPx(xMax),      hOutCol, drag == CompassHandle::HOuter ? 3.0f : 2.0f);
-    vTick(center.x + toPx(xMax),      hOutCol, drag == CompassHandle::HOuter ? 3.0f : 2.0f);
-
-    bool yOut = std::fabs(rawY) > yMax, xOut = std::fabs(rawX) > xMax;
-    bool yIn  = std::fabs(rawY) < yDeadzone, xIn = std::fabs(rawX) < xDeadzone;
-    ImU32 ballCol = (yOut || xOut) ? IM_COL32(255, 140, 60, 230)
-                   : (yIn && xIn)  ? IM_COL32(140, 140, 150, 220)
-                                   : IM_COL32(90, 230, 120, 230);
-    ImVec2 ball = { center.x + toPx(rawX), center.y - toPx(rawY) };
-    dl->AddCircleFilled({ ball.x + 1.5f, ball.y + 2.5f }, 7.0f, IM_COL32(0, 0, 0, 80));
-    dl->AddCircleFilled(ball, 7.0f, ballCol);
-    dl->AddCircle(ball, 7.0f, IM_COL32(20, 20, 25, 200), 16, 1.5f);
+    drawCompassBall(dl, s.center, rawY, rawX, yDeadzone, yMax, xDeadzone, xMax, kRadius, kOuterCeiling);
 
     // Same fixed invert column as renderGyroCompass (to the LEFT of the text) — see its comment.
-    constexpr float kCheckboxColWidth = 30.0f;
-    float textColX = ImGui::GetCursorScreenPos().x;
+    float textColX = beginInvertColumn();
 
-    // Same nudge-up as renderGyroCompass — see its comment.
-    constexpr float kInvertBlockRise = 10.0f;
-    ImGui::SetCursorScreenPos({ textColX, ImGui::GetCursorScreenPos().y - kInvertBlockRise });
-
-    ImGui::TextDisabled("%s", tr("calibration.invert"));
-
-    ImVec2 rowPos = ImGui::GetCursorScreenPos();
-    ImGui::Checkbox("##accelYInvert", &yInvert);
-    ImGui::SetCursorScreenPos({ textColX + kCheckboxColWidth, rowPos.y });
-    ImGui::Text("%s: %s %.2f  %s %.2f  %s %.2f", tr("calibration.accel_y"),
-               tr("calibration.inner"), yDeadzone, tr("calibration.outer"), yMax,
-               tr("calibration.current"), rawY);
-
-    rowPos = ImGui::GetCursorScreenPos();
-    ImGui::Checkbox("##accelXInvert", &xInvert);
-    ImGui::SetCursorScreenPos({ textColX + kCheckboxColWidth, rowPos.y });
-    ImGui::Text("%s: %s %.2f  %s %.2f  %s %.2f", tr("calibration.accel_x"),
-               tr("calibration.inner"), xDeadzone, tr("calibration.outer"), xMax,
-               tr("calibration.current"), rawX);
+    drawInvertRow(textColX, "##accelYInvert", yInvert, "%s: %s %.2f  %s %.2f  %s %.2f",
+                 tr("calibration.accel_y"), tr("calibration.inner"), yDeadzone,
+                 tr("calibration.outer"), yMax, tr("calibration.current"), rawY);
+    drawInvertRow(textColX, "##accelXInvert", xInvert, "%s: %s %.2f  %s %.2f  %s %.2f",
+                 tr("calibration.accel_x"), tr("calibration.inner"), xDeadzone,
+                 tr("calibration.outer"), xMax, tr("calibration.current"), rawX);
 
     ImGui::PopID();
 }

@@ -212,4 +212,49 @@ bool renderMouseButtons(const char* contextId, std::string& result, float availW
     return false;
 }
 
+// ---------------------------------------------------------------------------
+static const char* actionTypeLabel(ActionType t) {
+    switch (t) {
+    case ActionType::Xbox:      return tr("action.type_gamepad");
+    case ActionType::Macro:     return tr("action.type_macro");
+    case ActionType::Keyboard:  return tr("action.type_keyboard");
+    case ActionType::Mouse:     return tr("action.type_mouse");
+    case ActionType::MouseMove: return tr("action.type_mousemove");
+    case ActionType::Bot:       return tr("action.type_bot");
+    default:                    return "";
+    }
+}
+
+void renderActionTypeTabs(const char* contextId, ActionType& sel,
+                          std::vector<std::pair<std::string, std::string>>& captureKeys,
+                          const std::vector<ActionType>& types, float rowWidth,
+                          const ActionTypeExtra* extra) {
+    ImGui::PushID(contextId);
+
+    float btnW = (rowWidth - ImGui::GetStyle().ItemSpacing.x * (kActionTypeBtnRefCount - 1))
+                 / kActionTypeBtnRefCount;
+
+    for (size_t i = 0; i < types.size(); ++i) {
+        ActionType type   = types[i];
+        bool       active = (sel == type);
+        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+        if (ImGui::Button(actionTypeLabel(type), { btnW, 0.0f })) { sel = type; captureKeys.clear(); }
+        if (active) ImGui::PopStyleColor();
+        if (i + 1 < types.size() || extra) ImGui::SameLine();
+    }
+
+    if (extra) {
+        if (extra->active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_ButtonActive]);
+        if (ImGui::Button(extra->label.c_str(), { btnW, 0.0f }) && extra->onClick) extra->onClick();
+        if (extra->active) ImGui::PopStyleColor();
+    }
+
+    ImGui::PopID();
+}
+
+// ---------------------------------------------------------------------------
+bool isCancelSelectionCombo(const GamepadState& physNow) {
+    return (physNow.btnLB && physNow.btnRB) || (physNow.btnA && physNow.btnB);
+}
+
 } // namespace ActionPanel

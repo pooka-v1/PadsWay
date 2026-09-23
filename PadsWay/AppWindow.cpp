@@ -165,7 +165,7 @@ int AppWindow::run() {
 }
 
 // ---------------------------------------------------------------------------
-// renderFrame â€" full-screen canvas with tab bar
+// renderFrame — full-screen canvas with tab bar
 // ---------------------------------------------------------------------------
 
 void AppWindow::renderFrame() {
@@ -224,7 +224,7 @@ void AppWindow::renderEngineTab() {
     bool        connected = m_engine.isConnected();
     bool        running   = m_engine.isRunning();
 
-    // â"€â"€ Status indicator â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // ── Status indicator ──────────────────────────────────────────────────
     if (connected) {
         ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "\xe2\x97\x8f");
         ImGui::SameLine();
@@ -249,7 +249,7 @@ void AppWindow::renderEngineTab() {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // â"€â"€ Device list â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // ── Device list ───────────────────────────────────────────────────────
     // WaitingSelection uses the candidates snapshot; all other states use the
     // live monitor list so newly connected devices appear without a restart.
     auto availableDevices = m_engine.getAvailableDevices();
@@ -304,7 +304,7 @@ void AppWindow::renderEngineTab() {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // â"€â"€ Game profile selector â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // ── Game profile selector ─────────────────────────────────────────────
     ImGui::Text("%s", tr("engine.profile"));
     ImGui::SameLine();
 
@@ -364,7 +364,7 @@ void AppWindow::renderEngineTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Scanner tab â€" helpers
+// Scanner tab — helpers
 // ---------------------------------------------------------------------------
 
 
@@ -448,25 +448,27 @@ static void drawPOVCompass(DWORD pov) {
 }
 
 // ---------------------------------------------------------------------------
-// Scanner tab â€" main render
+// Scanner tab — main render
 // ---------------------------------------------------------------------------
 
-void AppWindow::renderScannerTab() {
+// Starts the async HID device scan (opens every HID device — slow) if one isn't already running.
+void AppWindow::kickHidScan() {
+    if (!m_hidScanRunning.exchange(true)) {
+        m_lastHidScanTime = GetTickCount64();
+        m_hidScanFuture = std::async(std::launch::async, HIDScanner::scan);
+    }
+}
+
+// Re-kicks the scan on its 1s timer, then applies results as soon as the background scan
+// completes.
+void AppWindow::updateScannerHidScan() {
     ULONGLONG now  = GetTickCount64();
     uint16_t  vVid = m_engine.getVirtualVid();
     uint16_t  vPid = m_engine.getVirtualPid();
 
-    // HID scan — slow (opens every HID device), runs on a background thread
-    auto kickHidScan = [&]() {
-        if (!m_hidScanRunning.exchange(true)) {
-            m_lastHidScanTime = now;
-            m_hidScanFuture = std::async(std::launch::async, HIDScanner::scan);
-        }
-    };
     if (now - m_lastHidScanTime > 1000)
         kickHidScan();
 
-    // Apply HID results as soon as the background scan completes
     if (m_hidScanRunning && m_hidScanFuture.valid() &&
         m_hidScanFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto raw = m_hidScanFuture.get();
@@ -478,16 +480,19 @@ void AppWindow::renderScannerTab() {
         if (m_hidSelected >= (int)m_hidDevices.size()) m_hidSelected = -1;
         m_hidScanRunning = false;
     }
+}
 
-    ImGui::Spacing();
-
-    // â"€â"€ Splitter â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+// Left panel: splitter + device list, plus the draggable handle between it and the InputMonitor
+// child that follows. Leaves the cursor positioned via SameLine(), same as the original inline
+// code, ready for the caller to open ##InputMonitor right after.
+void AppWindow::renderScannerDeviceList() {
+    // ── Splitter ─────────────────────────────────────────────────────────
     const float splitterW  = 6.0f;
     const float minPanelW  = 120.0f;
     float availW = ImGui::GetContentRegionAvail().x;
     m_scanSplitX = std::clamp(m_scanSplitX, minPanelW, availW - minPanelW - splitterW);
 
-    // â"€â"€ Left panel: device list â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // ── Left panel: device list ──────────────────────────────────────────
     ImGui::BeginChild("##DeviceList", { m_scanSplitX, 0.0f }, true);
 
     ImGui::Text("HID(% zu)", m_hidDevices.size());
@@ -524,7 +529,7 @@ void AppWindow::renderScannerTab() {
 
     ImGui::EndChild();
 
-    // â"€â"€ Draggable splitter handle â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // ── Draggable splitter handle ─────────────────────────────────────────
     ImGui::SameLine();
     ImGui::InvisibleButton("##splitter", { splitterW, -1.0f });
     if (ImGui::IsItemHovered())
@@ -533,137 +538,66 @@ void AppWindow::renderScannerTab() {
         m_scanSplitX += ImGui::GetIO().MouseDelta.x;
 
     ImGui::SameLine();
+}
 
-    // â"€â"€ Right panel: input monitor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-    ImGui::BeginChild("##InputMonitor", { 0.0f, 0.0f }, true);
+// ── IMU block auto-detection (see BITACORA 2026/08/11) ──────────────────────────────
+// Same "alive offset" test the wizard uses for Baseline (REFERENCE.md, "Wizard de
+// calibracion IMU"): amp>0 rules out a constant padding byte, amp<noiseFloor rules out a
+// CRC/counter byte that cycles through its whole range every frame. Unlike the wizard's
+// guided Baseline this window isn't a controlled "hold still" — the user may be moving the
+// controller while browsing Scanner — so the floor is looser and this is less certain;
+// needs real-hardware validation. Works the same whether the engine or DeviceHub's own watch
+// thread is driving the reads — both populate the same shared raw snapshot.
+void AppWindow::updateScannerImuDetection(const RawHIDState& snap) {
+    if (!m_scanImuDetecting || snap.raw.empty()) return;
 
-    // â"€â"€ HID device live monitor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-    if (m_hidSelected < 0 || m_hidSelected >= (int)m_hidDevices.size()) {
-        if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
-        m_scanWatchOwned = false;
-        m_scanWatchedPath.clear();
-        m_scanDeviceIdx  = -1;
-        ImGui::Spacing();
-        ImGui::TextDisabled("%s", tr("scanner.hint"));
-        ImGui::EndChild();
-        return;
+    int n = static_cast<int>(snap.raw.size()) - 1;
+    if (static_cast<int>(m_scanImuMinMax.size()) != n)
+        m_scanImuMinMax.assign(n, { 0.0f, 0.0f });
+    for (int o = 0; o < n; ++o) {
+        int16_t raw = static_cast<int16_t>(
+            static_cast<uint8_t>(snap.raw[o]) | (static_cast<uint16_t>(snap.raw[o + 1]) << 8));
+        float v = static_cast<float>(raw);
+        if (m_scanImuDetectFrames == 0) m_scanImuMinMax[o] = { v, v };
+        else {
+            m_scanImuMinMax[o].first  = std::min(m_scanImuMinMax[o].first,  v);
+            m_scanImuMinMax[o].second = std::max(m_scanImuMinMax[o].second, v);
+        }
     }
+    ++m_scanImuDetectFrames;
 
-    const auto& hdev = m_hidDevices[m_hidSelected];
-    const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
-                                             hdev.connectionType);
-
-    // Selection changed — re-arm the IMU block detector for the new device.
-    if (m_hidSelected != m_scanDeviceIdx) {
-        if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
-        m_scanWatchOwned  = false;
-        m_scanDeviceIdx   = m_hidSelected;
-        m_scanWatchedPath = hdev.path;
-
-        m_scanImuOffsets.clear();
-        m_scanImuMinMax.clear();
-        m_scanImuDetectFrames = 0;
-        m_scanImuDetecting    = true;
-
-        m_scanTouchOffset = (cfg && cfg->touchpad.enabled) ? cfg->touchpad.dataOffset : 35;
-    }
-
-    // The connection itself lives in DeviceHub, shared with the engine — no independent handle
-    // here anymore. If the engine already owns this exact device we just read its snapshot
-    // (kept fresh by the engine's own reads); otherwise we watch it ourselves. Re-checked every
-    // frame so the panel follows the engine picking up/dropping this device live, without ever
-    // holding a second, conflicting handle open to it (see ARCHITECTURE.md, "DeviceHub").
-    DeviceCandidate activeDevice  = m_engine.getActiveDevice();
-    bool            isEngineOwned = (!activeDevice.hidPath.empty() && activeDevice.hidPath == hdev.path);
-    if (isEngineOwned && m_scanWatchOwned) {
-        m_deviceHub.unwatch(m_scanWatchedPath);
-        m_scanWatchOwned = false;
-    } else if (!isEngineOwned && !m_scanWatchOwned) {
-        char nameLabel[64];
-        snprintf(nameLabel, sizeof(nameLabel), "VID:%04X PID:%04X", hdev.vid, hdev.pid);
-        m_deviceHub.watch(hdev.path, hdev.productName.empty() ? nameLabel : hdev.productName);
-        m_scanWatchOwned = true;
-    }
-
-    // Header
-    ImGui::Spacing();
-    ImGui::Text("%s", hdev.productName.empty() ? tr("scanner.default_name") : hdev.productName.c_str());
-    ImGui::SameLine();
-    ImGui::TextDisabled("VID: % 04X PID : % 04X", hdev.vid, hdev.pid);
-    if (cfg)
-        ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "Config: %s", cfg->source_name.c_str());
-    else {
-        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "%s", tr("scanner.no_config"));
-        ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"",
-                            hdev.vid, hdev.pid);
-    }
-    if (!m_deviceHub.isOpen(hdev.path)) {
-        ImGui::Spacing();
-        ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", tr("scanner.disconnected"));
-        ImGui::EndChild();
-        return;
-    }
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    RawHIDState snap = m_deviceHub.snapshot(hdev.path).raw;
-
-    // ── IMU block auto-detection (see BITACORA 2026/08/11) ──────────────────────────────
-    // Same "alive offset" test the wizard uses for Baseline (REFERENCE.md, "Wizard de
-    // calibracion IMU"): amp>0 rules out a constant padding byte, amp<noiseFloor rules out a
-    // CRC/counter byte that cycles through its whole range every frame. Unlike the wizard's
-    // guided Baseline this window isn't a controlled "hold still" — the user may be moving the
-    // controller while browsing Scanner — so the floor is looser and this is less certain;
-    // needs real-hardware validation. Works the same whether the engine or DeviceHub's own watch
-    // thread is driving the reads — both populate the same shared raw snapshot.
-    if (m_scanImuDetecting && !snap.raw.empty()) {
-        int n = static_cast<int>(snap.raw.size()) - 1;
-        if (static_cast<int>(m_scanImuMinMax.size()) != n)
-            m_scanImuMinMax.assign(n, { 0.0f, 0.0f });
+    if (m_scanImuDetectFrames >= kScanImuDetectFrames) {
+        constexpr float kNoiseFloor = 6000.0f; // looser than the wizard's 800 — uncontrolled window
+        std::vector<bool> alive(n, false);
         for (int o = 0; o < n; ++o) {
-            int16_t raw = static_cast<int16_t>(
-                static_cast<uint8_t>(snap.raw[o]) | (static_cast<uint16_t>(snap.raw[o + 1]) << 8));
-            float v = static_cast<float>(raw);
-            if (m_scanImuDetectFrames == 0) m_scanImuMinMax[o] = { v, v };
-            else {
-                m_scanImuMinMax[o].first  = std::min(m_scanImuMinMax[o].first,  v);
-                m_scanImuMinMax[o].second = std::max(m_scanImuMinMax[o].second, v);
-            }
+            float amp = m_scanImuMinMax[o].second - m_scanImuMinMax[o].first;
+            alive[o] = amp > 0.0f && amp < kNoiseFloor;
         }
-        ++m_scanImuDetectFrames;
-
-        if (m_scanImuDetectFrames >= kScanImuDetectFrames) {
-            constexpr float kNoiseFloor = 6000.0f; // looser than the wizard's 800 — uncontrolled window
-            std::vector<bool> alive(n, false);
-            for (int o = 0; o < n; ++o) {
-                float amp = m_scanImuMinMax[o].second - m_scanImuMinMax[o].first;
-                alive[o] = amp > 0.0f && amp < kNoiseFloor;
-            }
-            // Longest run of alive offsets spaced 2 bytes apart, capped to 6 (accel+gyro) —
-            // simpler than the wizard's computeGyroCandidatePool() (no borderline-bridging, no
-            // trim-from-flattest-end for a run >6): good enough for a live glance, not a
-            // calibration source.
-            int bestStart = -1, bestLen = 0;
-            for (int s = 0; s < n; ++s) {
-                if (!alive[s]) continue;
-                if (s >= 2 && alive[s - 2]) continue;
-                int len = 0;
-                while (s + len * 2 < n && alive[s + len * 2]) ++len;
-                if (len > bestLen) { bestLen = len; bestStart = s; }
-            }
-            if (bestLen >= 3) {
-                int runLen = std::min(bestLen, 6);
-                m_scanImuOffsets.clear();
-                for (int k = 0; k < runLen; ++k) m_scanImuOffsets.push_back(bestStart + k * 2);
-            }
-            m_scanImuDetecting = false;
+        // Longest run of alive offsets spaced 2 bytes apart, capped to 6 (accel+gyro) —
+        // simpler than the wizard's computeGyroCandidatePool() (no borderline-bridging, no
+        // trim-from-flattest-end for a run >6): good enough for a live glance, not a
+        // calibration source.
+        int bestStart = -1, bestLen = 0;
+        for (int s = 0; s < n; ++s) {
+            if (!alive[s]) continue;
+            if (s >= 2 && alive[s - 2]) continue;
+            int len = 0;
+            while (s + len * 2 < n && alive[s + len * 2]) ++len;
+            if (len > bestLen) { bestLen = len; bestStart = s; }
         }
+        if (bestLen >= 3) {
+            int runLen = std::min(bestLen, 6);
+            m_scanImuOffsets.clear();
+            for (int k = 0; k < runLen; ++k) m_scanImuOffsets.push_back(bestStart + k * 2);
+        }
+        m_scanImuDetecting = false;
     }
+}
 
-    // ── D-pad/hat compass + buttons, side by side ────────────────────────────────────────
-    // The hat compass used to render at the very bottom of the tab — moved here, first
-    // component, to the left of the button grid (2026/08/11 redesign).
+// ── D-pad/hat compass + buttons, side by side ────────────────────────────────────────
+// The hat compass used to render at the very bottom of the tab — moved here, first
+// component, to the left of the button grid (2026/08/11 redesign).
+void AppWindow::renderScannerDpadAndButtons(const RawHIDState& snap) {
     ImGui::BeginGroup();
     ImGui::Text("%s", tr("scanner.hat"));
     ImGui::Separator();
@@ -693,8 +627,10 @@ void AppWindow::renderScannerTab() {
         if ((i + 1) % 16 != 0) ImGui::SameLine(0.0f, 4.0f);
     }
     ImGui::EndGroup();
+}
 
-    // ── Axes | vertical divider (same technique as CalibrationPanel) | 6-value IMU block ──
+// ── Axes | vertical divider (same technique as CalibrationPanel) | 6-value IMU block ──
+void AppWindow::renderScannerAxesAndImu(const RawHIDState& snap) {
     ImGui::Spacing();
     ImGui::Spacing();
     ImVec2 axesRowStart = ImGui::GetCursorScreenPos();
@@ -770,21 +706,17 @@ void AppWindow::renderScannerTab() {
     ImGui::GetWindowDrawList()->AddLine({ sepX, axesRowStart.y }, { sepX, sepBottom },
                                         IM_COL32(90, 100, 120, 140), 1.5f);
     ImGui::SetCursorScreenPos({ axesRowStart.x, sepBottom });
+}
 
-    // Touch + Raw bytes run tighter than the rest of the tab — they're dense diagnostic dumps,
-    // not a handful of controls, and the default vertical rhythm (ItemSpacing.y=6, set up near
-    // the top of AppWindow.cpp) was tall enough to force the InputMonitor child to scroll once
-    // both blocks were in. Popped again right before EndChild().
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { ImGui::GetStyle().ItemSpacing.x, 2.0f });
-
-    // ── Touch: manual-offset live decode ─────────────────────────────────────────────────
-    // No auto-detection here (unlike the IMU block above) — an "active" bit doesn't drift like
-    // a sensor value, so there's no amplitude heuristic to lean on. The user tunes the offset by
-    // hand while touching the pad, same as they already did to pin down data_offset=35 for the
-    // DS4 (BITACORA.md, 2026/08/17). Fixed at 2 slots (DS4's 2 fingers, and the best starting
-    // guess for the DualSense). All slots share a SINGLE text line (not one line per active
-    // touch) so the row height never changes as fingers land/lift — otherwise every touch/
-    // release would shift the Raw bytes block below up and down.
+// ── Touch: manual-offset live decode ─────────────────────────────────────────────────
+// No auto-detection here (unlike the IMU block above) — an "active" bit doesn't drift like
+// a sensor value, so there's no amplitude heuristic to lean on. The user tunes the offset by
+// hand while touching the pad, same as they already did to pin down data_offset=35 for the
+// DS4 (BITACORA.md, 2026/08/17). Fixed at 2 slots (DS4's 2 fingers, and the best starting
+// guess for the DualSense). All slots share a SINGLE text line (not one line per active
+// touch) so the row height never changes as fingers land/lift — otherwise every touch/
+// release would shift the Raw bytes block below up and down.
+void AppWindow::renderScannerTouch(const RawHIDState& snap) {
     ImGui::Spacing();
     ImGui::Text("%s", tr("scanner.touch_title"));
     ImGui::Separator();
@@ -817,43 +749,140 @@ void AppWindow::renderScannerTab() {
         ImGui::TextColored(anyActive ? ImVec4{ 0.3f, 1.0f, 0.3f, 1.0f } : ImVec4{ 0.6f, 0.6f, 0.6f, 1.0f },
                             "%s", touchLine.c_str());
     }
+}
 
-    // ── Raw bytes: full report dump, enumerated in index/value row pairs ────────────────
-    // No decoding, no guessing at an offset — every byte of the raw HID report, indexed, so an
-    // unknown device's layout (DualSense, Steam Controller...) can be read straight off the
-    // screen while touching/pressing things, instead of hunting for it one offset at a time
-    // (see SESSION_CONTEXT.md "Wizard", discussion 2026/08/29). Same bytes the [HID][raw] trace
-    // (HIDInputSource.cpp) already logs to file — this is just the live, always-visible version.
-    // Indices are decimal (not the usual hex-dump convention) to match the decimal "Offset"
-    // field of the Touch block above, so a byte found here can be typed there directly. Laid
-    // out as an index row followed by its value row (32 columns per pair, not one row per 16
-    // bytes with a leading offset label) — easier to read a specific column straight down.
+// ── Raw bytes: full report dump, enumerated in index/value row pairs ────────────────
+// No decoding, no guessing at an offset — every byte of the raw HID report, indexed, so an
+// unknown device's layout (DualSense, Steam Controller...) can be read straight off the
+// screen while touching/pressing things, instead of hunting for it one offset at a time
+// (see SESSION_CONTEXT.md "Wizard", discussion 2026/08/29). Same bytes the [HID][raw] trace
+// (HIDInputSource.cpp) already logs to file — this is just the live, always-visible version.
+// Indices are decimal (not the usual hex-dump convention) to match the decimal "Offset"
+// field of the Touch block above, so a byte found here can be typed there directly. Laid
+// out as an index row followed by its value row (32 columns per pair, not one row per 16
+// bytes with a leading offset label) — easier to read a specific column straight down.
+void AppWindow::renderScannerRawBytes(const RawHIDState& snap) {
     ImGui::Spacing();
     ImGui::Text("%s", tr("scanner.raw_title"));
     ImGui::Separator();
     ImGui::Spacing();
-    {
-        constexpr int kBytesPerBlock = 32;
-        // Index and value share the exact same format — 2 digits, zero-padded — so a column
-        // lines up visually between its label and its value with no width mismatch to eyeball.
-        int n = static_cast<int>(snap.raw.size());
-        for (int blockStart = 0; blockStart < n; blockStart += kBytesPerBlock) {
-            int blockEnd = std::min(blockStart + kBytesPerBlock, n);
-            std::string idxLine, valLine;
-            for (int i = blockStart; i < blockEnd; ++i) {
-                char idxTok[8]; snprintf(idxTok, sizeof(idxTok), "%02d ", i);
-                idxLine += idxTok;
-                char valTok[8]; snprintf(valTok, sizeof(valTok), "%02X ", snap.raw[i]);
-                valLine += valTok;
-            }
-            ImGui::TextDisabled("%s", idxLine.c_str());
-            ImGui::TextUnformatted(valLine.c_str());
-            ImGui::Spacing();
+    constexpr int kBytesPerBlock = 32;
+    // Index and value share the exact same format — 2 digits, zero-padded — so a column
+    // lines up visually between its label and its value with no width mismatch to eyeball.
+    int n = static_cast<int>(snap.raw.size());
+    for (int blockStart = 0; blockStart < n; blockStart += kBytesPerBlock) {
+        int blockEnd = std::min(blockStart + kBytesPerBlock, n);
+        std::string idxLine, valLine;
+        for (int i = blockStart; i < blockEnd; ++i) {
+            char idxTok[8]; snprintf(idxTok, sizeof(idxTok), "%02d ", i);
+            idxLine += idxTok;
+            char valTok[8]; snprintf(valTok, sizeof(valTok), "%02X ", snap.raw[i]);
+            valLine += valTok;
         }
+        ImGui::TextDisabled("%s", idxLine.c_str());
+        ImGui::TextUnformatted(valLine.c_str());
+        ImGui::Spacing();
+    }
+}
+
+// ── Right panel body: HID device live monitor ────────────────────────────────────────
+// Runs inside the caller's ##InputMonitor child. Every path here — both early returns and the
+// full render — ends up back at the same EndChild(), so that pairing stays in the caller
+// (renderScannerTab) instead of being duplicated at each exit point.
+void AppWindow::renderScannerInputMonitor() {
+    if (m_hidSelected < 0 || m_hidSelected >= (int)m_hidDevices.size()) {
+        if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
+        m_scanWatchOwned = false;
+        m_scanWatchedPath.clear();
+        m_scanDeviceIdx  = -1;
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s", tr("scanner.hint"));
+        return;
     }
 
-    ImGui::PopStyleVar(); // ItemSpacing pushed before the Touch block above
+    const auto& hdev = m_hidDevices[m_hidSelected];
+    const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
+                                             hdev.connectionType);
 
+    // Selection changed — re-arm the IMU block detector for the new device.
+    if (m_hidSelected != m_scanDeviceIdx) {
+        if (m_scanWatchOwned) m_deviceHub.unwatch(m_scanWatchedPath);
+        m_scanWatchOwned  = false;
+        m_scanDeviceIdx   = m_hidSelected;
+        m_scanWatchedPath = hdev.path;
+
+        m_scanImuOffsets.clear();
+        m_scanImuMinMax.clear();
+        m_scanImuDetectFrames = 0;
+        m_scanImuDetecting    = true;
+
+        m_scanTouchOffset = (cfg && cfg->touchpad.enabled) ? cfg->touchpad.dataOffset : 35;
+    }
+
+    // The connection itself lives in DeviceHub, shared with the engine — no independent handle
+    // here anymore. If the engine already owns this exact device we just read its snapshot
+    // (kept fresh by the engine's own reads); otherwise we watch it ourselves. Re-checked every
+    // frame so the panel follows the engine picking up/dropping this device live, without ever
+    // holding a second, conflicting handle open to it (see ARCHITECTURE.md, "DeviceHub").
+    DeviceCandidate activeDevice  = m_engine.getActiveDevice();
+    bool            isEngineOwned = (!activeDevice.hidPath.empty() && activeDevice.hidPath == hdev.path);
+    if (isEngineOwned && m_scanWatchOwned) {
+        m_deviceHub.unwatch(m_scanWatchedPath);
+        m_scanWatchOwned = false;
+    } else if (!isEngineOwned && !m_scanWatchOwned) {
+        char nameLabel[64];
+        snprintf(nameLabel, sizeof(nameLabel), "VID:%04X PID:%04X", hdev.vid, hdev.pid);
+        m_deviceHub.watch(hdev.path, hdev.productName.empty() ? nameLabel : hdev.productName);
+        m_scanWatchOwned = true;
+    }
+
+    // Header
+    ImGui::Spacing();
+    ImGui::Text("%s", hdev.productName.empty() ? tr("scanner.default_name") : hdev.productName.c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("VID: % 04X PID : % 04X", hdev.vid, hdev.pid);
+    if (cfg)
+        ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "Config: %s", cfg->source_name.c_str());
+    else {
+        ImGui::TextColored({ 1.0f, 0.8f, 0.0f, 1.0f }, "%s", tr("scanner.no_config"));
+        ImGui::TextDisabled("Add to controllers.json: vid \"%04X\" pid \"%04X\" mode \"hid\"",
+                            hdev.vid, hdev.pid);
+    }
+    if (!m_deviceHub.isOpen(hdev.path)) {
+        ImGui::Spacing();
+        ImGui::TextColored({ 1.0f, 0.4f, 0.4f, 1.0f }, "%s", tr("scanner.disconnected"));
+        return;
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    RawHIDState snap = m_deviceHub.snapshot(hdev.path).raw;
+
+    updateScannerImuDetection(snap);
+    renderScannerDpadAndButtons(snap);
+    renderScannerAxesAndImu(snap);
+
+    // Touch + Raw bytes run tighter than the rest of the tab — they're dense diagnostic dumps,
+    // not a handful of controls, and the default vertical rhythm (ItemSpacing.y=6, set up near
+    // the top of AppWindow.cpp) was tall enough to force the InputMonitor child to scroll once
+    // both blocks were in.
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { ImGui::GetStyle().ItemSpacing.x, 2.0f });
+    renderScannerTouch(snap);
+    renderScannerRawBytes(snap);
+    ImGui::PopStyleVar();
+}
+
+void AppWindow::renderScannerTab() {
+    updateScannerHidScan();
+
+    ImGui::Spacing();
+
+    renderScannerDeviceList();
+
+    // ── Right panel: input monitor ───────────────────────────────────────
+    ImGui::BeginChild("##InputMonitor", { 0.0f, 0.0f }, true);
+    renderScannerInputMonitor();
     ImGui::EndChild();
 }
 
@@ -1073,7 +1102,7 @@ void AppWindow::renderPadsTab() {
         if (m_marqueeLines.size() > 4) m_marqueeLines.pop_front();
     }
 
-    // 3. Render â€" always 4 slots so the area height is constant from the first entry
+    // 3. Render — always 4 slots so the area height is constant from the first entry
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -1098,11 +1127,11 @@ void AppWindow::renderPadsTab() {
                 case MarqueeEntryType::Mouse:    col = kColMouse;    break;
                 default:                         col = kColMacro;    break;
             }
-            // Fade: slot 0 (oldest) = 0.25 alpha, slot 3 (newest) = 1.0 â€" fixed scale of 4
+            // Fade: slot 0 (oldest) = 0.25 alpha, slot 3 (newest) = 1.0 — fixed scale of 4
             col.w = 0.25f + 0.75f * ((float)(slot + 1) / 4.0f);
             ImGui::TextColored(col, "%s", entry.text.c_str());
         } else {
-            // Empty slot â€" reserve the line height so the layout doesn't jump
+            // Empty slot — reserve the line height so the layout doesn't jump
             ImGui::Dummy({ 1.0f, ImGui::GetTextLineHeight() });
         }
     }

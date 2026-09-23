@@ -108,6 +108,13 @@ private:
     struct AxisUsage { USHORT page; USHORT usage; };
     static AxisUsage usageFromAxisName(const std::string& name);
     static void   parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right);
+    // Reads the hat switch (report-ID fallback via HIDDevice::getUsageValue), normalizes it
+    // against the descriptor's logical min/max, decodes it into 4 cardinal directions, updates
+    // m_lastRawHat, and writes m_physicalState.dpad* — common to both read() branches. Also
+    // returns the 4 directions via out-params: the legacy branch additionally ORs them into
+    // `state` afterwards; the Component-System branch doesn't (PhysicalDpadDir::process() writes
+    // `state` later instead). Shared 2026/09/07 — was byte-for-byte duplicated in read().
+    void          applyHatSwitch(PCHAR buf, ULONG bufLen, bool& up, bool& down, bool& left, bool& right);
     void          applyButtons (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
     void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);

@@ -110,6 +110,9 @@
     <ClCompile Include="ui\MappingEditor.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="ui\MappingSourceSelector.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="ui\MacroManagerPanel.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>

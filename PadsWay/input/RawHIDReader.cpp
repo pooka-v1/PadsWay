@@ -63,16 +63,8 @@ void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out)
         auto pit   = hid.usagePage().find(usage);
         USHORT page = (pit != hid.usagePage().end()) ? pit->second : HID_USAGE_PAGE_GENERIC;
         ULONG raw = 0;
-        NTSTATUS st = HidP_GetUsageValue(HidP_Input, page, 0,
-                                         usage, &raw, PREPARSED, buf, bufLen);
-        if (st == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && btnId != 0xFF) {
-            char savedId = buf[0];
-            buf[0] = static_cast<char>(btnId);
-            st = HidP_GetUsageValue(HidP_Input, page, 0,
-                                    usage, &raw, PREPARSED, buf, bufLen);
-            buf[0] = savedId;
-        }
-        if (st == HIDP_STATUS_SUCCESS) dest = hid.normalizeAxis(usage, raw);
+        if (hid.getUsageValue(page, usage, &raw, buf, bufLen))
+            dest = hid.normalizeAxis(usage, raw);
     };
 
     readAxis(kUsageX,  out.axisX);
@@ -85,31 +77,15 @@ void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out)
     // Simulation page (e.g. 8BitDo Pro 3 triggers in D-mode)
     auto readSimAxis = [&](USHORT usage, float& dest) {
         ULONG raw = 0;
-        NTSTATUS st = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_SIMULATION, 0,
-                                         usage, &raw, PREPARSED, buf, bufLen);
-        if (st == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && btnId != 0xFF) {
-            char savedId = buf[0];
-            buf[0] = static_cast<char>(btnId);
-            st = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_SIMULATION, 0,
-                                    usage, &raw, PREPARSED, buf, bufLen);
-            buf[0] = savedId;
-        }
-        if (st == HIDP_STATUS_SUCCESS) dest = hid.normalizeAxis(usage, raw);
+        if (hid.getUsageValue(HID_USAGE_PAGE_SIMULATION, usage, &raw, buf, bufLen))
+            dest = hid.normalizeAxis(usage, raw);
     };
     readSimAxis(0xC4, out.axisBrake);
     readSimAxis(0xC5, out.axisAccel);
 
     // ── Hat ──────────────────────────────────────────────────────────────────
     ULONG hat = 0xFFFFFFFF;
-    NTSTATUS hatSt = HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0,
-                                        kUsageHat, &hat, PREPARSED, buf, bufLen);
-    if (hatSt == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && btnId != 0xFF) {
-        char savedId = buf[0];
-        buf[0] = static_cast<char>(btnId);
-        HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0,
-                           kUsageHat, &hat, PREPARSED, buf, bufLen);
-        buf[0] = savedId;
-    }
+    hid.getUsageValue(HID_USAGE_PAGE_GENERIC, kUsageHat, &hat, buf, bufLen);
     auto hatIt = hid.valueCaps().find(kUsageHat);
     if (hatIt != hid.valueCaps().end()) {
         ULONG hatMin = static_cast<ULONG>(hatIt->second.logMin);

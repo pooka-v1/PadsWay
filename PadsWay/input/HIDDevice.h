@@ -40,6 +40,12 @@ public:
     // Normalize a raw HID axis value to [-1, +1] using the cached value caps.
     float normalizeAxis(USHORT usage, ULONG rawValue) const;
 
+    // Reads one HID usage value (HidP_GetUsageValue), retrying with buttonReportId() swapped into
+    // buf[0] if the descriptor's own report ID doesn't match what the device actually sent (BT vs
+    // USB report-ID split — same fallback every input path needs when reading this device). buf[0]
+    // is restored before returning either way. Returns false if neither attempt produced a value.
+    bool getUsageValue(USHORT page, USHORT usage, PULONG value, PCHAR buf, ULONG bufLen) const;
+
 private:
     HANDLE            m_device         = INVALID_HANDLE_VALUE;
     HANDLE            m_event          = nullptr;

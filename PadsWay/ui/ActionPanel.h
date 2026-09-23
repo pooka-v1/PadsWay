@@ -2,7 +2,10 @@
 #include <vector>
 #include <string>
 #include <utility>
+#include <functional>
 #include "../imgui/imgui.h"
+#include "../GamepadState.h"
+#include "MappingSelection.h"   // ActionType
 
 // ---------------------------------------------------------------------------
 // ActionPanel — reusable ImGui sub-panels for action assignment.
@@ -69,5 +72,39 @@ bool renderMouseButtons(
     const char* contextId,
     std::string& result,
     float availW);
+
+// Optional trailing button in renderActionTypeTabs' row, for the one case that isn't a plain
+// ActionType selector: the "Rangos" button (trigger/analogico/gyro panels). Highlighted via
+// `active` (not by comparing to the selected ActionType) and its click runs `onClick` directly
+// instead of writing to `sel` — opening the ranges modal is its own flow, not another action type.
+struct ActionTypeExtra {
+    std::string           label;
+    bool                  active = false;
+    std::function<void()> onClick;
+};
+
+// Renders the "Mando/Macro/Teclado/Raton[/Raton-movimiento]/Bot[/Rangos]" tab row shared by the 6
+// action panels (Boton/D-pad, Gatillo, Analogico, Gyro/Accel, Zonas, Gestos) — 2026/09/07,
+// extracted from 6 near-identical copies in MappingEditor.cpp (see SESSION_CONTEXT.md, "Refactor
+// de codigo — auditoria 2026/09/07", tarea 1). `types` lists which ActionType values this
+// particular panel offers, in display order — every caller passes either the 5 standard ones
+// (Xbox/Macro/Keyboard/Mouse/Bot) or that same set plus MouseMove (Analogico/Gyro only). Every
+// button is the same pixel width regardless of how many render in a given panel —
+// kActionTypeBtnRefCount is the fixed reference, so a button looks identical across every panel.
+// Clicking a standard button sets `sel` and clears `captureKeys` (any pending keyboard capture
+// belongs to the type being left). `extra`, if given, renders one more button after them.
+void renderActionTypeTabs(
+    const char* contextId,
+    ActionType& sel,
+    std::vector<std::pair<std::string, std::string>>& captureKeys,
+    const std::vector<ActionType>& types,
+    float rowWidth,
+    const ActionTypeExtra* extra = nullptr);
+
+// True while the "cancel current selection" chord is held (L1+R1 or A+B on the physical pad) —
+// checked while a Teclado capture panel is open so the user can back out without pressing Esc.
+// Extracted 2026/09/07, was copied literally at 6 call sites in MappingEditor.cpp (same task as
+// renderActionTypeTabs above).
+bool isCancelSelectionCombo(const GamepadState& physNow);
 
 } // namespace ActionPanel

@@ -2,8 +2,10 @@
 #include <array>
 #include <string>
 #include <vector>
+#include <unordered_map>
 #include <utility>
 #include "../GamepadState.h"
+#include "MappingModel.h"
 
 // ---------------------------------------------------------------------------
 // ActionType — action panel mode selector.
@@ -237,3 +239,92 @@ struct MappingSelection {
         axisMouseInvert = false;
     }
 };
+
+// ---------------------------------------------------------------------------
+// Gyro/accel source resolution — free functions (moved out of MappingEditor, Tarea 3b) so both
+// MappingEditor's action-panel/modal code and MappingSourceSelector's H9 Paso 2 can call them
+// without either depending on the other. Same rationale as advanceImuSweep() above: these were
+// already pure functions of MappingSelection/MappingModel state in disguise, with no ImGui or
+// other MappingEditor-only dependency.
+// ---------------------------------------------------------------------------
+
+// Gyro/accel logical direction ("up"/"down"/"left"/"right"/"cw"/"ccw") -> each sensor's own
+// native half-axis key. Unlike stick slots (left_x_pos...), gyro is a single fixed axis set per
+// controller, so this is a static table, not a per-instance lookup. cw/ccw have no accel
+// equivalent — the accelerometer cannot sense rotation around the vertical axis while flat.
+// See PhysicalAccel's comment in ComponentTypes.h for the letter-to-gesture mapping per sensor.
+inline std::string gyroKeyFromDir(const std::string& dir) {
+    if (dir == "up")    return "x_pos";   // pitch+
+    if (dir == "down")  return "x_neg";   // pitch-
+    if (dir == "right") return "z_pos";   // roll+
+    if (dir == "left")  return "z_neg";   // roll-
+    if (dir == "cw")    return "y_pos";   // yaw+
+    if (dir == "ccw")   return "y_neg";   // yaw-
+    return "";
+}
+
+inline std::string accelKeyFromDir(const std::string& dir) {
+    if (dir == "up")    return "y_pos";   // frontal+
+    if (dir == "down")  return "y_neg";   // frontal-
+    if (dir == "right") return "x_pos";   // lateral+
+    if (dir == "left")  return "x_neg";   // lateral-
+    return "";   // cw/ccw: no accel equivalent, always resolves to gyro
+}
+
+// Whether this direction's source already resolves to accel going by what's actually saved in
+// the model — i.e. there's an existing accelActionEdits entry for it — rather than guessing from
+// the HalfAxisActionType the user is about to assign. An earlier version defaulted per target
+// type (dpad/stick/trigger -> accel, everything else -> gyro) to guess which sensor the user
+// probably wanted before they'd picked a target; in practice the guess and the actual target
+// often disagreed (e.g. previewing gyro while about to assign a stick slot, which defaulted to
+// accel), and worse, re-clicking an existing assignment could silently move it from one sensor's
+// map to the other. There is no default left to guess: nothing assigned yet is gyro, anything
+// already assigned is whatever it already is.
+inline bool imuDirIsAssignedToAccel(const MappingModel& model, const std::string& dir) {
+    std::string accelKey = accelKeyFromDir(dir);
+    return !accelKey.empty() && model.accelActionEdits.count(accelKey) > 0;
+}
+
+// PURE lookup, no side effects — safe to call every frame for display purposes as well as right
+// before a write. Resolves which map (model.gyroActionEdits or accelActionEdits) a gyro-widget
+// logical direction should read/write, and writes the native key for that sensor to outKey (gyro
+// and accel use different keys for the same direction — see PhysicalAccel's comment in
+// ComponentTypes.h). cw/ccw always resolve to gyro (accel can't sense yaw). Otherwise:
+// sel.imuSourceOverridden wins if the user has touched the Gyro/Accel toggle by hand for this
+// direction; else it follows whatever is already assigned (imuDirIsAssignedToAccel), defaulting
+// to gyro only when nothing is assigned yet.
+inline std::unordered_map<std::string, HalfAxisAction>& resolveImuTargetMap(
+        const MappingSelection& sel, MappingModel& model,
+        const std::string& dir, std::string& outKey) {
+    bool useAccel = (dir != "cw" && dir != "ccw") &&
+                     (sel.imuSourceOverridden ? sel.imuUseAccel : imuDirIsAssignedToAccel(model, dir));
+    if (useAccel) {
+        outKey = accelKeyFromDir(dir);
+        return model.accelActionEdits;
+    }
+    outKey = gyroKeyFromDir(dir);
+    return model.gyroActionEdits;
+}
+
+// Erases the OTHER sensor's entry for this direction — call right before actually committing a
+// new assignment (not on every frame) so a direction only ever has one active source.
+inline void clearImuOtherMap(MappingModel& model, const std::string& dir, bool chosenIsAccel) {
+    if (chosenIsAccel) {
+        std::string gk = gyroKeyFromDir(dir);
+        if (!gk.empty()) model.gyroActionEdits.erase(gk);
+    } else {
+        std::string ak = accelKeyFromDir(dir);
+        if (!ak.empty()) model.accelActionEdits.erase(ak);
+    }
+}
+
+// Resolve + clear-other + write in one step, for the common "assign this action outright" call
+// sites (macro/keyboard/mouse-click/bot/mouse-move). Toggle-off-if-already-same sites
+// (onVirtHitGyroAction, Ranges, macro-inline modal) do their own read-then-write instead.
+inline void assignImuAction(const MappingSelection& sel, MappingModel& model,
+                             const std::string& dir, const HalfAxisAction& ha) {
+    std::string key;
+    auto& map = resolveImuTargetMap(sel, model, dir, key);
+    clearImuOtherMap(model, dir, &map == &model.accelActionEdits);
+    map[key] = ha;
+}

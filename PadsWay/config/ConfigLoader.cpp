@@ -881,6 +881,16 @@ static std::optional<ButtonId> virtualNameToButtonId(const std::string& name) {
     return std::nullopt;
 }
 
+// dpad_remap stores a dpad-to-dpad reassignment as "dpad_up"/"dpad_down"/"dpad_left"/"dpad_right"
+// (see MappingEditor::onVirtHit's vShort). Resolves that string to the target DpadDir.
+static std::optional<DpadDir> dpadRemapNameToDpadDir(const std::string& name) {
+    if (name == "dpad_up")    return DpadDir::Up;
+    if (name == "dpad_down")  return DpadDir::Down;
+    if (name == "dpad_left")  return DpadDir::Left;
+    if (name == "dpad_right") return DpadDir::Right;
+    return std::nullopt;
+}
+
 static std::optional<StickSlotId> slotStringToStickSlotId(const std::string& s) {
     if (s == "left_x_pos")  return StickSlotId::LeftXPos;
     if (s == "left_x_neg")  return StickSlotId::LeftXNeg;
@@ -1059,6 +1069,46 @@ static ImuComponent buildImuComponent(const std::unordered_map<std::string, Half
     return comp;
 }
 
+// Applies one button's action to the PhysicalController's base layer — shared by
+// parsePhysicalController() (raw JSON, first load) and rebuildPhysicalControllerFromConfig()
+// (already-parsed ControllerConfig, hot-reload after a Mapeador edit). Returns true if this
+// entry was the touch_btn one, regardless of whether it resolved to a valid VirtualTarget —
+// rebuild needs that to know whether to touch the Touchpad's clickTarget at all; parsing from
+// raw JSON only cares whether touchClickTarget ended up with a value.
+//
+// explicitClear: parsing starts from an empty baseLayer, so an unbound action just leaves the
+// slot untouched; hot-reload must unbind a slot whose action a profile or edit just removed, so
+// it clears the slot to std::nullopt instead of leaving the previous PhysicalButton in place.
+static bool applyButtonComponent(PhysicalController& ctrl, uint8_t bit, const ButtonAction& action,
+                                  std::optional<VirtualTarget>& touchClickTarget, bool explicitClear) {
+    if (action.physical.empty()) return false;
+    if (action.physical == "touch_btn") {
+        if (explicitClear) touchClickTarget = buttonActionToVT(action);
+        else if (auto vt = buttonActionToVT(action)) touchClickTarget = *vt;
+        return true;
+    }
+    auto cid = physicalNameToComponentId(action.physical);
+    if (!cid) return false;
+    auto vt = buttonActionToVT(action);
+    if (vt)               ctrl.baseLayer[static_cast<size_t>(*cid)] = PhysicalButton{bit, *vt};
+    else if (explicitClear) ctrl.baseLayer[static_cast<size_t>(*cid)] = std::nullopt;
+    return false;
+}
+
+// Resolves one dpad direction into a PhysicalDpadDir, layering overrides over the default
+// VirtualPassthrough in priority order (later non-empty layers win) — shared by
+// parsePhysicalController() and rebuildPhysicalControllerFromConfig(). Both persistence formats
+// use the same layering (whole-axis stick-slot remap, then a bare button remap, then an explicit
+// dpad action wins last); they just feed it from differently-shaped sources (raw JSON vs
+// already-parsed ControllerConfig), so each caller computes its own layers and hands them here.
+static PhysicalDpadDir resolveDpadDir(DpadDir dir,
+                                       std::initializer_list<std::optional<VirtualTarget>> layers) {
+    PhysicalDpadDir comp{dir, VirtualPassthrough{}};
+    for (const auto& layer : layers)
+        if (layer) comp.target = *layer;
+    return comp;
+}
+
 static PhysicalController parsePhysicalController(const json& c) {
     PhysicalController ctrl;
     ctrl.vid  = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
@@ -1080,23 +1130,15 @@ static PhysicalController parsePhysicalController(const json& c) {
         for (const auto& [key, val] : c["buttons"].items()) {
             if (!key.empty() && key[0] == '_') continue;
             ButtonAction action = parseButtonAction(val);
-            if (action.physical.empty()) continue;
-            if (action.physical == "touch_btn") {
-                if (auto vt = buttonActionToVT(action)) touchClickTarget = *vt;
-                continue;
-            }
-            auto cid = physicalNameToComponentId(action.physical);
-            if (!cid) continue;
-            auto vt = buttonActionToVT(action);
-            if (!vt) continue;   // no virtual output (unbound paddle, etc.)
             uint8_t bit = static_cast<uint8_t>(std::stoi(key));
-            setBase(*cid, PhysicalButton{bit, *vt});
+            applyButtonComponent(ctrl, bit, action, touchClickTarget, /*explicitClear=*/false);
         }
     }
 
     // ── Dpad ─────────────────────────────────────────────────────────────────
     // Default: each direction passes through to its natural DpadDir.
-    // Overridden by dpad_remap / dpad_actions entries.
+    // Overridden by dpad_remap (string: stick-slot or button name; object: full ButtonAction)
+    // then dpad_actions (object: full ButtonAction, wins last).
     if (!c.value("dpad", "").empty()) {
         static const std::pair<const char*, std::pair<DpadDir, ComponentId>> kDpadDefaults[] = {
             {"up",    {DpadDir::Up,    ComponentId::DpadUp}},
@@ -1104,47 +1146,33 @@ static PhysicalController parsePhysicalController(const json& c) {
             {"left",  {DpadDir::Left,  ComponentId::DpadLeft}},
             {"right", {DpadDir::Right, ComponentId::DpadRight}},
         };
-        for (auto& [dirStr, dc] : kDpadDefaults)
-            setBase(dc.second, PhysicalDpadDir{dc.first, VirtualPassthrough{}});
+        const json* remapJson  = (c.contains("dpad_remap")  && c["dpad_remap"].is_object())
+                                  ? &c["dpad_remap"] : nullptr;
+        const json* actionJson = (c.contains("dpad_actions") && c["dpad_actions"].is_object())
+                                  ? &c["dpad_actions"] : nullptr;
 
-        if (c.contains("dpad_remap") && c["dpad_remap"].is_object()) {
-            for (const auto& [dirStr, val] : c["dpad_remap"].items()) {
-                DpadDir ddir; ComponentId cid;
-                if      (dirStr == "up")    { ddir = DpadDir::Up;    cid = ComponentId::DpadUp;    }
-                else if (dirStr == "down")  { ddir = DpadDir::Down;  cid = ComponentId::DpadDown;  }
-                else if (dirStr == "left")  { ddir = DpadDir::Left;  cid = ComponentId::DpadLeft;  }
-                else if (dirStr == "right") { ddir = DpadDir::Right; cid = ComponentId::DpadRight; }
-                else continue;
-
+        for (auto& [dirStr, dc] : kDpadDefaults) {
+            std::optional<VirtualTarget> remapVt;
+            if (remapJson && remapJson->contains(dirStr)) {
+                const auto& val = (*remapJson)[dirStr];
                 if (val.is_string()) {
                     std::string vtStr = val.get<std::string>();
                     if (isStickSlotDir(vtStr)) {
-                        auto slot = slotStringToStickSlotId(vtStr);
-                        if (slot) setBase(cid, PhysicalDpadDir{ddir, VirtualStickSlot{*slot}});
-                    } else {
-                        auto bid = virtualNameToButtonId(vtStr);
-                        if (bid) setBase(cid, PhysicalDpadDir{ddir, VirtualButton{*bid}});
+                        if (auto slot = slotStringToStickSlotId(vtStr)) remapVt = VirtualStickSlot{*slot};
+                    } else if (auto ddir = dpadRemapNameToDpadDir(vtStr)) {
+                        remapVt = VirtualDpadDir{*ddir};
+                    } else if (auto bid = virtualNameToButtonId(vtStr)) {
+                        remapVt = VirtualButton{*bid};
                     }
                 } else if (val.is_object()) {
-                    ButtonAction action = parseButtonAction(val);
-                    auto vt = buttonActionToVT(action);
-                    if (vt) setBase(cid, PhysicalDpadDir{ddir, *vt});
+                    remapVt = buttonActionToVT(parseButtonAction(val));
                 }
             }
-        }
+            std::optional<VirtualTarget> actionVt;
+            if (actionJson && actionJson->contains(dirStr))
+                actionVt = buttonActionToVT(parseButtonAction((*actionJson)[dirStr]));
 
-        if (c.contains("dpad_actions") && c["dpad_actions"].is_object()) {
-            for (const auto& [dirStr, val] : c["dpad_actions"].items()) {
-                DpadDir ddir; ComponentId cid;
-                if      (dirStr == "up")    { ddir = DpadDir::Up;    cid = ComponentId::DpadUp;    }
-                else if (dirStr == "down")  { ddir = DpadDir::Down;  cid = ComponentId::DpadDown;  }
-                else if (dirStr == "left")  { ddir = DpadDir::Left;  cid = ComponentId::DpadLeft;  }
-                else if (dirStr == "right") { ddir = DpadDir::Right; cid = ComponentId::DpadRight; }
-                else continue;
-                ButtonAction action = parseButtonAction(val);
-                auto vt = buttonActionToVT(action);
-                if (vt) setBase(cid, PhysicalDpadDir{ddir, *vt});
-            }
+            setBase(dc.second, resolveDpadDir(dc.first, {remapVt, actionVt}));
         }
     }
 
@@ -1316,17 +1344,9 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
     bool touchClickSeen = false;
     std::optional<VirtualTarget> touchClickTarget;
     for (const auto& [bit, action] : cfg.buttons) {
-        if (action.physical.empty()) continue;
-        if (action.physical == "touch_btn") {
-            touchClickSeen   = true;
-            touchClickTarget = buttonActionToVT(action);
-            continue;
-        }
-        auto cid = physicalNameToComponentId(action.physical);
-        if (!cid) continue;
-        auto vt = buttonActionToVT(action);
-        if (vt) setBase(*cid, PhysicalButton{static_cast<uint8_t>(bit), *vt});
-        else    setBase(*cid, std::nullopt);   // unbound (e.g. cleared by a profile)
+        if (applyButtonComponent(pc, static_cast<uint8_t>(bit), action, touchClickTarget,
+                                  /*explicitClear=*/true))
+            touchClickSeen = true;
     }
     if (touchClickSeen) {
         auto& touchSlot = pc.baseLayer[static_cast<size_t>(ComponentId::Touchpad)];
@@ -1343,6 +1363,8 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
     }
 
     // ── Dpad ─────────────────────────────────────────────────────────────────
+    // Same layering as parsePhysicalController()'s dpad block (see resolveDpadDir), fed from
+    // ControllerConfig's already-split fields instead of raw JSON.
     if (!cfg.dpad.empty()) {
         static const struct { const char* name; DpadDir dir; ComponentId cid; } kDirs[] = {
             {"up",    DpadDir::Up,    ComponentId::DpadUp},
@@ -1351,18 +1373,21 @@ void rebuildPhysicalControllerFromConfig(PhysicalController& pc, const Controlle
             {"right", DpadDir::Right, ComponentId::DpadRight},
         };
         for (const auto& d : kDirs) {
-            PhysicalDpadDir comp{d.dir, VirtualPassthrough{}};
+            std::optional<VirtualTarget> slotVt;
             if (auto slot = slotForSource(std::string("dpad_") + d.name))
-                comp.target = VirtualStickSlot{*slot};
+                slotVt = VirtualStickSlot{*slot};
+
+            std::optional<VirtualTarget> remapVt;
             if (auto it = cfg.dpadRemap.find(d.name); it != cfg.dpadRemap.end()) {
-                if (auto bid = virtualNameToButtonId(it->second))
-                    comp.target = VirtualButton{*bid};
+                if (auto ddir = dpadRemapNameToDpadDir(it->second)) remapVt = VirtualDpadDir{*ddir};
+                else if (auto bid = virtualNameToButtonId(it->second)) remapVt = VirtualButton{*bid};
             }
-            if (auto it = cfg.dpadActions.find(d.name); it != cfg.dpadActions.end()) {
-                if (auto vt = buttonActionToVT(it->second))
-                    comp.target = *vt;
-            }
-            setBase(d.cid, comp);
+
+            std::optional<VirtualTarget> actionVt;
+            if (auto it = cfg.dpadActions.find(d.name); it != cfg.dpadActions.end())
+                actionVt = buttonActionToVT(it->second);
+
+            setBase(d.cid, resolveDpadDir(d.dir, {slotVt, remapVt, actionVt}));
         }
     }
 

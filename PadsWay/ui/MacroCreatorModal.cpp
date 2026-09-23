@@ -740,13 +740,6 @@ void MacroCreatorModal::renderDslField() {
         }
         m_selAnchor = m_selEnd = -1;
     }
-
-    ImVec4 col = m_validOk
-        ? ImVec4(0.2f, 0.9f, 0.3f, 1.0f)
-        : ImVec4(0.9f, 0.3f, 0.2f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Text, col);
-    ImGui::TextWrapped("%s", m_validMsg.c_str());
-    ImGui::PopStyleColor();
 }
 
 // ---------------------------------------------------------------------------
@@ -765,32 +758,32 @@ bool MacroCreatorModal::render() {
     if (!ImGui::BeginPopupModal(popupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         return false;
 
-    const char* title = (m_mode == Mode::kLibrary) ? tr("macros.title_edit") : tr("macros.title_build");
-    ImGui::TextDisabled("%s", title);
-    ImGui::Separator();
-
+    // Name field (kLibrary only) + Save/Cancel + validity message, all on one row up top
+    // (2026/09/22 — Save/Cancel/validity used to sit at the very bottom, past the token
+    // picker/step grid/repeat controls/DSL field/reference, forcing a scroll just to reach
+    // them; canConfirm reads m_validOk as of the start of this frame, same as before, since
+    // it was already computed from the previous frame's edits either way).
     if (m_mode == Mode::kLibrary) {
         ImGui::Text("%s", tr("macros.name_label")); ImGui::SameLine(0.0f, 6.0f);
-        ImGui::SetNextItemWidth(300.0f);
+        ImGui::SetNextItemWidth(200.0f);  // 2/3 of the original 300px (2026/09/22)
         ImGui::InputText("##macroname", m_nameBuffer, sizeof(m_nameBuffer));
-        ImGui::Spacing();
+        ImGui::SameLine(0.0f, 12.0f);
     }
 
-    renderTokenPicker();
-    m_stepGrid.render(m_steps, m_dslOnly, m_selAnchor, m_selEnd);
-    renderActiveStepControls();
-    renderDslField();
-    renderReference();
-
-    ImGui::Spacing();
-    ImGui::Separator();
+    // 80px matches Cancel's own long-standing width and is this codebase's established size
+    // for a compact action button (renderMacroCombo/BotCombo's "Asignar", the DSL capture
+    // row's "Limpiar", MouseMove's "Asignar" all use it) — the closest fixed value to the
+    // Mapeador's Mando/Macro/Teclado/Raton tabs, whose own width is computed from halfW and
+    // isn't a fixed pixel size we can read from here. Eyeball it against the mapper and adjust
+    // if it doesn't read as the same size (2026/09/22).
+    constexpr float kSaveCancelBtnW = 80.0f;
 
     bool confirmed = false;
     bool canConfirm = m_validOk &&
                       (m_mode == Mode::kInline || m_nameBuffer[0] != '\0');
 
     if (!canConfirm) ImGui::BeginDisabled();
-    if (ImGui::Button(tr("btn.save"), {120.0f, 0.0f})) {
+    if (ImGui::Button(tr("btn.save"), {kSaveCancelBtnW, 0.0f})) {
         confirmed = true;
         m_open    = false;
         ImGui::CloseCurrentPopup();
@@ -798,10 +791,26 @@ bool MacroCreatorModal::render() {
     if (!canConfirm) ImGui::EndDisabled();
 
     ImGui::SameLine();
-    if (ImGui::Button(tr("btn.cancel"), {80.0f, 0.0f})) {
+    if (ImGui::Button(tr("btn.cancel"), {kSaveCancelBtnW, 0.0f})) {
         m_open = false;
         ImGui::CloseCurrentPopup();
     }
+
+    ImGui::SameLine(0.0f, 12.0f);
+    ImVec4 validCol = m_validOk
+        ? ImVec4(0.2f, 0.9f, 0.3f, 1.0f)
+        : ImVec4(0.9f, 0.3f, 0.2f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, validCol);
+    ImGui::TextWrapped("%s", m_validMsg.c_str());
+    ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    renderTokenPicker();
+    m_stepGrid.render(m_steps, m_dslOnly, m_selAnchor, m_selEnd);
+    renderActiveStepControls();
+    renderDslField();
+    renderReference();
 
     ImGui::EndPopup();
     return confirmed;

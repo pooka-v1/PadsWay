@@ -222,11 +222,11 @@
       "source_name": "8BitDo Pro 2 (D-mode)",
       "stick_calibration": {
         "left": {
-          "deadzone": 0.0,
+          "deadzone": 0.03999999910593033,
           "max": 1.0
         },
         "right": {
-          "deadzone": 0.0,
+          "deadzone": 0.03999999910593033,
           "max": 1.0
         }
       },
@@ -767,6 +767,32 @@
           "target": "right_x"
         }
       },
+      "axis_actions": {
+        "left_x_neg": {
+          "virtual": "left_x_neg"
+        },
+        "left_x_pos": {
+          "virtual": "left_x_pos"
+        },
+        "left_y_neg": {
+          "virtual": "left_y_neg"
+        },
+        "left_y_pos": {
+          "virtual": "left_y_pos"
+        },
+        "right_x_neg": {
+          "virtual": "right_x_neg"
+        },
+        "right_x_pos": {
+          "virtual": "right_x_pos"
+        },
+        "right_y_neg": {
+          "virtual": "right_y_neg"
+        },
+        "right_y_pos": {
+          "virtual": "right_y_pos"
+        }
+      },
       "buttons": {
         "1": {
           "physical": "x",
@@ -789,9 +815,7 @@
           "virtual": "home"
         },
         "14": {
-          "button": "left",
-          "physical": "touch_btn",
-          "type": "mouse_click"
+          "physical": "touch_btn"
         },
         "2": {
           "physical": "a",
@@ -864,53 +888,25 @@
           "max": 0.9900000095367432
         }
       },
-      "touch_gesture_actions": {
-        "down": {
-          "virtual": "a"
-        },
-        "left": {
-          "virtual": "x"
-        },
-        "right": {
-          "virtual": "b"
-        },
-        "up": {
-          "virtual": "y"
-        }
-      },
-      "touch_zone_actions": {
-        "ne": {
-          "virtual": "y"
-        },
-        "nw": {
-          "virtual": "x"
-        },
-        "se": {
-          "virtual": "b"
-        },
-        "sw": {
-          "virtual": "a"
-        }
-      },
       "touchpad": {
         "analog_target": "left",
         "data_offset": 35,
         "enabled": true,
         "max_x": 1919,
         "max_y": 942,
-        "surface_mode": "mouse",
+        "surface_mode": "unassigned",
         "x_max": 1.0099999904632568,
         "y_max": 1.0099999904632568,
-        "zone_template_id": "cross-plus-4",
+        "zone_template_id": "grid-6",
         "zones": [
           {
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "nw",
+            "id": "r0c0",
             "radius": 0.0,
             "shape": "rect",
-            "x_max": 0.5,
+            "x_max": 0.33333298563957214,
             "x_min": 0.0,
             "y_max": 0.5,
             "y_min": 0.0
@@ -919,11 +915,11 @@
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "ne",
+            "id": "r0c1",
             "radius": 0.0,
             "shape": "rect",
-            "x_max": 1.0,
-            "x_min": 0.5,
+            "x_max": 0.6666669845581055,
+            "x_min": 0.33333298563957214,
             "y_max": 0.5,
             "y_min": 0.0
           },
@@ -931,10 +927,22 @@
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "sw",
+            "id": "r0c2",
             "radius": 0.0,
             "shape": "rect",
-            "x_max": 0.5,
+            "x_max": 1.0,
+            "x_min": 0.6666669845581055,
+            "y_max": 0.5,
+            "y_min": 0.0
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "r1c0",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.33333298563957214,
             "x_min": 0.0,
             "y_max": 1.0,
             "y_min": 0.5
@@ -943,15 +951,37 @@
             "angle_from": 0.0,
             "angle_to": 0.0,
             "enabled": true,
-            "id": "se",
+            "id": "r1c1",
+            "radius": 0.0,
+            "shape": "rect",
+            "x_max": 0.6666669845581055,
+            "x_min": 0.33333298563957214,
+            "y_max": 1.0,
+            "y_min": 0.5
+          },
+          {
+            "angle_from": 0.0,
+            "angle_to": 0.0,
+            "enabled": true,
+            "id": "r1c2",
             "radius": 0.0,
             "shape": "rect",
             "x_max": 1.0,
-            "x_min": 0.5,
+            "x_min": 0.6666669845581055,
             "y_max": 1.0,
             "y_min": 0.5
           }
         ]
+      },
+      "trigger_actions": {
+        "l2": {
+          "target": "l2",
+          "type": "trigger_passthrough"
+        },
+        "r2": {
+          "target": "r2",
+          "type": "trigger_passthrough"
+        }
       },
       "trigger_calibration": {
         "l2": {

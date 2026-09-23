@@ -195,8 +195,12 @@ struct PhysicalAnalogDir {
     StickSlotId    slot;    // physical position: LeftXPos, RightYNeg, ...
     RangedHalfAxis axis;
 
+    // calib: this half-axis's stick deadzone/max (leftStickCalib/rightStickCalib), applied to
+    // any target that bypasses the StickAccumulator (MouseMove, Keyboard, Trigger, Bot, Macro,
+    // Button, Dpad...) — see applyRangedHalfAxis()'s directDeadzone/directMax comment.
     void process(float value, GamepadState& out,
-                 StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro) const;
+                 StickAccumulator& left, StickAccumulator& right, GyroAccumulator& gyro,
+                 const StickCalibration& calib) const;
 };
 
 // Boton/Superficie split (see ARCHITECTURE.md "Touchpad"). All 5 surface modes (Unassigned,

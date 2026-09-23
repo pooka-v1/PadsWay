@@ -159,10 +159,12 @@
     <ClCompile Include="output\ViGEmDs4OutputAdapter.cpp" />
     <ClCompile Include="output\HidHideClient.cpp" />
     <ClCompile Include="PadEngine.cpp" />
+    <ClCompile Include="PadEngineActionDispatch.cpp" />
     <ClCompile Include="AppWindow.cpp" />
     <ClCompile Include="ui\ActionPanel.cpp" />
     <ClCompile Include="ui\BindingWizard.cpp" />
     <ClCompile Include="ui\MappingEditor.cpp" />
+    <ClCompile Include="ui\MappingSourceSelector.cpp" />
     <ClCompile Include="ui\MacroManagerPanel.cpp" />
     <ClCompile Include="ui\CalibrationPanel.cpp" />
     <ClCompile Include="ui\MacroCreatorModal.cpp" />
@@ -204,6 +206,8 @@
     <ClInclude Include="Paths.h" />
     <ClInclude Include="output\HidHideClient.h" />
     <ClInclude Include="PadEngine.h" />
+    <ClInclude Include="PadEngineActionHolder.h" />
+    <ClInclude Include="PadEngineActionDispatch.h" />
     <ClInclude Include="AppWindow.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_internal.h" />

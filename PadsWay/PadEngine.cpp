@@ -1,4 +1,6 @@
 #include "PadEngine.h"
+#include "PadEngineActionHolder.h"
+#include "PadEngineActionDispatch.h"
 #include "Log.h"
 #include "Paths.h"
 
@@ -33,43 +35,10 @@
 
 
 // ---------------------------------------------------------------------------
-// Keyboard / mouse helpers
+// Keyboard / mouse send helpers (sendKeyCombo/sendMouseButton) and the shared dispatch mechanics
+// that call them live in PadEngineActionDispatch.h/.cpp — extracted 2026/09/16, see
+// SESSION_CONTEXT.md "Refactor de codigo".
 // ---------------------------------------------------------------------------
-
-static WORD keyNameToVK(const std::string& name) {
-    if (name == "alt")        return VK_MENU;
-    if (name == "ctrl")       return VK_CONTROL;
-    if (name == "shift")      return VK_SHIFT;
-    if (name == "win")        return VK_LWIN;
-    if (name == "tab")        return VK_TAB;
-    if (name == "enter")      return VK_RETURN;
-    if (name == "esc" || name == "escape") return VK_ESCAPE;
-    if (name == "space")      return VK_SPACE;
-    if (name == "backspace")  return VK_BACK;
-    if (name == "delete")     return VK_DELETE;
-    if (name == "insert")     return VK_INSERT;
-    if (name == "home_key")   return VK_HOME;
-    if (name == "end")        return VK_END;
-    if (name == "pageup")     return VK_PRIOR;
-    if (name == "pagedown")   return VK_NEXT;
-    if (name == "up")         return VK_UP;
-    if (name == "down")       return VK_DOWN;
-    if (name == "left")       return VK_LEFT;
-    if (name == "right")      return VK_RIGHT;
-    if (name == "f1")  return VK_F1;  if (name == "f2")  return VK_F2;
-    if (name == "f3")  return VK_F3;  if (name == "f4")  return VK_F4;
-    if (name == "f5")  return VK_F5;  if (name == "f6")  return VK_F6;
-    if (name == "f7")  return VK_F7;  if (name == "f8")  return VK_F8;
-    if (name == "f9")  return VK_F9;  if (name == "f10") return VK_F10;
-    if (name == "f11") return VK_F11; if (name == "f12") return VK_F12;
-    if (name.size() == 1) {
-        char c = name[0];
-        if (c >= 'a' && c <= 'z') return static_cast<WORD>('A' + (c - 'a'));
-        if (c >= 'A' && c <= 'Z') return static_cast<WORD>(c);
-        if (c >= '0' && c <= '9') return static_cast<WORD>(c);
-    }
-    return 0;
-}
 
 // Set a virtual button in GamepadState by short name (a/b/x/y/l1/r1/… and dpad up/down/left/right).
 static void applyVirtualBtnByName(GamepadState& state, const std::string& name, bool pressed) {
@@ -101,51 +70,6 @@ static void applyVirtualBtnByName(GamepadState& state, const std::string& name, 
     else if (name == "right_y_neg") state.rightY = -1.0f;
     else if (name == "right_x_pos") state.rightX =  1.0f;
     else if (name == "right_x_neg") state.rightX = -1.0f;
-}
-
-// press=true  → press all keys in order
-// press=false → release all keys in reverse order
-//
-// Fills both wVk and wScan (+ KEYEVENTF_SCANCODE). Message-based consumers (WM_KEYDOWN, e.g. menu
-// navigation) only ever needed wVk and keep working; games that read hardware scan codes via
-// DirectInput/Raw Input (e.g. No Man's Sky movement) were getting a wScan of 0 and never saw the
-// keypress at all — see [BUG-KEYBOARD-WASD-SCANCODE], SESSION_CONTEXT.md.
-static void sendKeyCombo(const std::vector<std::string>& keys, bool press) {
-    if (keys.empty()) return;
-    std::vector<INPUT> inputs;
-    inputs.reserve(keys.size());
-    auto addKey = [&](const std::string& k, bool up) {
-        WORD vk = keyNameToVK(k);
-        if (vk == 0) return;
-        UINT scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC_EX, GetKeyboardLayout(0));
-        INPUT inp = {};
-        inp.type       = INPUT_KEYBOARD;
-        inp.ki.wVk     = vk;
-        inp.ki.wScan   = static_cast<WORD>(scan & 0xFF);
-        inp.ki.dwFlags = KEYEVENTF_SCANCODE | (up ? KEYEVENTF_KEYUP : 0);
-        if ((scan >> 8) == 0xE0 || (scan >> 8) == 0xE1)
-            inp.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
-        inputs.push_back(inp);
-    };
-    if (press) {
-        for (const auto& k : keys)          addKey(k, false);
-    } else {
-        for (int i = (int)keys.size()-1; i >= 0; --i) addKey(keys[i], true);
-    }
-    if (!inputs.empty())
-        SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
-}
-
-static void sendMouseButton(const std::string& btn, bool press) {
-    INPUT inp = {};
-    inp.type = INPUT_MOUSE;
-    if      (btn == "left")   inp.mi.dwFlags = press ? MOUSEEVENTF_LEFTDOWN   : MOUSEEVENTF_LEFTUP;
-    else if (btn == "right")  inp.mi.dwFlags = press ? MOUSEEVENTF_RIGHTDOWN  : MOUSEEVENTF_RIGHTUP;
-    else if (btn == "middle") inp.mi.dwFlags = press ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_MIDDLEUP;
-    else if (btn == "x1") { inp.mi.dwFlags = press ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP; inp.mi.mouseData = XBUTTON1; }
-    else if (btn == "x2") { inp.mi.dwFlags = press ? MOUSEEVENTF_XDOWN : MOUSEEVENTF_XUP; inp.mi.mouseData = XBUTTON2; }
-    else return;
-    SendInput(1, &inp, sizeof(INPUT));
 }
 
 // ---------------------------------------------------------------------------
@@ -662,65 +586,23 @@ void PadEngine::threadFunc() {
         m_hidHide.hideDevice(selected.vid, selected.pid);
 
         // ── Macros (re-initialised per device / profile) ─────────────────────
-        std::unordered_map<int, std::string> botBits;     // physical bit → bot name
-        std::unordered_map<int, bool>        botBtnPrev;  // physical bit → prev pressed state
-        std::unordered_map<int, Macro>       macros;
-        std::unordered_map<int, bool>        macroPrevBtn;
-        std::unordered_map<int, std::string> macroNames;
-        std::unordered_map<int, int>         macroRotCount;
-        std::unordered_map<int, float>       macroLastRX;
-        std::unordered_map<int, float>       macroLastRY;
-        std::unordered_map<int, bool>        kbPrevBtn;
-        std::unordered_map<int, bool>        mousePrevBtn;
+        // Button/dpad/touch-zone/touch-gesture/axis/gyro/accel each need the same shape of state
+        // (macro/kb/mouse/bot bookkeeping, +ranges for axis/gyro/accel) — ActionHolderState<KeyT> +
+        // initActionHolderState (PadEngineActionHolder.h) replace what used to be 6 separate
+        // near-identical sets of maps/structs here, gyro/accel's own ImuActionState included
+        // (2026/09/07 dedup, see SESSION_CONTEXT.md "Refactor de codigo", tarea 2).
+        ActionHolderState<int>         buttonHolder;
+        ActionHolderState<std::string> axisHolder;
+        ActionHolderState<std::string> dpadHolder;
+        ActionHolderState<std::string> touchZoneHolder;
+        ActionHolderState<std::string> touchGestureHolder;
 
-        // Axis-action equivalents (keyed by "source_pos"/"source_neg")
-        std::unordered_map<std::string, Macro>       axisMacros;
-        std::unordered_map<std::string, bool>        axisMacroPrev;
-        std::unordered_map<std::string, std::string> axisMacroNames;
-        std::unordered_map<std::string, bool>        axisKbPrev;
-        std::unordered_map<std::string, bool>        axisMousePrev;
-        std::unordered_map<std::string, std::string> axisBotNames;  // key → bot name
-        std::unordered_map<std::string, bool>        axisBotPrev;   // key → prev active state
-        // Axis Ranges: prev active ButtonAction per key (nullopt = nothing was active)
-        std::unordered_map<std::string, std::optional<ButtonAction>> axisRangePrev;
-        // Axis Range macros: composite key = "axis_key|macro_name"
-        std::unordered_map<std::string, Macro> axisRangeMacros;
-        std::unordered_map<std::string, bool>  axisRangeMacroOk;
-
-        // Dpad H5 actions (keyed by "up"/"down"/"left"/"right")
-        std::unordered_map<std::string, Macro>       dpadMacros;
-        std::unordered_map<std::string, bool>        dpadMacroPrev;
-        std::unordered_map<std::string, std::string> dpadMacroNames;
-        std::unordered_map<std::string, bool>        dpadKbPrev;
-        std::unordered_map<std::string, bool>        dpadMousePrev;
-        std::unordered_map<std::string, std::string> dpadBotNames;  // dir → bot name
-        std::unordered_map<std::string, bool>        dpadBotPrev;   // dir → prev active state
-
-        // Touchpad Zonas actions (keyed by TouchZoneRegion::id, dynamic per template — not a
-        // fixed set like dpad's 4 directions). Same shape as the dpad maps above, driven by
-        // cfg->touchZoneActions instead of cfg->dpadActions.
-        std::unordered_map<std::string, Macro>       touchZoneMacros;
-        std::unordered_map<std::string, bool>        touchZoneMacroPrev;
-        std::unordered_map<std::string, std::string> touchZoneMacroNames;
-        std::unordered_map<std::string, bool>        touchZoneKbPrev;
-        std::unordered_map<std::string, bool>        touchZoneMousePrev;
-        std::unordered_map<std::string, std::string> touchZoneBotNames;  // region id → bot name
-        std::unordered_map<std::string, bool>        touchZoneBotPrev;   // region id → prev active state
-
-        // Touchpad Movimiento (Gestos) actions (keyed by gesture id, the 14 entries of
-        // kGestureIcons — see MappingEditor.cpp). Same shape as the Zonas maps above, driven by
-        // cfg->touchGestureActions instead of cfg->touchZoneActions — but "active" for a gesture
-        // means state.touchGestureFired == gestureId THIS frame only (a 1-frame pulse from
-        // HIDInputSource's classifier, see TouchGestures.h), not "held" like a zone region. The
-        // shared edge-triggered lambdas below (dispatchKeyboard/etc.) already turn a single true
-        // frame into a press+release pulse on their own, so no new dispatch mechanism is needed.
-        std::unordered_map<std::string, Macro>       touchGestureMacros;
-        std::unordered_map<std::string, bool>        touchGestureMacroPrev;
-        std::unordered_map<std::string, std::string> touchGestureMacroNames;
-        std::unordered_map<std::string, bool>        touchGestureKbPrev;
-        std::unordered_map<std::string, bool>        touchGestureMousePrev;
-        std::unordered_map<std::string, std::string> touchGestureBotNames;  // gesture id → bot name
-        std::unordered_map<std::string, bool>        touchGestureBotPrev;   // gesture id → prev active state
+        // Button-only extras: rotation-lap counter for a macro bound to a button while the right
+        // stick spins (see the macro tick loop below) — no other holder has this behavior, so it
+        // stays outside ActionHolderState instead of forcing every holder to carry unused fields.
+        std::unordered_map<int, int>   macroRotCount;
+        std::unordered_map<int, float> macroLastRX;
+        std::unordered_map<int, float> macroLastRY;
 
         // Trigger-as-source state
         float trigLPrev = 0.0f;           // previous frame physical trigger L value
@@ -744,496 +626,87 @@ void PadEngine::threadFunc() {
         std::vector<uint8_t> trigLRangeMacroOk;
         std::vector<uint8_t> trigRRangeMacroOk;
 
-        // Gyro/accel-as-source Macro/Keyboard/Mouse/Bot state — same shape as the axis-direction
-        // maps above (keyed by "x_pos".."z_neg"), but driven by cfg->gyro_actions/accel_actions
-        // and HIDInputSource::getActiveGyroActions()/getActiveAccelActions() instead of the
-        // stick/trigger axis_actions. See ImuActionState comment below.
-        struct ImuActionState {
-            std::unordered_map<std::string, Macro>       macros;
-            std::unordered_map<std::string, bool>        macroPrev;
-            std::unordered_map<std::string, std::string> macroNames;
-            std::unordered_map<std::string, bool>        kbPrev;
-            std::unordered_map<std::string, bool>        mousePrev;
-            std::unordered_map<std::string, std::string> botNames;
-            std::unordered_map<std::string, bool>        botPrev;
-            std::unordered_map<std::string, std::optional<ButtonAction>> rangePrev;
-            std::unordered_map<std::string, Macro>        rangeMacros;
-            std::unordered_map<std::string, bool>         rangeMacroOk;
-        };
-        ImuActionState gyroActionState;
-        ImuActionState accelActionState;
-
-        // (Re)builds an ImuActionState from a gyro_actions/accel_actions map. Mirrors the
-        // axis_actions init blocks above (kb/mouse/bot/ranges-macro-parse + simple macros).
-        auto initImuActionState = [&](ImuActionState& st,
-                                       const std::unordered_map<std::string, HalfAxisAction>& actions) {
-            st.macros.clear();    st.macroPrev.clear(); st.macroNames.clear();
-            st.kbPrev.clear();    st.mousePrev.clear();
-            st.botNames.clear();  st.botPrev.clear();
-            st.rangePrev.clear(); st.rangeMacros.clear(); st.rangeMacroOk.clear();
-            for (const auto& [key, action] : actions) {
-                if (action.type == HalfAxisActionType::Keyboard)   st.kbPrev[key]    = false;
-                if (action.type == HalfAxisActionType::MouseClick) st.mousePrev[key] = false;
-                if (action.type == HalfAxisActionType::Bot) {
-                    st.botNames[key] = action.target;
-                    st.botPrev[key]  = false;
-                    spdlog::info("Bot '{}' assigned to IMU axis direction {}.", action.target, key);
-                }
-                if (action.type == HalfAxisActionType::Macro) {
-                    std::string execution = action.execution;
-                    if (execution.empty()) {
-                        auto it = macroLibrary.find(action.target);
-                        if (it == macroLibrary.end()) {
-                            spdlog::warn("Macro '{}' (IMU axis {}) not found in library.", action.target, key);
-                            continue;
-                        }
-                        execution = it->second;
-                    }
-                    try {
-                        Macro m;
-                        MacroParser::parse(execution, m);
-                        st.macros[key]     = std::move(m);
-                        st.macroPrev[key]  = false;
-                        st.macroNames[key] = action.target;
-                        spdlog::info("Macro '{}' assigned to IMU axis direction {}.", action.target, key);
-                    } catch (const std::exception& ex) {
-                        spdlog::error("Error parsing macro '{}': {}", action.target, ex.what());
-                    }
-                }
-                if (action.type == HalfAxisActionType::Ranges) {
-                    st.rangePrev[key] = std::nullopt;
-                    for (const auto& r : action.ranges) {
-                        if (!r.hasAction || r.action.type != ButtonActionType::Macro) continue;
-                        std::string mkey = key + "|" + r.action.name;
-                        auto it = macroLibrary.find(r.action.name);
-                        if (it == macroLibrary.end()) {
-                            spdlog::warn("Macro '{}' (IMU range {}) not found.", r.action.name, key);
-                            st.rangeMacroOk[mkey] = false;
-                            continue;
-                        }
-                        try {
-                            Macro m;
-                            MacroParser::parse(it->second, m);
-                            st.rangeMacros[mkey]  = std::move(m);
-                            st.rangeMacroOk[mkey] = true;
-                        } catch (...) {
-                            spdlog::warn("Failed to parse macro '{}' (IMU range {}).", r.action.name, key);
-                            st.rangeMacroOk[mkey] = false;
-                        }
-                    }
-                }
-            }
-        };
+        // Gyro/accel-as-source Macro/Keyboard/Mouse/Bot/Ranges state — same shape and same
+        // ActionHolderState<std::string> as axisHolder below, driven by cfg->gyro_actions/
+        // accel_actions and HIDInputSource::getActiveGyroActions()/getActiveAccelActions() instead
+        // of axis_actions. Folded into ActionHolderState 2026/09/07 (was its own ImuActionState
+        // type + initImuActionState()/tickImuActionState() — the original precedent this whole
+        // holder-unification was generalized from; now uses the same shared type/functions as
+        // every other holder, no separate copy left).
+        ActionHolderState<std::string> gyroActionState;
+        ActionHolderState<std::string> accelActionState;
 
         // ── Shared edge-triggered dispatch mechanics ──────────────────────────────
         // Every action-holder (button/dpad/axis/gyro/accel/touch zone/trigger) fires its
-        // Macro/Keyboard/MouseClick/Bot through one of these four, instead of each re-implementing
-        // the same press-edge/release-edge bookkeeping. All are gated by `editorOpen` (passed
-        // explicitly, not captured — same reason `state`/`botLoader` are parameters below: they're
-        // declared further down this function, after these lambdas): while the Mapeador is open,
-        // re-selecting an already-mapped source (e.g. holding H9 on a touch zone that already fires
-        // a macro) must not leak real keystrokes/clicks/macro starts to the OS mid-edit. Bailing out
-        // *before* touching `prev` (rather than updating it and only gating the dispatch) means a
-        // source held across the open→close transition still fires correctly once the editor
-        // closes, instead of the transition being silently missed.
-        //
-        // Keyboard/Mouse return the edge that just fired (1 = fresh press, -1 = fresh release, 0 =
-        // none/suppressed) for the rare caller that logs something source-specific beyond the
-        // shared pushEvent (buttons' debug traces). Macro returns whether it just started/toggled
-        // on an unsuppressed press edge, for callers with extra per-source bookkeeping (buttons'
-        // macro rotation-count reset) or a per-source log tag to react to.
-        auto dispatchKeyboard = [&](bool editorOpen, bool active, bool& prev,
-                                    const std::vector<std::string>& keys) -> int {
-            if (editorOpen) return 0;
-            int edge = 0;
-            if (active && !prev) {
-                sendKeyCombo(keys, true);
-                std::string combo;
-                for (const auto& k : keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                pushEvent({ PadEventType::KeyboardAction, combo, true });
-                edge = 1;
-            } else if (!active && prev) {
-                sendKeyCombo(keys, false);
-                edge = -1;
-            }
-            prev = active;
-            return edge;
+        // Macro/Keyboard/MouseClick/Bot through PadEngineActionDispatch instead of each
+        // re-implementing the same press-edge/release-edge bookkeeping — see
+        // PadEngineActionDispatch.h for the editorOpen-gating rationale and per-method contract.
+        // Rebuilt per device/profile like the holders above it, since its pushEvent callback
+        // closes over `this` (fine — construction is cheap and this loop iterates once per
+        // device connection, not per frame).
+        PadEngineActionDispatch dispatch([this](PadEvent e) { pushEvent(e); });
+
+        // Generic per-frame tick pieces for ActionHolderState<KeyT> — shared by gyro/accel/dpad/
+        // touch zone/touch gesture/axis (button keeps its own macro loop below for the rotation-lap
+        // counter, but reuses these for its kb/mouse/bot part). `isActive(key)` decides whether
+        // that key is "pressed" this frame — each holder passes its own predicate (bitmask check
+        // for button, dpadActive/touchZoneActive/touchGestureActive, or a precomputed active-keys
+        // set for axis/gyro/accel, built once per frame from HIDInputSource's getActiveXxxActions()
+        // — 2026/09/07 dedup, see SESSION_CONTEXT.md tarea 2).
+        auto tickHolderKbMouseBot = [&](bool editorOpen, auto& st, const auto& actions,
+                                       auto&& isActive, BotLoader& botLoader) {
+            for (auto& [key, prev] : st.kbPrev)
+                dispatch.keyboard(editorOpen, isActive(key), prev, actions.at(key).keys);
+            for (auto& [key, prev] : st.mousePrev)
+                dispatch.mouse(editorOpen, isActive(key), prev, actions.at(key).mouseButton);
+            for (auto& [key, prev] : st.botPrev)
+                dispatch.bot(editorOpen, isActive(key), prev, st.botNames.at(key), botLoader);
         };
 
-        auto dispatchMouse = [&](bool editorOpen, bool active, bool& prev,
-                                  const std::string& btn) -> int {
-            if (editorOpen || active == prev) return 0;
-            sendMouseButton(btn, active);
-            if (active) pushEvent({ PadEventType::MouseAction, btn + " click", true });
-            prev = active;
-            return active ? 1 : -1;
-        };
-
-        auto dispatchBot = [&](bool editorOpen, bool active, bool& prev,
-                                const std::string& botName, BotLoader& botLoader) {
-            if (editorOpen) return;
-            if (active && !prev) {
-                if (auto* b = botLoader.find(botName)) {
-                    b->toggle();
-                    spdlog::info("[BOT] '{}' {}", botName, b->isActive() ? "ON" : "OFF");
-                    pushEvent({ PadEventType::BotToggle, botName, b->isActive() });
-                } else {
-                    spdlog::warn("[BOT] '{}' not loaded.", botName);
-                }
-            }
-            prev = active;
-        };
-
-        // Start/stop mechanic only — does NOT tick the macro. Most callers tick right after this
-        // returns (a plain `macro.tick(state);` inside the same loop); buttons keep their own
-        // separate tick pass (rotation-lap auto-off counting alongside the bot tick loop), so
-        // ticking here would double-tick for them.
-        auto dispatchMacro = [&](bool editorOpen, Macro& macro, bool active, bool& prev) -> bool {
-            if (editorOpen) return false;
-            bool freshPress = false;
-            if (active && !prev) {
-                if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.start();
-                else macro.toggle();
-                freshPress = true;
-            } else if (!active && prev) {
-                if (macro.getMode() == MacroRepeatMode::UntilRelease) macro.stop();
-            }
-            prev = active;
-            return freshPress;
-        };
-
-        // Shared "ranged" dispatch: exactly one action out of a keyed set of exclusive ranges can
-        // be active at a time (e.g. a stick axis or gyro/accel direction split into magnitude
-        // bands). Releases whichever action was previously active when the current one changes
-        // (including "went back to nothing"), then activates the new one. Shared by gyro/accel
-        // (IMU) and stick-axis ranges, which both use this unordered_map<string,
-        // optional<ButtonAction>> shape — trigger ranges use a plain vector<uint8_t> instead
-        // (ranges there are positions in a list, not named/keyed), so that block keeps its own
-        // shape rather than being forced into this one. Bails out before touching `prev` while
-        // editorOpen, same reasoning as the dispatch lambdas above, so the transition is detected
-        // correctly once the editor closes instead of being missed.
-        auto dispatchRangeAction = [&](bool editorOpen, const std::string& key,
-                                        std::optional<ButtonAction>& prev,
-                                        const std::unordered_map<std::string, ButtonAction>& activeRangeActions,
-                                        std::unordered_map<std::string, Macro>& rangeMacros,
-                                        std::unordered_map<std::string, bool>& rangeMacroOk,
-                                        GamepadState& state, BotLoader& botLoader) {
-            if (editorOpen) return;
-            auto it = activeRangeActions.find(key);
-            bool isActive = (it != activeRangeActions.end());
-            bool changed  = isActive
-                ? (!prev.has_value() ||
-                   prev->type        != it->second.type        ||
-                   prev->name        != it->second.name        ||
-                   prev->mouseButton != it->second.mouseButton ||
-                   prev->keys        != it->second.keys)
-                : prev.has_value();
-            if (!changed) return;
-
-            if (prev.has_value()) {
-                if (prev->type == ButtonActionType::Keyboard)
-                    sendKeyCombo(prev->keys, false);
-                else if (prev->type == ButtonActionType::MouseClick)
-                    sendMouseButton(prev->mouseButton, false);
-                else if (prev->type == ButtonActionType::Macro) {
-                    auto mit = rangeMacros.find(key + "|" + prev->name);
-                    if (mit != rangeMacros.end() && rangeMacroOk[key + "|" + prev->name])
-                        if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
-                            mit->second.stop();
-                }
-            }
-            if (isActive) {
-                const ButtonAction& cur = it->second;
-                if (cur.type == ButtonActionType::Keyboard) {
-                    sendKeyCombo(cur.keys, true);
-                    std::string combo;
-                    for (const auto& k : cur.keys) { if (!combo.empty()) combo += '+'; combo += k; }
-                    pushEvent({ PadEventType::KeyboardAction, combo, true });
-                } else if (cur.type == ButtonActionType::MouseClick) {
-                    sendMouseButton(cur.mouseButton, true);
-                    pushEvent({ PadEventType::MouseAction, cur.mouseButton + " click", true });
-                } else if (cur.type == ButtonActionType::Macro) {
-                    std::string mkey = key + "|" + cur.name;
-                    auto mit = rangeMacros.find(mkey);
-                    if (mit != rangeMacros.end() && rangeMacroOk[mkey]) {
-                        if (mit->second.getMode() == MacroRepeatMode::UntilRelease)
-                            mit->second.start();
-                        else
-                            mit->second.toggle();
-                        pushEvent({ PadEventType::MacroToggle, cur.name, mit->second.isActive() });
-                    }
-                } else if (cur.type == ButtonActionType::Bot) {
-                    if (auto* b = botLoader.find(cur.name)) {
-                        b->toggle();
-                        spdlog::info("[BOT] '{}' {}", cur.name, b->isActive() ? "ON" : "OFF");
-                        pushEvent({ PadEventType::BotToggle, cur.name, b->isActive() });
-                    } else {
-                        spdlog::warn("[BOT] '{}' not loaded.", cur.name);
-                    }
-                }
-                prev = cur;
-            } else {
-                prev = std::nullopt;
-            }
-        };
-
-        // Ticks one ImuActionState for the current frame: edge-detects activeKeys/activeRangeActions
-        // (as reported by HIDInputSource::getActive{Gyro,Accel}[Range]Actions()) and fires
-        // Macro/Keyboard/MouseClick/Bot exactly like the axis-direction block below does for
-        // axis_actions. `actions` is the source map (cfg->gyro_actions/accel_actions), needed to
-        // look up .keys/.mouseButton for the simple (non-Ranges) Keyboard/MouseClick case.
-        // `state`/`botLoader` are taken by reference (not captured) because both are declared
-        // further down this function, after this lambda — see their declarations below.
-        auto tickImuActionState = [&](bool editorOpen, ImuActionState& st,
-                                       const std::unordered_map<std::string, HalfAxisAction>& actions,
-                                       const std::vector<std::string>& activeKeys,
-                                       const std::unordered_map<std::string, ButtonAction>& activeRangeActions,
-                                       GamepadState& state, BotLoader& botLoader) {
-            std::unordered_set<std::string> activeSet(activeKeys.begin(), activeKeys.end());
-
+        // Macro tick, dispatch+tick fused in one loop — for holders with no extra per-macro
+        // bookkeeping (gyro/accel/dpad/touch zone/touch gesture/axis). The button holder keeps its
+        // own separate two-pass macro loop instead (see the rotation-lap counter below).
+        auto tickHolderMacros = [&](bool editorOpen, auto& st, auto&& isActive,
+                                    const char* logTag, GamepadState& state) {
             for (auto& [key, macro] : st.macros) {
-                bool active = activeSet.count(key) > 0;
+                bool active = isActive(key);
                 bool& prev  = st.macroPrev[key];
-                if (dispatchMacro(editorOpen, macro, active, prev)) {
+                if (dispatch.macro(editorOpen, macro, active, prev)) {
                     if (macro.isActive())
-                        spdlog::info("[MACRO][IMU] '{}' ON", st.macroNames[key]);
+                        spdlog::info("[MACRO][{}] '{}' ON", logTag, st.macroNames[key]);
                     pushEvent({ PadEventType::MacroToggle, st.macroNames[key], macro.isActive() });
                 }
                 macro.tick(state);
             }
+        };
 
-            for (auto& [key, prev] : st.kbPrev) {
-                bool active = activeSet.count(key) > 0;
-                dispatchKeyboard(editorOpen, active, prev, actions.at(key).keys);
-            }
-
-            for (auto& [key, prev] : st.mousePrev) {
-                bool active = activeSet.count(key) > 0;
-                dispatchMouse(editorOpen, active, prev, actions.at(key).mouseButton);
-            }
-
-            for (auto& [key, prev] : st.botPrev) {
-                bool active = activeSet.count(key) > 0;
-                dispatchBot(editorOpen, active, prev, st.botNames[key], botLoader);
-            }
-
-            for (auto& [key, prev] : st.rangePrev) {
-                dispatchRangeAction(editorOpen, key, prev, activeRangeActions,
-                                    st.rangeMacros, st.rangeMacroOk, state, botLoader);
-            }
+        // Ranges tick — shared by axis and gyro/accel (dpad/touch zone/touch gesture never have
+        // Ranges — ButtonActionType has no such variant, see PadEngineActionHolder.h).
+        auto tickHolderRanges = [&](bool editorOpen, auto& st,
+                                    const std::unordered_map<std::string, ButtonAction>& activeRangeActions,
+                                    GamepadState& state, BotLoader& botLoader) {
+            for (auto& [key, prev] : st.rangePrev)
+                dispatch.rangeAction(editorOpen, key, prev, activeRangeActions,
+                                     st.rangeMacros, st.rangeMacroOk, state, botLoader);
             for (auto& [mkey, macro] : st.rangeMacros)
                 macro.tick(state);
         };
 
-        auto initMacros = [&]() {
-            macros.clear();      macroPrevBtn.clear(); macroNames.clear();
-            macroRotCount.clear(); macroLastRX.clear(); macroLastRY.clear();
-            kbPrevBtn.clear();   mousePrevBtn.clear();
-            axisMacros.clear();  axisMacroPrev.clear(); axisMacroNames.clear();
-            axisKbPrev.clear();  axisMousePrev.clear();
-            axisBotNames.clear(); axisBotPrev.clear();
-            dpadMacros.clear();  dpadMacroPrev.clear(); dpadMacroNames.clear();
-            dpadKbPrev.clear();  dpadMousePrev.clear();
-            dpadBotNames.clear(); dpadBotPrev.clear();
-            touchZoneMacros.clear();  touchZoneMacroPrev.clear(); touchZoneMacroNames.clear();
-            touchZoneKbPrev.clear();  touchZoneMousePrev.clear();
-            touchZoneBotNames.clear(); touchZoneBotPrev.clear();
-            touchGestureMacros.clear();  touchGestureMacroPrev.clear(); touchGestureMacroNames.clear();
-            touchGestureKbPrev.clear();  touchGestureMousePrev.clear();
-            touchGestureBotNames.clear(); touchGestureBotPrev.clear();
-            for (const auto& [bit, action] : cfg->buttons) {
-                if (action.type == ButtonActionType::Keyboard)   kbPrevBtn[bit]    = false;
-                if (action.type == ButtonActionType::MouseClick) mousePrevBtn[bit] = false;
-            }
-            for (const auto& [dir, action] : cfg->dpadActions) {
-                if (action.type == ButtonActionType::Keyboard)   dpadKbPrev[dir]    = false;
-                if (action.type == ButtonActionType::MouseClick) dpadMousePrev[dir] = false;
-            }
-            for (const auto& [regionId, action] : cfg->touchZoneActions) {
-                if (action.type == ButtonActionType::Keyboard)   touchZoneKbPrev[regionId]    = false;
-                if (action.type == ButtonActionType::MouseClick) touchZoneMousePrev[regionId] = false;
-            }
-            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
-                if (action.type == ButtonActionType::Keyboard)   touchGestureKbPrev[gestureId]    = false;
-                if (action.type == ButtonActionType::MouseClick) touchGestureMousePrev[gestureId] = false;
-            }
-            axisRangePrev.clear();
-            axisRangeMacros.clear();
-            axisRangeMacroOk.clear();
-            for (const auto& [key, action] : cfg->axis_actions) {
-                if (action.type == HalfAxisActionType::Keyboard)   axisKbPrev[key]    = false;
-                if (action.type == HalfAxisActionType::MouseClick) axisMousePrev[key] = false;
-                if (action.type == HalfAxisActionType::Bot) {
-                    axisBotNames[key] = action.target;
-                    axisBotPrev[key]  = false;
-                    spdlog::info("Bot '{}' assigned to axis direction {}.", action.target, key);
-                }
-                if (action.type == HalfAxisActionType::Ranges) {
-                    axisRangePrev[key] = std::nullopt;
-                    for (const auto& r : action.ranges) {
-                        if (!r.hasAction || r.action.type != ButtonActionType::Macro) continue;
-                        std::string mkey = key + "|" + r.action.name;
-                        auto it = macroLibrary.find(r.action.name);
-                        if (it == macroLibrary.end()) {
-                            spdlog::warn("Macro '{}' (axis range {}) not found.", r.action.name, key);
-                            axisRangeMacroOk[mkey] = false;
-                            continue;
-                        }
-                        try {
-                            Macro m;
-                            MacroParser::parse(it->second, m);
-                            axisRangeMacros[mkey]  = std::move(m);
-                            axisRangeMacroOk[mkey] = true;
-                        } catch (...) {
-                            spdlog::warn("Failed to parse macro '{}' (axis range {}).", r.action.name, key);
-                            axisRangeMacroOk[mkey] = false;
-                        }
-                    }
-                }
-            }
-            botBits.clear();
-            botBtnPrev.clear();
-            for (const auto& [bit, action] : cfg->buttons) {
-                if (action.type != ButtonActionType::Bot) continue;
-                botBits[bit]    = action.name;
-                botBtnPrev[bit] = false;
-                spdlog::info("Bot '{}' assigned to button {}.", action.name, bit);
-            }
-            for (const auto& [dir, action] : cfg->dpadActions) {
-                if (action.type != ButtonActionType::Bot) continue;
-                dpadBotNames[dir] = action.name;
-                dpadBotPrev[dir]  = false;
-                spdlog::info("Bot '{}' assigned to dpad {}.", action.name, dir);
-            }
-            for (const auto& [regionId, action] : cfg->touchZoneActions) {
-                if (action.type != ButtonActionType::Bot) continue;
-                touchZoneBotNames[regionId] = action.name;
-                touchZoneBotPrev[regionId]  = false;
-                spdlog::info("Bot '{}' assigned to touch zone '{}'.", action.name, regionId);
-            }
-            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
-                if (action.type != ButtonActionType::Bot) continue;
-                touchGestureBotNames[gestureId] = action.name;
-                touchGestureBotPrev[gestureId]  = false;
-                spdlog::info("Bot '{}' assigned to gesture '{}'.", action.name, gestureId);
-            }
-            for (const auto& [bit, action] : cfg->buttons) {
-                if (action.type != ButtonActionType::Macro) continue;
-                std::string execution = action.execution;
-                if (execution.empty()) {
-                    auto it = macroLibrary.find(action.name);
-                    if (it == macroLibrary.end()) {
-                        spdlog::warn("Macro '{}' (button {}) not found in library.", action.name, bit);
-                        continue;
-                    }
-                    execution = it->second;
-                }
-                try {
-                    Macro m;
-                    MacroParser::parse(execution, m);
-                    macros[bit]        = std::move(m);
-                    macroPrevBtn[bit]  = false;
-                    macroNames[bit]    = action.name;
-                    macroRotCount[bit] = 0;
-                    macroLastRX[bit]   = 0.0f;
-                    macroLastRY[bit]   = 0.0f;
-                    spdlog::info("Macro '{}' assigned to button {}.", action.name, bit);
-                } catch (const std::exception& ex) {
-                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
-                }
-            }
-            // Dpad H5 macros
-            for (const auto& [dir, action] : cfg->dpadActions) {
-                if (action.type != ButtonActionType::Macro) continue;
-                std::string execution = action.execution;
-                if (execution.empty()) {
-                    auto it = macroLibrary.find(action.name);
-                    if (it == macroLibrary.end()) {
-                        spdlog::warn("Macro '{}' (dpad {}) not found in library.", action.name, dir);
-                        continue;
-                    }
-                    execution = it->second;
-                }
-                try {
-                    Macro m;
-                    MacroParser::parse(execution, m);
-                    dpadMacros[dir]     = std::move(m);
-                    dpadMacroPrev[dir]  = false;
-                    dpadMacroNames[dir] = action.name;
-                    spdlog::info("Macro '{}' assigned to dpad {}.", action.name, dir);
-                } catch (const std::exception& ex) {
-                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
-                }
-            }
-            // Touch zone macros
-            for (const auto& [regionId, action] : cfg->touchZoneActions) {
-                if (action.type != ButtonActionType::Macro) continue;
-                std::string execution = action.execution;
-                if (execution.empty()) {
-                    auto it = macroLibrary.find(action.name);
-                    if (it == macroLibrary.end()) {
-                        spdlog::warn("Macro '{}' (touch zone '{}') not found in library.", action.name, regionId);
-                        continue;
-                    }
-                    execution = it->second;
-                }
-                try {
-                    Macro m;
-                    MacroParser::parse(execution, m);
-                    touchZoneMacros[regionId]     = std::move(m);
-                    touchZoneMacroPrev[regionId]  = false;
-                    touchZoneMacroNames[regionId] = action.name;
-                    spdlog::info("Macro '{}' assigned to touch zone '{}'.", action.name, regionId);
-                } catch (const std::exception& ex) {
-                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
-                }
-            }
-            // Touch gesture macros
-            for (const auto& [gestureId, action] : cfg->touchGestureActions) {
-                if (action.type != ButtonActionType::Macro) continue;
-                std::string execution = action.execution;
-                if (execution.empty()) {
-                    auto it = macroLibrary.find(action.name);
-                    if (it == macroLibrary.end()) {
-                        spdlog::warn("Macro '{}' (gesture '{}') not found in library.", action.name, gestureId);
-                        continue;
-                    }
-                    execution = it->second;
-                }
-                try {
-                    Macro m;
-                    MacroParser::parse(execution, m);
-                    touchGestureMacros[gestureId]     = std::move(m);
-                    touchGestureMacroPrev[gestureId]  = false;
-                    touchGestureMacroNames[gestureId] = action.name;
-                    spdlog::info("Macro '{}' assigned to gesture '{}'.", action.name, gestureId);
-                } catch (const std::exception& ex) {
-                    spdlog::error("Error parsing macro '{}': {}", action.name, ex.what());
-                }
-            }
+        // Field accessors for initActionHolderState — ButtonAction's macro/bot name field is
+        // `.name`, HalfAxisAction's is `.target` (see PadEngineActionHolder.h).
+        auto buttonNameField = [](const ButtonAction& a) -> const std::string& { return a.name; };
+        auto axisNameField   = [](const HalfAxisAction& a) -> const std::string& { return a.target; };
 
-            // Axis-direction macros
-            for (const auto& [key, action] : cfg->axis_actions) {
-                if (action.type != HalfAxisActionType::Macro) continue;
-                std::string execution = action.execution;
-                if (execution.empty()) {
-                    auto it = macroLibrary.find(action.target);
-                    if (it == macroLibrary.end()) {
-                        spdlog::warn("Macro '{}' (axis {}) not found in library.", action.target, key);
-                        continue;
-                    }
-                    execution = it->second;
-                }
-                try {
-                    Macro m;
-                    MacroParser::parse(execution, m);
-                    axisMacros[key]     = std::move(m);
-                    axisMacroPrev[key]  = false;
-                    axisMacroNames[key] = action.target;
-                    spdlog::info("Macro '{}' assigned to axis direction {}.", action.target, key);
-                } catch (const std::exception& ex) {
-                    spdlog::error("Error parsing macro '{}': {}", action.target, ex.what());
-                }
+        auto initMacros = [&]() {
+            initActionHolderState(buttonHolder,       cfg->buttons,            macroLibrary, buttonNameField, "button");
+            initActionHolderState(dpadHolder,         cfg->dpadActions,        macroLibrary, buttonNameField, "dpad");
+            initActionHolderState(touchZoneHolder,    cfg->touchZoneActions,   macroLibrary, buttonNameField, "touch zone");
+            initActionHolderState(touchGestureHolder, cfg->touchGestureActions, macroLibrary, buttonNameField, "gesture");
+            initActionHolderState(axisHolder,         cfg->axis_actions,      macroLibrary, axisNameField,   "axis direction");
+
+            macroRotCount.clear(); macroLastRX.clear(); macroLastRY.clear();
+            for (const auto& [bit, macro] : buttonHolder.macros) {
+                macroRotCount[bit] = 0; macroLastRX[bit] = 0.0f; macroLastRY[bit] = 0.0f;
             }
 
             // Trigger-as-source state reset
@@ -1290,8 +763,8 @@ void PadEngine::threadFunc() {
             initRangeMacros(cfg->triggerLRanges, trigLRangeMacros, trigLRangeMacroOk, trigLRangePrev);
             initRangeMacros(cfg->triggerRRanges, trigRRangeMacros, trigRRangeMacroOk, trigRRangePrev);
 
-            initImuActionState(gyroActionState, cfg->gyro_actions);
-            initImuActionState(accelActionState, cfg->accel_actions);
+            initActionHolderState(gyroActionState,  cfg->gyro_actions,  macroLibrary, axisNameField, "gyro direction");
+            initActionHolderState(accelActionState, cfg->accel_actions, macroLibrary, axisNameField, "accel direction");
         };
         initMacros();
 
@@ -1463,24 +936,26 @@ void PadEngine::threadFunc() {
             const bool editorOpen = m_editorOpen.load();
             // Bot and macro toggle detection uses the button mask from the read just performed
 
-            for (auto& [bit, botName] : botBits) {
-                bool  pressed = (btns & (1u << (bit - 1))) != 0;
-                bool& prev    = botBtnPrev[bit];
-                dispatchBot(editorOpen, pressed, prev, botName, botLoader);
+            auto buttonActive = [&](int bit) -> bool { return (btns & (1u << (bit - 1))) != 0; };
+
+            for (auto& [bit, botName] : buttonHolder.botNames) {
+                bool  pressed = buttonActive(bit);
+                bool& prev    = buttonHolder.botPrev[bit];
+                dispatch.bot(editorOpen, pressed, prev, botName, botLoader);
             }
 
-            for (auto& [bit, macro] : macros) {
-                bool pressed = (btns & (1u << (bit - 1))) != 0;
-                bool& prev   = macroPrevBtn[bit];
-                if (dispatchMacro(editorOpen, macro, pressed, prev)) {
+            for (auto& [bit, macro] : buttonHolder.macros) {
+                bool pressed = buttonActive(bit);
+                bool& prev   = buttonHolder.macroPrev[bit];
+                if (dispatch.macro(editorOpen, macro, pressed, prev)) {
                     if (macro.isActive()) {
                         macroRotCount[bit] = 0;
                         macroLastRX[bit]   = 0.0f;
                         macroLastRY[bit]   = 0.0f;
                     }
-                    spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), macroNames[bit],
+                    spdlog::info("[MACRO][{}] '{}' {}", GetTickCount64(), buttonHolder.macroNames[bit],
                            macro.isActive() ? "ON" : "OFF");
-                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], macro.isActive() });
+                    pushEvent({ PadEventType::MacroToggle, buttonHolder.macroNames[bit], macro.isActive() });
                 }
             }
 
@@ -1492,7 +967,7 @@ void PadEngine::threadFunc() {
                     applyBotOutput(out, state);
             }
 
-            for (auto& [bit, macro] : macros) {
+            for (auto& [bit, macro] : buttonHolder.macros) {
                 bool wasActive = macro.isActive();
                 macro.tick(state);
 
@@ -1502,75 +977,42 @@ void PadEngine::threadFunc() {
                     bool wasAtNorth = (fabsf(macroLastRX[bit]) < 0.1f && macroLastRY[bit] > 0.9f);
                     if (atNorth && !wasAtNorth) {
                         macroRotCount[bit]++;
-                        spdlog::debug("[MACRO][{}] '{}' lap={}", GetTickCount64(), macroNames[bit], macroRotCount[bit]);
+                        spdlog::debug("[MACRO][{}] '{}' lap={}", GetTickCount64(), buttonHolder.macroNames[bit], macroRotCount[bit]);
                     }
                     macroLastRX[bit] = state.rightX;
                     macroLastRY[bit] = state.rightY;
                 }
 
                 if (wasActive && !macro.isActive()) {
-                    spdlog::info("[MACRO][{}] '{}' AUTO-OFF (laps: {})", GetTickCount64(), macroNames[bit], macroRotCount[bit]);
-                    pushEvent({ PadEventType::MacroToggle, macroNames[bit], false });
+                    spdlog::info("[MACRO][{}] '{}' AUTO-OFF (laps: {})", GetTickCount64(), buttonHolder.macroNames[bit], macroRotCount[bit]);
+                    pushEvent({ PadEventType::MacroToggle, buttonHolder.macroNames[bit], false });
                 }
             }
 
             // --- Keyboard actions (edge-triggered) ---
-            for (auto& [bit, prev] : kbPrevBtn) {
-                bool pressed = (btns & (1u << (bit - 1))) != 0;
-                int edge = dispatchKeyboard(editorOpen, pressed, prev, cfg->buttons.at(bit).keys);
+            for (auto& [bit, prev] : buttonHolder.kbPrev) {
+                bool pressed = buttonActive(bit);
+                int edge = dispatch.keyboard(editorOpen, pressed, prev, cfg->buttons.at(bit).keys);
                 if (edge == 1)  spdlog::debug("[KB] button {} down", bit);
                 if (edge == -1) spdlog::debug("[KB] button {} up", bit);
             }
 
             // --- Mouse click actions (edge-triggered) ---
-            for (auto& [bit, prev] : mousePrevBtn) {
-                bool pressed = (btns & (1u << (bit - 1))) != 0;
-                int edge = dispatchMouse(editorOpen, pressed, prev, cfg->buttons.at(bit).mouseButton);
+            for (auto& [bit, prev] : buttonHolder.mousePrev) {
+                bool pressed = buttonActive(bit);
+                int edge = dispatch.mouse(editorOpen, pressed, prev, cfg->buttons.at(bit).mouseButton);
                 if (edge != 0) spdlog::debug("[MOUSE] button {} {}", bit, edge > 0 ? "down" : "up");
             }
 
-            // --- Axis-direction Macro / Keyboard / Mouse (edge-triggered) ---
+            // --- Axis-direction Macro / Keyboard / Mouse / Bot / Ranges (edge-triggered) ---
             {
                 auto activeAA = input->getActiveAxisActions();
                 std::unordered_set<std::string> activeAASet(activeAA.begin(), activeAA.end());
+                auto axisActive = [&](const std::string& key) -> bool { return activeAASet.count(key) > 0; };
 
-                for (auto& [key, macro] : axisMacros) {
-                    bool active = activeAASet.count(key) > 0;
-                    bool& prev  = axisMacroPrev[key];
-                    if (dispatchMacro(editorOpen, macro, active, prev)) {
-                        if (macro.isActive())
-                            spdlog::info("[MACRO][AXIS] '{}' ON", axisMacroNames[key]);
-                        pushEvent({ PadEventType::MacroToggle, axisMacroNames[key], macro.isActive() });
-                    }
-                    macro.tick(state);
-                }
-
-                for (auto& [key, prev] : axisKbPrev) {
-                    bool active = activeAASet.count(key) > 0;
-                    dispatchKeyboard(editorOpen, active, prev, cfg->axis_actions.at(key).keys);
-                }
-
-                for (auto& [key, prev] : axisMousePrev) {
-                    bool active = activeAASet.count(key) > 0;
-                    dispatchMouse(editorOpen, active, prev, cfg->axis_actions.at(key).mouseButton);
-                }
-
-                for (auto& [key, prev] : axisBotPrev) {
-                    bool active = activeAASet.count(key) > 0;
-                    dispatchBot(editorOpen, active, prev, axisBotNames[key], botLoader);
-                }
-
-                // Axis Ranges: Keyboard / MouseClick / Macro edge-triggered per range action
-                {
-                    const auto& rangeActions = input->getActiveAxisRangeActions();
-                    for (auto& [key, prev] : axisRangePrev) {
-                        dispatchRangeAction(editorOpen, key, prev, rangeActions,
-                                            axisRangeMacros, axisRangeMacroOk, state, botLoader);
-                    }
-                    // Tick active axis range macros every frame
-                    for (auto& [mkey, macro] : axisRangeMacros)
-                        macro.tick(state);
-                }
+                tickHolderMacros(editorOpen, axisHolder, axisActive, "AXIS", state);
+                tickHolderKbMouseBot(editorOpen, axisHolder, cfg->axis_actions, axisActive, botLoader);
+                tickHolderRanges(editorOpen, axisHolder, input->getActiveAxisRangeActions(), state, botLoader);
             }
 
             // --- Gyro/Accel-as-source Macro / Keyboard / Mouse / Bot (edge-triggered) ---
@@ -1578,12 +1020,24 @@ void PadEngine::threadFunc() {
             // *source* of a Keyboard/Macro/MouseClick/Bot assignment. PhysicalGyro/PhysicalAccel
             // (Component System) only resolve VirtualButton/Dpad/Trigger/StickSlot/MouseMove
             // targets into GamepadState directly; these marker targets need picking up here.
-            tickImuActionState(editorOpen, gyroActionState, cfg->gyro_actions,
-                                input->getActiveGyroActions(), input->getActiveGyroRangeActions(),
-                                state, botLoader);
-            tickImuActionState(editorOpen, accelActionState, cfg->accel_actions,
-                                input->getActiveAccelActions(), input->getActiveAccelRangeActions(),
-                                state, botLoader);
+            {
+                auto activeGyro = input->getActiveGyroActions();
+                std::unordered_set<std::string> activeGyroSet(activeGyro.begin(), activeGyro.end());
+                auto gyroActive = [&](const std::string& key) -> bool { return activeGyroSet.count(key) > 0; };
+
+                tickHolderMacros(editorOpen, gyroActionState, gyroActive, "IMU", state);
+                tickHolderKbMouseBot(editorOpen, gyroActionState, cfg->gyro_actions, gyroActive, botLoader);
+                tickHolderRanges(editorOpen, gyroActionState, input->getActiveGyroRangeActions(), state, botLoader);
+            }
+            {
+                auto activeAccel = input->getActiveAccelActions();
+                std::unordered_set<std::string> activeAccelSet(activeAccel.begin(), activeAccel.end());
+                auto accelActive = [&](const std::string& key) -> bool { return activeAccelSet.count(key) > 0; };
+
+                tickHolderMacros(editorOpen, accelActionState, accelActive, "IMU", state);
+                tickHolderKbMouseBot(editorOpen, accelActionState, cfg->accel_actions, accelActive, botLoader);
+                tickHolderRanges(editorOpen, accelActionState, input->getActiveAccelRangeActions(), state, botLoader);
+            }
 
             // --- Dpad H5 actions (Macro / Keyboard / Mouse, edge-triggered) ---
             // Helper: get dpad active state by direction string.
@@ -1605,32 +1059,14 @@ void PadEngine::threadFunc() {
                 if (dir == "left")  state.dpadLeft  = false;
                 if (dir == "right") state.dpadRight = false;
             };
-            for (auto& [dir, macro] : dpadMacros) {
-                bool active = dpadActive(dir);
-                bool& prev  = dpadMacroPrev[dir];
-                if (dispatchMacro(editorOpen, macro, active, prev)) {
-                    if (macro.isActive())
-                        spdlog::info("[MACRO][DPAD] '{}' ON", dpadMacroNames[dir]);
-                    pushEvent({ PadEventType::MacroToggle, dpadMacroNames[dir], macro.isActive() });
-                }
-                macro.tick(state);
-                if (active) consumeDpadDir(dir);
-            }
-            for (auto& [dir, prev] : dpadKbPrev) {
-                bool active = dpadActive(dir);
-                dispatchKeyboard(editorOpen, active, prev, cfg->dpadActions.at(dir).keys);
-                if (active) consumeDpadDir(dir);
-            }
-            for (auto& [dir, prev] : dpadMousePrev) {
-                bool active = dpadActive(dir);
-                dispatchMouse(editorOpen, active, prev, cfg->dpadActions.at(dir).mouseButton);
-                if (active) consumeDpadDir(dir);
-            }
-            for (auto& [dir, prev] : dpadBotPrev) {
-                bool active = dpadActive(dir);
-                dispatchBot(editorOpen, active, prev, dpadBotNames[dir], botLoader);
-                if (active) consumeDpadDir(dir);
-            }
+            tickHolderMacros(editorOpen, dpadHolder, dpadActive, "DPAD", state);
+            tickHolderKbMouseBot(editorOpen, dpadHolder, cfg->dpadActions, dpadActive, botLoader);
+            // consumeDpadDir: called once per active key across all 4 action types, same as before
+            // (order doesn't matter — it only reads dpadActive()/m_physicalState, not `state`).
+            for (const auto& [dir, macro]   : dpadHolder.macros)    if (dpadActive(dir)) consumeDpadDir(dir);
+            for (const auto& [dir, prev]    : dpadHolder.kbPrev)    if (dpadActive(dir)) consumeDpadDir(dir);
+            for (const auto& [dir, prev]    : dpadHolder.mousePrev) if (dpadActive(dir)) consumeDpadDir(dir);
+            for (const auto& [dir, prev]    : dpadHolder.botPrev)   if (dpadActive(dir)) consumeDpadDir(dir);
             // Dpad direction → virtual trigger (L2/R2)
             for (const auto& [dir, action] : cfg->dpadActions) {
                 if (action.type != ButtonActionType::Trigger) continue;
@@ -1652,28 +1088,8 @@ void PadEngine::threadFunc() {
             auto touchZoneActive = [&](const std::string& regionId) -> bool {
                 return state.activeTouchZone1 == regionId || state.activeTouchZone2 == regionId;
             };
-            for (auto& [regionId, macro] : touchZoneMacros) {
-                bool active = touchZoneActive(regionId);
-                bool& prev  = touchZoneMacroPrev[regionId];
-                if (dispatchMacro(editorOpen, macro, active, prev)) {
-                    if (macro.isActive())
-                        spdlog::info("[MACRO][TOUCHZONE] '{}' ON", touchZoneMacroNames[regionId]);
-                    pushEvent({ PadEventType::MacroToggle, touchZoneMacroNames[regionId], macro.isActive() });
-                }
-                macro.tick(state);
-            }
-            for (auto& [regionId, prev] : touchZoneKbPrev) {
-                bool active = touchZoneActive(regionId);
-                dispatchKeyboard(editorOpen, active, prev, cfg->touchZoneActions.at(regionId).keys);
-            }
-            for (auto& [regionId, prev] : touchZoneMousePrev) {
-                bool active = touchZoneActive(regionId);
-                dispatchMouse(editorOpen, active, prev, cfg->touchZoneActions.at(regionId).mouseButton);
-            }
-            for (auto& [regionId, prev] : touchZoneBotPrev) {
-                bool active = touchZoneActive(regionId);
-                dispatchBot(editorOpen, active, prev, touchZoneBotNames[regionId], botLoader);
-            }
+            tickHolderMacros(editorOpen, touchZoneHolder, touchZoneActive, "TOUCHZONE", state);
+            tickHolderKbMouseBot(editorOpen, touchZoneHolder, cfg->touchZoneActions, touchZoneActive, botLoader);
             // VirtualButton/Trigger: level-based, no prev-state (applyVirtualBtnByName only ever
             // sets true — same OR-latch every other button source relies on; a plain trigger
             // level matches the dpad-as-trigger block above).
@@ -1706,28 +1122,8 @@ void PadEngine::threadFunc() {
                 return cfg->touchpad.surfaceMode == TouchpadSurfaceMode::Gesture &&
                        state.touchGestureFired == gestureId;
             };
-            for (auto& [gestureId, macro] : touchGestureMacros) {
-                bool active = touchGestureActive(gestureId);
-                bool& prev  = touchGestureMacroPrev[gestureId];
-                if (dispatchMacro(editorOpen, macro, active, prev)) {
-                    if (macro.isActive())
-                        spdlog::info("[MACRO][GESTURE] '{}' ON", touchGestureMacroNames[gestureId]);
-                    pushEvent({ PadEventType::MacroToggle, touchGestureMacroNames[gestureId], macro.isActive() });
-                }
-                macro.tick(state);
-            }
-            for (auto& [gestureId, prev] : touchGestureKbPrev) {
-                bool active = touchGestureActive(gestureId);
-                dispatchKeyboard(editorOpen, active, prev, cfg->touchGestureActions.at(gestureId).keys);
-            }
-            for (auto& [gestureId, prev] : touchGestureMousePrev) {
-                bool active = touchGestureActive(gestureId);
-                dispatchMouse(editorOpen, active, prev, cfg->touchGestureActions.at(gestureId).mouseButton);
-            }
-            for (auto& [gestureId, prev] : touchGestureBotPrev) {
-                bool active = touchGestureActive(gestureId);
-                dispatchBot(editorOpen, active, prev, touchGestureBotNames[gestureId], botLoader);
-            }
+            tickHolderMacros(editorOpen, touchGestureHolder, touchGestureActive, "GESTURE", state);
+            tickHolderKbMouseBot(editorOpen, touchGestureHolder, cfg->touchGestureActions, touchGestureActive, botLoader);
             for (const auto& [gestureId, action] : cfg->touchGestureActions) {
                 if (action.type != ButtonActionType::VirtualButton) continue;
                 if (touchGestureActive(gestureId)) applyVirtualBtnByName(state, action.name, true);
@@ -1769,18 +1165,18 @@ void PadEngine::threadFunc() {
                     srcTrig = 0.0f;
                     break;
                 case ButtonActionType::Keyboard:
-                    dispatchKeyboard(editorOpen, active, kbPrev, act.keys);
+                    dispatch.keyboard(editorOpen, active, kbPrev, act.keys);
                     srcTrig = 0.0f;
                     break;
                 case ButtonActionType::MouseClick:
-                    dispatchMouse(editorOpen, active, mousPrev, act.mouseButton);
+                    dispatch.mouse(editorOpen, active, mousPrev, act.mouseButton);
                     srcTrig = 0.0f;
                     break;
                 case ButtonActionType::Macro:
                     // Reuses kbPrev as macroPrev for trigger sources (mutually exclusive with the
                     // Keyboard case above by construction — act.type is one or the other).
                     if (macOk) {
-                        if (dispatchMacro(editorOpen, mac, active, kbPrev) && mac.isActive())
+                        if (dispatch.macro(editorOpen, mac, active, kbPrev) && mac.isActive())
                             pushEvent({ PadEventType::MacroToggle, act.name, true });
                         if (mac.isActive()) mac.tick(state);
                     } else {
@@ -1789,7 +1185,7 @@ void PadEngine::threadFunc() {
                     srcTrig = 0.0f;
                     break;
                 case ButtonActionType::Bot:
-                    dispatchBot(editorOpen, active, botPrev, act.name, botLoader);
+                    dispatch.bot(editorOpen, active, botPrev, act.name, botLoader);
                     srcTrig = 0.0f;
                     break;
                 default: break;
@@ -1802,15 +1198,18 @@ void PadEngine::threadFunc() {
             bool trigLWasCrossTarget = false;
             bool trigRWasCrossTarget = false;
 
-            if (cfg->triggerLHasAction && cfg->triggerLRanges.empty()) {
+            // VirtualButton targets are already resolved by the Component System
+            // (PhysicalTrigger::process, using the real physical trigger value) — only the
+            // remaining types (marker targets + TriggerPassthrough, which the Component System
+            // can't fully express) need picking up here.
+            if (cfg->triggerLHasAction && cfg->triggerLRanges.empty() &&
+                cfg->triggerLAction.type != ButtonActionType::VirtualButton) {
                 const auto& lAct = cfg->triggerLAction;
-                // Marker targets (Macro/KB/Mouse/Bot) are not written by the Component System,
-                // so read the physical value directly — same pattern as dpadActive().
-                bool lNeedsPhys = lAct.type == ButtonActionType::Macro    ||
-                                  lAct.type == ButtonActionType::Keyboard  ||
-                                  lAct.type == ButtonActionType::MouseClick ||
-                                  lAct.type == ButtonActionType::Bot;
-                float physL = lNeedsPhys ? input->getPhysicalState().triggerL : state.triggerL;
+                // Always read the raw physical trigger value, never `state.triggerL` — by this
+                // point in the frame it may already carry contributions from unrelated sources
+                // (analog stick, dpad, touch zone/gesture) that also target the virtual trigger.
+                // Same invariant as dpadActive(): physical -> virtual, never the other way around.
+                float physL = input->getPhysicalState().triggerL;
                 applyTrigAct(physL, lAct,
                              trigLKbPrev, trigLMousPrev, trigLMacro, trigLMacroOk,
                              trigLBotPrev, state.triggerL);
@@ -1818,13 +1217,10 @@ void PadEngine::threadFunc() {
                     lAct.target == "r2" && physL > 0.0f)
                     trigRWasCrossTarget = true;
             }
-            if (cfg->triggerRHasAction && cfg->triggerRRanges.empty()) {
+            if (cfg->triggerRHasAction && cfg->triggerRRanges.empty() &&
+                cfg->triggerRAction.type != ButtonActionType::VirtualButton) {
                 const auto& rAct = cfg->triggerRAction;
-                bool rNeedsPhys = rAct.type == ButtonActionType::Macro    ||
-                                  rAct.type == ButtonActionType::Keyboard  ||
-                                  rAct.type == ButtonActionType::MouseClick ||
-                                  rAct.type == ButtonActionType::Bot;
-                float physR = rNeedsPhys ? input->getPhysicalState().triggerR : state.triggerR;
+                float physR = input->getPhysicalState().triggerR;
                 applyTrigAct(physR, rAct,
                              trigRKbPrev, trigRMousPrev, trigRMacro, trigRMacroOk,
                              trigRBotPrev, state.triggerR);
@@ -1852,8 +1248,8 @@ void PadEngine::threadFunc() {
                     if (editorOpen) {
                         // Suppressed while the mapping editor is open — bail before touching
                         // `prev` (not after dispatching) so a range entered/left mid-edit is still
-                        // caught correctly once the editor closes, same reasoning as
-                        // dispatchKeyboard/Mouse/Bot/Macro above. An already-running macro still
+                        // caught correctly once the editor closes, same reasoning as the
+                        // PadEngineActionDispatch calls above. An already-running macro still
                         // ticks though (so it finishes/keeps playing out instead of freezing
                         // mid-sequence), matching every other block — its state mutations just
                         // don't reach output while editorOpen (see output->update() below).
