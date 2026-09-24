@@ -1,8 +1,4 @@
 #include "E2EHarness.h"   // first: defines NOMINMAX before any <windows.h>
-#include "E2ESandbox.h"
-#include "config/ConfigLoader.h"
-#include "macros/MacroParser.h"
-#include "Paths.h"
 #include "e2e_checks.h"
 #include <catch2/catch_amalgamated.hpp>
 
@@ -42,23 +38,9 @@ TEST_CASE("E2E smoke: engine runs on the fake DS4 with its shipped layout and no
     CHECK(harness().releaseAll());
 }
 
-TEST_CASE("E2E smoke: sandbox macro library holds the X+Y combo macro, held 300 ms", "[e2e][smoke]") {
-    // Read back through the same path the engine uses, so this also proves the sandbox is the
-    // data folder the engine is actually looking at.
-    const auto library = loadMacroLibrary(Paths::userData("data/macros.json"));
-    REQUIRE(library.count(E2ESandbox::kComboMacroName) == 1);
-
-    Macro macro;
-    REQUIRE_NOTHROW(MacroParser::parse(library.at(E2ESandbox::kComboMacroName), macro));
-    CHECK(macro.getMode() == MacroRepeatMode::Once);
-    REQUIRE(macro.getSteps().size() == 1);
-    const CompiledStep& step = macro.getSteps()[0];
-    CHECK(step.effect.btnX);
-    CHECK(step.effect.btnY);
-    CHECK_FALSE(step.effect.btnA);
-    CHECK(step.holdMs == 300);
-}
-
+// PS -> Home left out on purpose: a Home on the virtual pad makes Windows inject its Xbox Guide
+// key (VK 0x07) for the Game Bar, and Home maps like any other button anyway. Same rule for the
+// cases file — see PadsWayE2E/cases/README.md.
 TEST_CASE("E2E smoke: uncustomized DS4 buttons come out as their own Xbox buttons", "[e2e][smoke]") {
     const PassthroughCase cases[] = {
         makeCase("Cross -> A",       [](GamepadState& s) { s.btnA = true; }),
@@ -69,7 +51,6 @@ TEST_CASE("E2E smoke: uncustomized DS4 buttons come out as their own Xbox button
         makeCase("R1 -> RB",         [](GamepadState& s) { s.btnRB = true; }),
         makeCase("Share -> Back",    [](GamepadState& s) { s.btnBack = true; }),
         makeCase("Options -> Start", [](GamepadState& s) { s.btnStart = true; }),
-        makeCase("PS -> Home",       [](GamepadState& s) { s.btnHome = true; }),
         makeCase("L3 -> L3",         [](GamepadState& s) { s.btnL3 = true; }),
         makeCase("R3 -> R3",         [](GamepadState& s) { s.btnR3 = true; }),
     };

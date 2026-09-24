@@ -78,15 +78,10 @@ bool prepare(std::string& error) {
         { "console", false },
     };
 
-    // Explicit key assignment on purpose: brace-initializing {{name, dsl}} from two const char*
-    // variables came out as an empty object, not {"name": dsl}.
-    json macros = json::object();
-    macros[kComboMacroName] = kComboMacroDsl;
-
     if (!writeText(dir / "portable.txt", "", error) ||
         !writeText(dir / "data" / "controllers.json", controllers, error) ||
         !writeText(baselineControllersPath(), controllers, error) ||
-        !writeText(dir / "data" / "macros.json", macros.dump(2), error) ||
+        !writeText(dir / "data" / "macros.json", "{}", error) ||
         !writeText(dir / "data" / "virtualpad.json", virtualPad.dump(2), error))
         return false;
 

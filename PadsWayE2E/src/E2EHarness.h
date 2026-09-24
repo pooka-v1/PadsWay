@@ -4,6 +4,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include "E2EInputCapture.h"
 #include "PadEngine.h"
 #include "input/DeviceHub.h"
 #include "output/ViGEmDs4OutputAdapter.h"
@@ -22,6 +23,8 @@
 //   btnLB/btnRB = L1/R1   btnBack = Share   btnStart = Options   btnHome = PS
 //   btnL3/btnR3, triggerL/R [0,1], leftX/Y + rightX/Y [-1,1] (+Y = up), dpad*.
 // Output is read back from PadEngine::getLastVirtualState() — the exact state sent to ViGEm.
+// Keyboard/mouse output is caught (and swallowed) by osInput()'s low-level hooks, active for the
+// whole run.
 // ---------------------------------------------------------------------------
 using Ds4Input = GamepadState;
 
@@ -53,8 +56,10 @@ public:
     bool waitForEvent(const std::function<bool(const PadEvent&)>& pred, int timeoutMs = kWaitMs);
 
     PadEngine& engine() { return *m_engine; }
+    E2EInputCapture& osInput() { return m_osInput; }
 
 private:
+    E2EInputCapture                        m_osInput;
     std::unique_ptr<ViGEmDs4OutputAdapter> m_fakePad;
     std::unique_ptr<DeviceHub>             m_deviceHub;
     std::unique_ptr<PadEngine>             m_engine;

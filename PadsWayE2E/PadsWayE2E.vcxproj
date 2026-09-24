@@ -107,15 +107,23 @@
     <!-- Catch2 (shared amalgamated copy from PadsWayTests; main() is our own, see src\main.cpp) -->
     <ClCompile Include="..\PadsWayTests\catch2\catch_amalgamated.cpp" />
     <!-- Harness + E2E test cases -->
+    <ClCompile Include="src\E2ECases.cpp" />
     <ClCompile Include="src\E2EHarness.cpp" />
+    <ClCompile Include="src\E2EInputCapture.cpp" />
     <ClCompile Include="src\E2EMapping.cpp" />
     <ClCompile Include="src\E2ESandbox.cpp" />
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="tests\e2e_mapeador_buttons.cpp" />
+    <ClCompile Include="tests\e2e_assignments.cpp" />
     <ClCompile Include="tests\e2e_smoke.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="cases\assignments.json" />
+    <None Include="cases\README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\E2ECases.h" />
     <ClInclude Include="src\E2EHarness.h" />
+    <ClInclude Include="src\E2EInputCapture.h" />
     <ClInclude Include="src\E2EMapping.h" />
     <ClInclude Include="src\E2ESandbox.h" />
     <ClInclude Include="tests\e2e_checks.h" />

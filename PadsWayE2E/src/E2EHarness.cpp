@@ -72,6 +72,13 @@ std::string describe(const GamepadState& s) {
 }
 
 bool E2EHarness::start(std::string& error) {
+    // Hooks first: nothing the engine injects, from its very first frame, may reach the desktop.
+    std::string hookError;
+    if (!m_osInput.start(hookError)) {
+        error = "could not install the keyboard/mouse hooks: " + hookError;
+        return false;
+    }
+
     m_fakePad = std::make_unique<ViGEmDs4OutputAdapter>(E2ESandbox::kFakePadVid, E2ESandbox::kFakePadPid);
     if (!m_fakePad->isReady()) {
         error = "could not plug the fake DS4 in through ViGEm (is ViGEmBus installed?)";
@@ -113,6 +120,7 @@ void E2EHarness::stop() {
     m_engine.reset();
     m_deviceHub.reset();
     m_fakePad.reset();                // unplugs the fake pad
+    m_osInput.stop();                 // last: the engine may still inject key-ups while stopping
 }
 
 void E2EHarness::press(const Ds4Input& input) { m_fakePad->update(input); }

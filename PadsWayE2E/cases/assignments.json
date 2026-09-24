@@ -1,0 +1,21 @@
+{
+  "_notes": [
+    "E2E assignment cases: one row = assign 'target' to 'source', press, check, undo.",
+    "Names and target formats: PadsWayE2E/cases/README.md.",
+    "Do NOT use 'home' (PS) as source or target: Windows answers a virtual Home with its own injected key.",
+    "It maps like any other button, so leaving it out loses nothing."
+  ],
+  "cases": [
+    { "source": "a",     "target": "b" },
+    { "source": "start", "target": "a" },
+    { "source": "b",     "target": "dpad_up" },
+    { "source": "x",     "target": "r2" },
+    { "source": "b",     "target": "l2" },
+    { "source": "y",     "target": "right_x_neg" },
+    { "source": "l3",    "target": { "type": "keyboard", "keys": ["shift", "k"] } },
+    { "source": "r3",    "target": { "type": "mouse_click", "button": "middle" } },
+    { "source": "l1",    "target": { "type": "macro", "execution": "X + Y=300" },
+      "expect": { "plays": ["x", "y"], "minMs": 200, "maxMs": 600 } },
+    { "source": "r1",    "target": { "type": "bot", "name": "LightningBot" } }
+  ]
+}

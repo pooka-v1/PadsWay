@@ -3,6 +3,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <vector>
 #include <catch2/catch_amalgamated.hpp>
 
 // ─── Shared assertions for E2E test cases. Each one starts from a released pad, and leaves it
@@ -16,9 +17,11 @@ inline GamepadState with(void (*set)(GamepadState&)) {
 }
 
 // Presses `physical` on the fake pad and requires exactly `expected` on the virtual pad — the
-// assigned output AND nothing else (e.g. the source's own original output must be gone).
+// assigned output AND nothing else (e.g. the source's own original output must be gone). No
+// keyboard/mouse input may be injected either (e.g. after undoing a keyboard assignment).
 inline void checkPressGives(const Ds4Input& physical, const GamepadState& expected) {
     REQUIRE(harness().releaseAll());
+    harness().osInput().clear();
     harness().press(physical);
     GamepadState seen;
     const bool matched = harness().waitForVirtual(
@@ -27,6 +30,44 @@ inline void checkPressGives(const Ds4Input& physical, const GamepadState& expect
     const std::string seenText     = describe(seen);
     CAPTURE(expectedText, seenText);
     CHECK(matched);
+    CHECK(harness().releaseAll());
+
+    const std::vector<InjectedInput> injected = harness().osInput().recorded();
+    const std::string injectedText = describe(injected);
+    CAPTURE(injectedText);
+    CHECK(injected.empty());
+}
+
+// Presses `physical`: the engine must inject exactly `onPress` (in order) and give no gamepad
+// output at all; on release, exactly `onRelease`. Keyboard combos press in order and release in
+// reverse, so the caller spells out both sequences.
+inline void checkPressInjects(const Ds4Input& physical, const std::vector<InjectedInput>& onPress,
+                              const std::vector<InjectedInput>& onRelease) {
+    E2EInputCapture& os = harness().osInput();
+    auto injectsExactly = [&os](const std::vector<InjectedInput>& expected) {
+        os.waitFor([&](const std::vector<InjectedInput>& r) { return r.size() >= expected.size(); },
+                   E2EHarness::kWaitMs);
+        // Give any extra event (a repeat, a stray key) time to show up before comparing.
+        std::this_thread::sleep_for(std::chrono::milliseconds(E2EHarness::kSettleMs));
+        const std::vector<InjectedInput> seen = os.recorded();
+        const std::string expectedText = describe(expected);
+        const std::string seenText     = describe(seen);
+        CAPTURE(expectedText, seenText);
+        CHECK(seen == expected);
+    };
+
+    REQUIRE(harness().releaseAll());
+    os.clear();
+    harness().press(physical);
+    injectsExactly(onPress);
+    const GamepadState held = harness().virtualState();
+    const std::string heldText = describe(held);
+    CAPTURE(heldText);
+    CHECK(isNeutral(held));   // the source's own gamepad output is gone
+
+    os.clear();
+    harness().press(Ds4Input{});
+    injectsExactly(onRelease);
     CHECK(harness().releaseAll());
 }
 

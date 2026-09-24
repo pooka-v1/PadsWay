@@ -62,10 +62,10 @@ void assignAction(MappingModel& model, const std::string& physShort, ButtonActio
     model.buttonEdits.erase(physShort);
 }
 
-ButtonAction macroAction(const std::string& macroName) {
+ButtonAction inlineMacroAction(const std::string& execution) {
     ButtonAction act;
-    act.type = ButtonActionType::Macro;
-    act.name = macroName;   // execution left empty: resolved from macros.json by name
+    act.type      = ButtonActionType::Macro;
+    act.execution = execution;   // name left empty: MappingEditor's inline macro modal does the same
     return act;
 }
 
@@ -73,6 +73,20 @@ ButtonAction botAction(const std::string& botName) {
     ButtonAction act;
     act.type = ButtonActionType::Bot;
     act.name = botName;
+    return act;
+}
+
+ButtonAction keyboardAction(const std::vector<std::string>& keys) {
+    ButtonAction act;
+    act.type = ButtonActionType::Keyboard;
+    act.keys = keys;
+    return act;
+}
+
+ButtonAction mouseClickAction(const std::string& button) {
+    ButtonAction act;
+    act.type        = ButtonActionType::MouseClick;
+    act.mouseButton = button;
     return act;
 }
 

@@ -2,6 +2,7 @@
 #include "E2EHarness.h"   // first: defines NOMINMAX before any <windows.h>
 #include "ui/MappingModel.h"
 #include <string>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // E2EMapping — drives the Mapeador's data path without its UI: the same MappingModel edits that
@@ -42,8 +43,13 @@ void assignTrigger(MappingModel& model, const std::string& physShort, const std:
 // Physical button/dpad source -> macro/keyboard/mouse/bot action (action panel on the right).
 void assignAction(MappingModel& model, const std::string& physShort, ButtonAction action);
 
-ButtonAction macroAction(const std::string& macroName);
+// Inline macro, as the Mapeador's macro creator stores it: no name, the DSL right in the entry.
+ButtonAction inlineMacroAction(const std::string& execution);
 ButtonAction botAction(const std::string& botName);
+// `keys` in the Mapeador's capture names ("shift", "k", "f5"...), in the order they were pressed.
+ButtonAction keyboardAction(const std::vector<std::string>& keys);
+// `button`: "left" "right" "middle" "x1" "x2", as the Mapeador's mouse buttons store it.
+ButtonAction mouseClickAction(const std::string& button);
 
 // True if the engine loaded `botName` from the sandbox data/bots/ (tests SKIP otherwise).
 bool isBotLoaded(const std::string& botName);
