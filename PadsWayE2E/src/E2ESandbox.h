@@ -11,7 +11,7 @@
 //   temp/e2e/sandbox/data/controllers.json     -> ONLY the DS4 USB entry, copied from the repo
 //   temp/e2e/sandbox/data/macros.json          -> empty library (test macros are inline, per case)
 //   temp/e2e/sandbox/data/virtualpad.json      -> Xbox output, default virtual identity
-//   temp/e2e/sandbox/data/bots/LightningBot.dll -> copied from the repo if built (bot tests)
+//   temp/e2e/sandbox/data/bots/TestBot.dll     -> copied from next to PadsWayE2E.exe (bot tests)
 //   temp/e2e/sandbox/data/profiles/, logs/
 //
 // prepare() also makes the sandbox the process working directory. It MUST run before anything
@@ -23,10 +23,11 @@ namespace E2ESandbox {
 constexpr unsigned short kFakePadVid = 0x054C;   // Sony
 constexpr unsigned short kFakePadPid = 0x09CC;   // DualShock 4 v2 (USB)
 
-// Bot used for bot-assignment tests: the repo's LightningBot.dll (deployed to PadsWay/data/bots/
-// by the LightningBotDLL post-build), copied into the sandbox if present. The tests only watch
-// its BotToggle events, never its screen-driven output. Missing DLL -> those tests SKIP.
-constexpr const char* kTestBotName = "LightningBot";
+// Bot used for bot-assignment tests: TestBot.dll (TestBotDLL project, a build dependency of
+// PadsWayE2E). While ON it loops A alone kTestBotPhaseMs, then B alone kTestBotPhaseMs — a fixed
+// output the tests can watch. Missing DLL -> prepare() fails the run.
+constexpr const char* kTestBotName    = "TestBot";
+constexpr int         kTestBotPhaseMs = 200;   // keep in sync with kPhaseMs in TestBotDLL/TestBot.cpp
 
 // Repo root, located from this source file's own path (PadsWayE2E/src/ -> repo).
 std::filesystem::path repoRoot();

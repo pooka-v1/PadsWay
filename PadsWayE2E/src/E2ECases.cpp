@@ -142,7 +142,9 @@ void parseTarget(const json& target, const json& row, AssignmentCase& c, const s
         c.label      = c.source + " -> macro " + execution;
     } else if (type == "bot") {
         const std::string name = target.value("name", std::string{});
-        if (name.empty()) fail(where, "bot target without 'name'");
+        if (name != E2ESandbox::kTestBotName)
+            fail(where, std::string("bot target must be \"") + E2ESandbox::kTestBotName +
+                        "\": it's the only bot whose output the check knows");
         c.kind   = TargetKind::Bot;
         c.action = E2EMapping::botAction(name);
         c.label  = c.source + " -> bot " + name;

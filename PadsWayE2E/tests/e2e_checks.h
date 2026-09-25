@@ -1,5 +1,6 @@
 #pragma once
 #include "E2EHarness.h"   // first: defines NOMINMAX before any <windows.h>
+#include "E2ESandbox.h"
 #include <chrono>
 #include <string>
 #include <thread>
@@ -71,29 +72,56 @@ inline void checkPressInjects(const Ds4Input& physical, const std::vector<Inject
     CHECK(harness().releaseAll());
 }
 
-// Press -> the engine reports `botName` ON; release and press again -> OFF. Only the BotToggle
-// events are checked, not the bot's own output (LightningBot's depends on what's on screen).
-inline void checkPressTogglesBot(const Ds4Input& physical, const std::string& botName) {
+// Press -> the engine reports TestBot ON, and with the source released the virtual pad shows the
+// bot's loop alone: A, then B, then A again (it keeps going, it isn't a one-shot). Press again ->
+// OFF, and the pad stays neutral for longer than a full loop.
+// Only CHECKs between ON and OFF, never REQUIRE: the engine has no way to stop a bot from outside
+// (a config reload doesn't), so an early abort would leave it pressing A/B through every later case.
+inline void checkPressTogglesTestBot(const Ds4Input& physical) {
+    const std::string botName = E2ESandbox::kTestBotName;
     auto botToggled = [&botName](bool on) {
         return [&botName, on](const PadEvent& e) {
             return e.type == PadEventType::BotToggle && e.name == botName && e.active == on;
         };
     };
+    auto showsOnly = [](const GamepadState& expected) {
+        GamepadState seen;
+        const bool matched = harness().waitForVirtual(
+            [&](const GamepadState& s) { return sameVirtualOutput(s, expected); }, E2EHarness::kWaitMs, &seen);
+        const std::string expectedText = describe(expected);
+        const std::string seenText     = describe(seen);
+        CAPTURE(expectedText, seenText);
+        CHECK(matched);
+    };
+    const GamepadState onlyA = with([](GamepadState& s) { s.btnA = true; });
+    const GamepadState onlyB = with([](GamepadState& s) { s.btnB = true; });
+
     REQUIRE(harness().releaseAll());
     harness().clearEvents();
 
     harness().press(physical);
     const bool turnedOn = harness().waitForEvent(botToggled(true));
-    harness().press(Ds4Input{});   // release: next press must be a fresh edge
-    std::this_thread::sleep_for(std::chrono::milliseconds(E2EHarness::kSettleMs));
+    CHECK(turnedOn);
+    harness().press(Ds4Input{});   // release: the bot alone on the pad, and the next press is a fresh edge
+    if (!turnedOn) return;         // pressing again now could be what turns it ON, and leave it there
+
+    showsOnly(onlyA);
+    showsOnly(onlyB);
+    showsOnly(onlyA);
 
     harness().press(physical);
     const bool turnedOff = harness().waitForEvent(botToggled(false));
     harness().press(Ds4Input{});
-
-    CHECK(turnedOn);
     CHECK(turnedOff);
+
     CHECK(harness().releaseAll());
+    GamepadState seen;
+    const bool outputAgain = harness().waitForVirtual(
+        [](const GamepadState& s) { return !isNeutral(s); }, 2 * E2ESandbox::kTestBotPhaseMs + E2EHarness::kSettleMs,
+        &seen);
+    const std::string afterOffText = describe(seen);
+    CAPTURE(afterOffText);
+    CHECK_FALSE(outputAgain);
 }
 
 // Presses and HOLDS `physical`: a Once macro must play `playing` and then end on its own — the

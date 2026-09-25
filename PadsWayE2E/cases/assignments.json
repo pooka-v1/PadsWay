@@ -16,7 +16,7 @@
     { "source": "r3",    "target": { "type": "mouse_click", "button": "middle" } },
     { "source": "l1",    "target": { "type": "macro", "execution": "X + Y=300" },
       "expect": { "plays": ["x", "y"], "minMs": 200, "maxMs": 600 } },
-    { "source": "r1",    "target": { "type": "bot", "name": "LightningBot" } },
+    { "source": "r1",    "target": { "type": "bot", "name": "TestBot" } },
 
     { "source": "dpad_up",    "target": "a" },
     { "source": "dpad_down",  "target": "r2" },
@@ -26,6 +26,6 @@
       "expect": { "plays": ["a", "b"], "minMs": 200, "maxMs": 600 } },
     { "source": "dpad_down",  "target": { "type": "keyboard", "keys": ["ctrl", "j"] } },
     { "source": "dpad_left",  "target": { "type": "mouse_click", "button": "right" } },
-    { "source": "dpad_right", "target": { "type": "bot", "name": "LightningBot" } }
+    { "source": "dpad_right", "target": { "type": "bot", "name": "TestBot" } }
   ]
 }

@@ -40,7 +40,7 @@ leaving it out loses nothing. The loader rejects it.
 | `{ "type": "keyboard", "keys": ["shift", "k"] }`              | keys down in order, up in reverse; pad neutral |
 | `{ "type": "mouse_click", "button": "middle" }`               | button down / up; pad neutral                  |
 | `{ "type": "macro", "execution": "X + Y=300" }` + `"expect"`  | see below                                      |
-| `{ "type": "bot", "name": "LightningBot" }`                   | BotToggle ON, then OFF (skipped: no DLL)       |
+| `{ "type": "bot", "name": "TestBot" }`                        | see below                                      |
 
 Target objects use the same encoding as a button entry in `controllers.json`. Macros are inline
 (the DSL in `execution`, as the Mapeador's macro creator stores it) and must be Once mode: the
@@ -49,6 +49,11 @@ source is held, the macro must show `expect.plays` for `minMs`..`maxMs` and then
 ```json
 "expect": { "plays": ["x", "y"], "minMs": 200, "maxMs": 600 }
 ```
+
+Bots: only `TestBot` (the loader rejects any other name). It's the suite's own bot
+(`TestBotDLL/`, built with `PadsWayE2E`, never deployed to the app): while ON it loops A alone
+200 ms, B alone 200 ms. The check presses the source (BotToggle ON), releases it and expects A, B,
+A on the virtual pad; presses again (OFF) and expects the pad to stay neutral.
 
 Keyboard key names are the Mapeador's capture names: `a`-`z`, `0`-`9`, `shift`, `ctrl`, `alt`,
 `space`, `f1`-`f12`. Mouse buttons: `left` `right` `middle` `x1` `x2`.

@@ -51,7 +51,7 @@ ButtonAction keyboardAction(const std::vector<std::string>& keys);
 // `button`: "left" "right" "middle" "x1" "x2", as the Mapeador's mouse buttons store it.
 ButtonAction mouseClickAction(const std::string& button);
 
-// True if the engine loaded `botName` from the sandbox data/bots/ (tests SKIP otherwise).
+// True if the engine loaded `botName` from the sandbox data/bots/.
 bool isBotLoaded(const std::string& botName);
 
 }

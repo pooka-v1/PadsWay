@@ -35,7 +35,7 @@ void checkAssigned(const AssignmentCase& c) {
         checkHoldPlaysOnceMacro(c.sourcePress, c.macroPlays, c.macroMinMs, c.macroMaxMs);
         break;
     case TargetKind::Bot:
-        checkPressTogglesBot(c.sourcePress, c.action.name);
+        checkPressTogglesTestBot(c.sourcePress);
         break;
     }
 }
@@ -48,9 +48,9 @@ TEST_CASE("Mapeador assignments from cases/assignments.json", "[e2e][mapeador]")
     const AssignmentCase& c = GENERATE_REF(from_range(cases));
 
     DYNAMIC_SECTION(c.label) {
-        if (c.kind == TargetKind::Bot && !E2EMapping::isBotLoaded(c.action.name)) {
-            WARN("'" << c.action.name << "' not loaded (build its DLL into PadsWay/data/bots/) - case not run");
-            return;
+        if (c.kind == TargetKind::Bot) {
+            INFO("TestBot.dll is in the sandbox but the engine didn't load it - see the engine log");
+            REQUIRE(E2EMapping::isBotLoaded(c.action.name));
         }
         {
             E2EMapping::ScopedAssignment undo;

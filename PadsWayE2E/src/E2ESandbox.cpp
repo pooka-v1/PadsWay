@@ -1,6 +1,10 @@
 #include "E2ESandbox.h"
 #include "nlohmann/json.hpp"
 #include <fstream>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
@@ -41,6 +45,14 @@ bool extractFakePadEntry(json& entry, std::string& error) {
     }
     error = "no 054C:09CC (DualShock 4 USB) entry in " + source.string();
     return false;
+}
+
+// Folder of the running PadsWayE2E.exe — the solution output folder, where TestBotDLL leaves
+// TestBot.dll (it's a build dependency of PadsWayE2E, see PadsWay.slnx).
+fs::path exeDir() {
+    wchar_t path[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    return fs::path(path).parent_path();
 }
 
 } // namespace
@@ -85,10 +97,14 @@ bool prepare(std::string& error) {
         !writeText(dir / "data" / "virtualpad.json", virtualPad.dump(2), error))
         return false;
 
-    // Optional: no DLL just means the bot tests SKIP (the engine scans data/bots at startup).
-    const fs::path botDll = repoRoot() / "PadsWay" / "data" / "bots" / "LightningBot.dll";
-    if (fs::exists(botDll))
-        fs::copy_file(botDll, dir / "data" / "bots" / "LightningBot.dll", ec);
+    // Required: the engine scans data/bots only at startup, and a missing bot must fail the run,
+    // not quietly skip the bot cases.
+    const fs::path botDll = exeDir() / "TestBot.dll";
+    fs::copy_file(botDll, dir / "data" / "bots" / "TestBot.dll", ec);
+    if (ec) {
+        error = "cannot copy " + botDll.string() + " (build TestBotDLL): " + ec.message();
+        return false;
+    }
 
     fs::current_path(dir, ec);
     if (ec) { error = "cannot chdir into " + dir.string() + ": " + ec.message(); return false; }
