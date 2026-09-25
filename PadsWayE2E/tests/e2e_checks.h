@@ -124,6 +124,51 @@ inline void checkPressTogglesTestBot(const Ds4Input& physical) {
     CHECK_FALSE(outputAgain);
 }
 
+// Holds `physical` (a stick half-axis bound to mouse movement): the engine must move the cursor
+// the expected way — at least a few MouseMove events, none against `dxSign`/`dySign` (-1/0/+1,
+// screen coordinates, 0 = no movement allowed on that axis) — with no gamepad output, and stop
+// moving it on release. Only the direction is checked: dx/dy come after Windows pointer ballistics.
+inline void checkHoldMovesMouse(const Ds4Input& physical, int dxSign, int dySign) {
+    constexpr size_t kMinMoves = 3;
+    auto sign = [](LONG v) { return (v > 0) - (v < 0); };
+    E2EInputCapture& os = harness().osInput();
+
+    REQUIRE(harness().releaseAll());
+    // The hook reports where the cursor WOULD go, clamped to the screen: a cursor resting on an edge
+    // would read as "no movement" that way. Start from the middle (swallowed moves never shift it).
+    SetCursorPos(GetSystemMetrics(SM_CXSCREEN) / 2, GetSystemMetrics(SM_CYSCREEN) / 2);
+    os.clear();
+    harness().press(physical);
+    os.waitFor([&](const std::vector<InjectedInput>& r) { return r.size() >= kMinMoves; }, E2EHarness::kWaitMs);
+    const GamepadState               held  = harness().virtualState();
+    const std::vector<InjectedInput> moves = os.recorded();
+    harness().press(Ds4Input{});
+
+    size_t rightWay = 0;
+    bool   wrongWay = false;
+    for (const InjectedInput& m : moves) {
+        if (m.kind != InjectedInput::Kind::MouseMove) { wrongWay = true; continue; }
+        const int sx = sign(m.dx), sy = sign(m.dy);
+        if ((sx != 0 && sx != dxSign) || (sy != 0 && sy != dySign)) wrongWay = true;
+        else if (sx != 0 || sy != 0) ++rightWay;
+    }
+    const std::string movesText = describe(moves);
+    const std::string heldText  = describe(held);
+    CAPTURE(dxSign, dySign, movesText, heldText);
+    CHECK(rightWay >= kMinMoves);
+    CHECK_FALSE(wrongWay);
+    CHECK(isNeutral(held));   // the source's own stick output is gone
+
+    // Stops on release: let a tick already in flight land, then nothing more may arrive.
+    std::this_thread::sleep_for(std::chrono::milliseconds(E2EHarness::kSettleMs));
+    os.clear();
+    std::this_thread::sleep_for(std::chrono::milliseconds(E2EHarness::kSettleMs));
+    const std::string afterReleaseText = describe(os.recorded());
+    CAPTURE(afterReleaseText);
+    CHECK(os.recorded().empty());
+    CHECK(harness().releaseAll());
+}
+
 // Presses and HOLDS `physical`: a Once macro must play `playing` and then end on its own — the
 // output goes back to neutral while the source is still held (that's what tells a macro apart from
 // a plain remap). `minMs`/`maxMs` bound how long `playing` stayed on screen.

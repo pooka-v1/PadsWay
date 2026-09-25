@@ -115,6 +115,18 @@ HalfAxisAction halfAxisFromAction(const ButtonAction& action) {
     return ha;
 }
 
+void assignMouseMoveAxis(MappingModel& model, const std::string& axisKey, const std::string& mouseAxis,
+                         float speed) {
+    HalfAxisAction ha;
+    ha.type   = HalfAxisActionType::MouseMove;
+    ha.target = mouseAxis;
+    ha.speed  = speed;
+    model.axisActionEdits[axisKey] = ha;
+    const bool isPos = axisKey.ends_with("_pos");
+    const std::string opposite = axisKey.substr(0, axisKey.size() - 4) + (isPos ? "_neg" : "_pos");
+    model.axisActionEdits[opposite] = ha;   // the engine gives each half its own sign (_pos > 0, _neg < 0)
+}
+
 ButtonAction inlineMacroAction(const std::string& execution) {
     ButtonAction act;
     act.type      = ButtonActionType::Macro;

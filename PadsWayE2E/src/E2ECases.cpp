@@ -2,6 +2,7 @@
 #include "E2EMapping.h"
 #include "E2ESandbox.h"
 #include "nlohmann/json.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <stdexcept>
@@ -156,9 +157,53 @@ void parseTarget(const json& target, const json& row, AssignmentCase& c, const s
         c.kind   = TargetKind::Bot;
         c.action = E2EMapping::botAction(name);
         c.label  = c.source + " -> bot " + name;
+    } else if (type == "mouse_move") {
+        if (!c.halfAxisSource) fail(where, "mouse_move needs a stick half-axis source (\"left_x_pos\"...)");
+        const std::string axis = target.value("axis", std::string{});
+        if (axis != "x" && axis != "y") fail(where, "mouse_move 'axis' must be \"x\" or \"y\"");
+        const bool sourceIsPos = c.source.ends_with("_pos");
+        const int  halfSign    = sourceIsPos ? 1 : -1;
+        c.kind           = TargetKind::MouseMove;
+        c.mouseAxis      = "mouse_" + axis;
+        c.mouseSpeed     = target.value("speed", 15.0f);
+        c.oppositeSource = c.source.substr(0, c.source.size() - 4) + (sourceIsPos ? "_neg" : "_pos");
+        c.oppositePress  = pressedOrFail(c.oppositeSource, where);
+        // _pos halves push +mouseX / +mouseY; the engine flips Y for the screen (stick up = cursor up).
+        c.sourceDxSign   = (axis == "x") ?  halfSign : 0;
+        c.sourceDySign   = (axis == "y") ? -halfSign : 0;
+        c.label          = c.source + " -> mouse_move " + axis;
     } else {
         fail(where, "unknown target type '" + type + "'");
     }
+}
+
+// One { "source", "target" [, "expect"] } object — a row of "cases", or one step of a chain.
+AssignmentCase parseAssignment(const json& row, std::string where) {
+    if (!row.is_object() || !row.contains("source") || !row.contains("target"))
+        fail(where, "needs 'source' and 'target'");
+
+    AssignmentCase c;
+    c.source = row["source"].get<std::string>();
+    where += " (" + c.source + ")";
+    c.sourcePress = pressedOrFail(c.source, where);
+    c.halfAxisSource = isHalfAxisSource(c.source);
+    if (!c.halfAxisSource && !isButtonOrDpadSource(c.source))
+        fail(where, "only button, dpad and stick half-axis sources are supported so far (triggers: next)");
+    parseTarget(row["target"], row, c, where);
+    if (c.kind == TargetKind::Virtual && c.virtualTarget == c.source)
+        fail(where, "source and target are the same: the case would prove nothing");
+    return c;
+}
+
+// The array `key` of the file, which must exist and not be empty.
+json readArray(const std::filesystem::path& file, const char* key) {
+    std::ifstream f(file);
+    if (!f.is_open()) throw std::runtime_error("cannot read " + file.string());
+    const json root = json::parse(f, nullptr, false);
+    if (root.is_discarded() || !root.contains(key) || !root[key].is_array())
+        throw std::runtime_error(file.string() + ": not valid JSON, or no \"" + key + "\" array");
+    if (root[key].empty()) throw std::runtime_error(file.string() + ": \"" + key + "\" is empty");
+    return root[key];
 }
 
 } // namespace
@@ -168,32 +213,38 @@ std::filesystem::path assignmentsFile() {
 }
 
 std::vector<AssignmentCase> load(const std::filesystem::path& file) {
-    std::ifstream f(file);
-    if (!f.is_open()) throw std::runtime_error("cannot read " + file.string());
-    const json root = json::parse(f, nullptr, false);
-    if (root.is_discarded() || !root.contains("cases") || !root["cases"].is_array())
-        throw std::runtime_error(file.string() + ": not valid JSON, or no \"cases\" array");
-
+    const json rows = readArray(file, "cases");
     std::vector<AssignmentCase> cases;
-    for (size_t i = 0; i < root["cases"].size(); ++i) {
-        const json& row   = root["cases"][i];
-        std::string where = file.filename().string() + ", case #" + std::to_string(i + 1);
-        if (!row.contains("source") || !row.contains("target")) fail(where, "needs 'source' and 'target'");
-
-        AssignmentCase c;
-        c.source = row["source"].get<std::string>();
-        where += " (" + c.source + ")";
-        c.sourcePress = pressedOrFail(c.source, where);
-        c.halfAxisSource = isHalfAxisSource(c.source);
-        if (!c.halfAxisSource && !isButtonOrDpadSource(c.source))
-            fail(where, "only button, dpad and stick half-axis sources are supported so far (triggers: next)");
-        parseTarget(row["target"], row, c, where);
-        if (c.kind == TargetKind::Virtual && c.virtualTarget == c.source)
-            fail(where, "source and target are the same: the case would prove nothing");
-        cases.push_back(std::move(c));
-    }
-    if (cases.empty()) throw std::runtime_error(file.string() + ": \"cases\" is empty");
+    for (size_t i = 0; i < rows.size(); ++i)
+        cases.push_back(parseAssignment(rows[i], file.filename().string() + ", case #" + std::to_string(i + 1)));
     return cases;
+}
+
+std::vector<ChainCase> loadChains(const std::filesystem::path& file) {
+    const json rows = readArray(file, "chains");
+    std::vector<ChainCase> chains;
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const std::string where = file.filename().string() + ", chain #" + std::to_string(i + 1);
+        const json& steps = rows[i];
+        if (!steps.is_array() || steps.size() < 2)
+            fail(where, "a chain is an array of at least 2 { \"source\", \"target\" } assignments");
+
+        ChainCase chain;
+        std::vector<std::string> claimed;   // sources already assigned (a mouse_move claims both halves)
+        for (size_t s = 0; s < steps.size(); ++s) {
+            AssignmentCase step = parseAssignment(steps[s], where + ", step #" + std::to_string(s + 1));
+            for (const std::string& src : { step.source, step.oppositeSource }) {
+                if (src.empty()) continue;
+                if (std::find(claimed.begin(), claimed.end(), src) != claimed.end())
+                    fail(where, "source '" + src + "' assigned twice: the second would overwrite the first");
+                claimed.push_back(src);
+            }
+            chain.label += (chain.label.empty() ? "" : ", ") + step.label;
+            chain.steps.push_back(std::move(step));
+        }
+        chains.push_back(std::move(chain));
+    }
+    return chains;
 }
 
 }

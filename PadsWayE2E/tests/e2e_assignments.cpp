@@ -14,6 +14,10 @@ using E2ECases::TargetKind;
 namespace {
 
 void assignHalfAxis(MappingModel& model, const AssignmentCase& c) {
+    if (c.kind == TargetKind::MouseMove) {   // whole axis: both halves at once
+        E2EMapping::assignMouseMoveAxis(model, c.source, c.mouseAxis, c.mouseSpeed);
+        return;
+    }
     HalfAxisAction ha;
     switch (c.kind) {
     case TargetKind::Virtual: ha = E2EMapping::halfAxisToVirtual(c.virtualTarget); break;
@@ -48,7 +52,17 @@ void checkAssigned(const AssignmentCase& c) {
     case TargetKind::Bot:
         checkPressTogglesTestBot(c.sourcePress);
         break;
+    case TargetKind::MouseMove:
+        checkHoldMovesMouse(c.sourcePress, c.sourceDxSign, c.sourceDySign);
+        checkHoldMovesMouse(c.oppositePress, -c.sourceDxSign, -c.sourceDySign);
+        break;
     }
+}
+
+// After the undo, as shipped: every source gives itself — both halves for a whole-axis assignment.
+void checkBackToShipped(const AssignmentCase& c) {
+    checkPressGives(c.sourcePress, c.sourcePress);
+    if (!c.oppositeSource.empty()) checkPressGives(c.oppositePress, c.oppositePress);
 }
 
 } // namespace
@@ -70,6 +84,35 @@ TEST_CASE("Mapeador assignments from cases/assignments.json", "[e2e][mapeador]")
             E2EMapping::saveNormalMode(model);
             checkAssigned(c);
         }
-        checkPressGives(c.sourcePress, c.sourcePress);   // shipped DS4: every source gives itself
+        checkBackToShipped(c);
+    }
+}
+
+// ─── Chains: several assignments from the "chains" array active at the same time (a -> b plus
+// b -> y). Each source, pressed alone, must give exactly its own target — a gives b, never y — so a
+// mapping stage that re-reads its own output as physical input (or mixes up physical and virtual
+// names) shows up here and not in the one-assignment-at-a-time cases above.
+TEST_CASE("Mapeador chained assignments from cases/assignments.json", "[e2e][mapeador][chain]") {
+    static const std::vector<E2ECases::ChainCase> chains = E2ECases::loadChains(E2ECases::assignmentsFile());
+    const E2ECases::ChainCase& chain = GENERATE_REF(from_range(chains));
+
+    DYNAMIC_SECTION(chain.label) {
+        for (const AssignmentCase& step : chain.steps)
+            if (step.kind == TargetKind::Bot) {
+                INFO("TestBot.dll is in the sandbox but the engine didn't load it - see the engine log");
+                REQUIRE(E2EMapping::isBotLoaded(step.action.name));
+            }
+        {
+            E2EMapping::ScopedAssignment undo;
+            MappingModel model = E2EMapping::openMapeador();
+            for (const AssignmentCase& step : chain.steps) assign(model, step);
+            E2EMapping::saveNormalMode(model);
+            for (const AssignmentCase& step : chain.steps) {
+                INFO("pressing " << step.source << " (expects: " << step.label << ")");
+                checkAssigned(step);
+            }
+        }
+        for (const AssignmentCase& step : chain.steps)
+            checkBackToShipped(step);
     }
 }

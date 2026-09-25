@@ -56,6 +56,12 @@ HalfAxisAction halfAxisToTrigger(const std::string& trigger);   // "l2"/"r2"
 // Keyboard / MouseClick / inline Macro / Bot, from the same ButtonAction the button path uses.
 HalfAxisAction halfAxisFromAction(const ButtonAction& action);
 
+// Stick half-axis -> mouse movement on `mouseAxis` ("mouse_x"/"mouse_y"). The Mapeador's
+// "Asignar" in the MouseMove row stores the same action on BOTH halves of the axis, so the whole
+// axis drives the cursor both ways; this does the same.
+void assignMouseMoveAxis(MappingModel& model, const std::string& axisKey, const std::string& mouseAxis,
+                         float speed);
+
 // Inline macro, as the Mapeador's macro creator stores it: no name, the DSL right in the entry.
 ButtonAction inlineMacroAction(const std::string& execution);
 ButtonAction botAction(const std::string& botName);
