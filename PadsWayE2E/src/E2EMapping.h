@@ -43,6 +43,19 @@ void assignTrigger(MappingModel& model, const std::string& physShort, const std:
 // Physical button/dpad source -> macro/keyboard/mouse/bot action (action panel on the right).
 void assignAction(MappingModel& model, const std::string& physShort, ButtonAction action);
 
+// Physical stick half-axis source ("left_x_pos": the physical left stick pushed right) -> any
+// target, as one HalfAxisAction keyed by that half in axisActionEdits. MappingEditor::
+// onVirtHitAxisAction (virtual button/trigger/dpad/stick arrow) and the axis row of the action
+// panel (macro/keyboard/mouse/bot) both end in `axisActionEdits[axisKey] = ha`.
+void assignHalfAxis(MappingModel& model, const std::string& axisKey, const HalfAxisAction& action);
+// The HalfAxisAction each of those stores:
+// virtual button ("b") -> VirtualButton, dpad direction ("dpad_up") -> Dpad with the bare
+// direction ("up"), stick half-axis slot ("right_x_neg") -> StickSlot.
+HalfAxisAction halfAxisToVirtual(const std::string& virtShort);
+HalfAxisAction halfAxisToTrigger(const std::string& trigger);   // "l2"/"r2"
+// Keyboard / MouseClick / inline Macro / Bot, from the same ButtonAction the button path uses.
+HalfAxisAction halfAxisFromAction(const ButtonAction& action);
+
 // Inline macro, as the Mapeador's macro creator stores it: no name, the DSL right in the entry.
 ButtonAction inlineMacroAction(const std::string& execution);
 ButtonAction botAction(const std::string& botName);

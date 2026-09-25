@@ -45,13 +45,21 @@ bool setPressed(const std::string& name, GamepadState& s) {
     return true;
 }
 
-// Sources the Mapeador path in E2EMapping can assign today: buttons and dpad directions. Both are
-// keyed by their physical short name in MappingModel's buttonEdits/actionEdits — the model itself
-// routes "dpad_*" keys to controllers.json's dpad_remap on save, so the same assign* helpers serve.
-// Trigger and half-axis sources store their assignment elsewhere — added with their phase.
-bool isAssignableSource(const std::string& name) {
+// Buttons and dpad directions: keyed by their physical short name in MappingModel's
+// buttonEdits/actionEdits — the model itself routes "dpad_*" keys to controllers.json's dpad_remap
+// on save, so the same assign* helpers serve both.
+bool isButtonOrDpadSource(const std::string& name) {
     static const char* const kSources[] = { "a", "b", "x", "y", "l1", "r1", "select", "start", "l3", "r3",
                                             "dpad_up", "dpad_down", "dpad_left", "dpad_right" };
+    for (const char* s : kSources)
+        if (name == s) return true;
+    return false;
+}
+
+// Stick half-axes: their own path (axisActionEdits -> axis_actions), see E2EMapping::assignHalfAxis.
+bool isHalfAxisSource(const std::string& name) {
+    static const char* const kSources[] = { "left_x_pos", "left_x_neg", "left_y_pos", "left_y_neg",
+                                            "right_x_pos", "right_x_neg", "right_y_pos", "right_y_neg" };
     for (const char* s : kSources)
         if (name == s) return true;
     return false;
@@ -176,11 +184,12 @@ std::vector<AssignmentCase> load(const std::filesystem::path& file) {
         c.source = row["source"].get<std::string>();
         where += " (" + c.source + ")";
         c.sourcePress = pressedOrFail(c.source, where);
-        if (!isAssignableSource(c.source))
-            fail(where, "only button and dpad sources are supported so far (trigger/axis sources: next phases)");
+        c.halfAxisSource = isHalfAxisSource(c.source);
+        if (!c.halfAxisSource && !isButtonOrDpadSource(c.source))
+            fail(where, "only button, dpad and stick half-axis sources are supported so far (triggers: next)");
         parseTarget(row["target"], row, c, where);
         if (c.kind == TargetKind::Virtual && c.virtualTarget == c.source)
-            fail(where, "source and target are the same: the Mapeador stores that as no assignment");
+            fail(where, "source and target are the same: the case would prove nothing");
         cases.push_back(std::move(c));
     }
     if (cases.empty()) throw std::runtime_error(file.string() + ": \"cases\" is empty");

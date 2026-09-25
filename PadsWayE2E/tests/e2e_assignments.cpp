@@ -13,7 +13,18 @@ using E2ECases::TargetKind;
 
 namespace {
 
+void assignHalfAxis(MappingModel& model, const AssignmentCase& c) {
+    HalfAxisAction ha;
+    switch (c.kind) {
+    case TargetKind::Virtual: ha = E2EMapping::halfAxisToVirtual(c.virtualTarget); break;
+    case TargetKind::Trigger: ha = E2EMapping::halfAxisToTrigger(c.virtualTarget); break;
+    default:                  ha = E2EMapping::halfAxisFromAction(c.action);        break;
+    }
+    E2EMapping::assignHalfAxis(model, c.source, ha);
+}
+
 void assign(MappingModel& model, const AssignmentCase& c) {
+    if (c.halfAxisSource) { assignHalfAxis(model, c); return; }
     switch (c.kind) {
     case TargetKind::Virtual: E2EMapping::assignVirtual(model, c.source, c.virtualTarget); break;
     case TargetKind::Trigger: E2EMapping::assignTrigger(model, c.source, c.virtualTarget); break;

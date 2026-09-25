@@ -17,8 +17,9 @@ enum class TargetKind { Virtual, Trigger, Keyboard, MouseClick, Macro, Bot };
 
 struct AssignmentCase {
     std::string  label;          // "a -> r2", "l3 -> keyboard shift+k"... report name, -c filter
-    std::string  source;         // physical short name ("a", "l3")
+    std::string  source;         // physical short name ("a", "dpad_up", "left_x_pos")
     GamepadState sourcePress;    // `source` fully pressed on the fake DS4 — and, as shipped, its output
+    bool         halfAxisSource = false;   // stick half-axis: assigned via axisActionEdits, not buttonEdits
     TargetKind   kind = TargetKind::Virtual;
 
     std::string  virtualTarget;  // Virtual / Trigger: target short name ("b", "dpad_up", "r2")

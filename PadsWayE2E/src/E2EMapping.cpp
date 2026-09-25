@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <stdexcept>
 #include <thread>
 
 namespace E2EMapping {
@@ -60,6 +61,58 @@ void assignAction(MappingModel& model, const std::string& physShort, ButtonActio
     action.physical = physShort;
     model.actionEdits[physShort] = action;
     model.buttonEdits.erase(physShort);
+}
+
+void assignHalfAxis(MappingModel& model, const std::string& axisKey, const HalfAxisAction& action) {
+    model.axisActionEdits[axisKey] = action;
+}
+
+HalfAxisAction halfAxisToVirtual(const std::string& virtShort) {
+    HalfAxisAction ha;
+    if (virtShort.rfind("dpad_", 0) == 0) {
+        ha.type   = HalfAxisActionType::Dpad;
+        ha.target = virtShort.substr(5);   // "up"/"down"/"left"/"right", as onVirtHitAxisAction stores it
+    } else if (virtShort.size() > 4 &&
+               (virtShort.ends_with("_pos") || virtShort.ends_with("_neg"))) {
+        ha.type   = HalfAxisActionType::StickSlot;
+        ha.target = virtShort;
+    } else {
+        ha.type   = HalfAxisActionType::VirtualButton;
+        ha.target = virtShort;
+    }
+    return ha;
+}
+
+HalfAxisAction halfAxisToTrigger(const std::string& trigger) {
+    HalfAxisAction ha;
+    ha.type   = HalfAxisActionType::Trigger;
+    ha.target = trigger;
+    return ha;
+}
+
+HalfAxisAction halfAxisFromAction(const ButtonAction& action) {
+    HalfAxisAction ha;
+    switch (action.type) {
+    case ButtonActionType::Keyboard:
+        ha.type = HalfAxisActionType::Keyboard;
+        ha.keys = action.keys;
+        break;
+    case ButtonActionType::MouseClick:
+        ha.type        = HalfAxisActionType::MouseClick;
+        ha.mouseButton = action.mouseButton;
+        break;
+    case ButtonActionType::Macro:   // inline modal, Ctx::Axis: no name, DSL in execution
+        ha.type      = HalfAxisActionType::Macro;
+        ha.execution = action.execution;
+        break;
+    case ButtonActionType::Bot:     // bot combo: the bot's name goes in target
+        ha.type   = HalfAxisActionType::Bot;
+        ha.target = action.name;
+        break;
+    default:
+        throw std::logic_error("halfAxisFromAction: no half-axis equivalent for this ButtonAction type");
+    }
+    return ha;
 }
 
 ButtonAction inlineMacroAction(const std::string& execution) {
