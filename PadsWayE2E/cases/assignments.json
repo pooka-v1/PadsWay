@@ -16,6 +16,16 @@
     { "source": "r3",    "target": { "type": "mouse_click", "button": "middle" } },
     { "source": "l1",    "target": { "type": "macro", "execution": "X + Y=300" },
       "expect": { "plays": ["x", "y"], "minMs": 200, "maxMs": 600 } },
-    { "source": "r1",    "target": { "type": "bot", "name": "LightningBot" } }
+    { "source": "r1",    "target": { "type": "bot", "name": "LightningBot" } },
+
+    { "source": "dpad_up",    "target": "a" },
+    { "source": "dpad_down",  "target": "r2" },
+    { "source": "dpad_left",  "target": "dpad_right" },
+    { "source": "dpad_right", "target": "left_y_pos" },
+    { "source": "dpad_up",    "target": { "type": "macro", "execution": "A + B=300" },
+      "expect": { "plays": ["a", "b"], "minMs": 200, "maxMs": 600 } },
+    { "source": "dpad_down",  "target": { "type": "keyboard", "keys": ["ctrl", "j"] } },
+    { "source": "dpad_left",  "target": { "type": "mouse_click", "button": "right" } },
+    { "source": "dpad_right", "target": { "type": "bot", "name": "LightningBot" } }
   ]
 }

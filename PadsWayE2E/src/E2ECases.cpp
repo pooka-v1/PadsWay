@@ -45,12 +45,15 @@ bool setPressed(const std::string& name, GamepadState& s) {
     return true;
 }
 
-// Sources the Mapeador path in E2EMapping can assign today (button entries in controllers.json).
-// Dpad, trigger and half-axis sources store their assignment elsewhere — added with their phase.
-bool isButtonSource(const std::string& name) {
-    static const char* const kButtons[] = { "a", "b", "x", "y", "l1", "r1", "select", "start", "l3", "r3" };
-    for (const char* b : kButtons)
-        if (name == b) return true;
+// Sources the Mapeador path in E2EMapping can assign today: buttons and dpad directions. Both are
+// keyed by their physical short name in MappingModel's buttonEdits/actionEdits — the model itself
+// routes "dpad_*" keys to controllers.json's dpad_remap on save, so the same assign* helpers serve.
+// Trigger and half-axis sources store their assignment elsewhere — added with their phase.
+bool isAssignableSource(const std::string& name) {
+    static const char* const kSources[] = { "a", "b", "x", "y", "l1", "r1", "select", "start", "l3", "r3",
+                                            "dpad_up", "dpad_down", "dpad_left", "dpad_right" };
+    for (const char* s : kSources)
+        if (name == s) return true;
     return false;
 }
 
@@ -171,9 +174,11 @@ std::vector<AssignmentCase> load(const std::filesystem::path& file) {
         c.source = row["source"].get<std::string>();
         where += " (" + c.source + ")";
         c.sourcePress = pressedOrFail(c.source, where);
-        if (!isButtonSource(c.source))
-            fail(where, "only button sources are supported so far (dpad/trigger/axis sources: next phases)");
+        if (!isAssignableSource(c.source))
+            fail(where, "only button and dpad sources are supported so far (trigger/axis sources: next phases)");
         parseTarget(row["target"], row, c, where);
+        if (c.kind == TargetKind::Virtual && c.virtualTarget == c.source)
+            fail(where, "source and target are the same: the Mapeador stores that as no assignment");
         cases.push_back(std::move(c));
     }
     if (cases.empty()) throw std::runtime_error(file.string() + ": \"cases\" is empty");

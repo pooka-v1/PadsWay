@@ -22,9 +22,10 @@ The same vocabulary as `controllers.json`, for both ends (physical source and vi
 | Triggers        | `l2` `r2` (as target: fully pressed)                                |
 | Stick half-axes | `left_x_pos` `left_x_neg` `left_y_pos` `left_y_neg`, same for `right_` (`_pos` = right/up) |
 
-**Sources**: only buttons (`a` `b` `x` `y` `l1` `r1` `select` `start` `l3` `r3`) for now. Dpad,
-trigger and half-axis sources store their assignment elsewhere in `controllers.json` and come with
-their own phase.
+**Sources**: buttons (`a` `b` `x` `y` `l1` `r1` `select` `start` `l3` `r3`) and dpad directions
+(`dpad_up` `dpad_down` `dpad_left` `dpad_right`, saved under `dpad_remap`) for now. Trigger and
+half-axis sources store their assignment elsewhere in `controllers.json` and come with their own
+phase. A row whose target is its own source is rejected (the Mapeador saves it as no assignment).
 
 **`home` (PS) is excluded** as source and target: a Home on the virtual Xbox pad makes Windows
 inject its own Guide key (VK `0x07`, for the Game Bar), and it maps like any other button, so
@@ -55,7 +56,7 @@ Keyboard key names are the Mapeador's capture names: `a`-`z`, `0`-`9`, `shift`, 
 ## Adding a name
 
 - **Short name**: `setPressed()` in `src/E2ECases.cpp` (and the table above). A new *source* also
-  needs `isButtonSource()` — or its own assign path in `E2EMapping` if it isn't a button entry.
+  needs `isAssignableSource()` — or its own assign path in `E2EMapping` if it isn't a button entry.
 - **Keyboard key**: `keyVk()` in `src/E2ECases.cpp`. It's written out independently of the engine's
   own key table on purpose: a test that borrowed the engine's mapping could never catch a wrong entry.
 - **Target type**: `parseTarget()` in `src/E2ECases.cpp` + a check in `tests/e2e_assignments.cpp`.
