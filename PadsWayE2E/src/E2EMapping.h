@@ -10,26 +10,46 @@
 // The assign* helpers mirror MappingEditor.cpp line for line (see the comment on each), so a
 // change in how the Mapeador stores an assignment should be mirrored here too.
 //
-// Normal mode (controllers.json) only for now; profiles (saveProfile) come in Fase 2.
+// Two ways to store the same assignment, as the Mapeador has:
+//   Normal  -> the pad's entry in controllers.json (Mapeador tab).
+//   Profile -> a game profile, data/profiles/testValidacionPerfil.json, holding only the diff
+//              against controllers.json (Perfiles tab), made the engine's active profile.
 // ---------------------------------------------------------------------------
 namespace E2EMapping {
 
-// Model loaded from the sandbox controllers.json for the fake pad, as when the Mapeador opens.
-MappingModel openMapeador();
+enum class SaveMode { Normal, Profile };
 
-// MappingEditor::save() in Normal mode: model.save(controllers.json) + engine.reloadConfigs(),
-// then waits for the engine to pick the change up.
-void saveNormalMode(MappingModel& model);
+// profile_name written into the test profile; the engine reports it once the profile is applied.
+constexpr const char* kTestProfileName = "testValidacionPerfil";
+std::string testProfilePath();
 
-// Undo: puts the pristine sandbox controllers.json back and reloads the engine.
-void restoreBaseline();
+// Model as the editor opens it for the fake pad:
+//   Normal  -> loaded from the sandbox controllers.json (MappingEditor::reload, Normal mode).
+//   Profile -> controllers.json entry with the test profile applied on top (MappingEditor::reload,
+//              profile mode); no profile file yet = the plain entry, as a just-created profile.
+MappingModel openEditor(SaveMode mode);
+
+// MappingEditor::save(), then waits for the engine to pick the change up:
+//   Normal  -> model.save(controllers.json) + engine.reloadConfigs().
+//   Profile -> model.saveProfile(test profile, base entry) + requestProfileReload(); the profile
+//              is also made the active one (setProfilePath), as picking it in the Perfiles list.
+// False with a human-readable `error` if saving failed or the engine didn't apply the profile.
+bool saveAssignment(MappingModel& model, SaveMode mode, std::string& error);
+
+// Undo:
+//   Normal  -> puts the pristine sandbox controllers.json back and reloads the engine.
+//   Profile -> no active profile (setProfilePath("")) and the test profile file deleted.
+void undoAssignment(SaveMode mode);
 
 // Undoes whatever the test assigned when it leaves scope, even if a REQUIRE aborted it.
-struct ScopedAssignment {
-    ScopedAssignment() = default;
+class ScopedAssignment {
+public:
+    explicit ScopedAssignment(SaveMode mode) : m_mode(mode) {}
     ScopedAssignment(const ScopedAssignment&) = delete;
     ScopedAssignment& operator=(const ScopedAssignment&) = delete;
-    ~ScopedAssignment() { restoreBaseline(); }
+    ~ScopedAssignment() { undoAssignment(m_mode); }
+private:
+    SaveMode m_mode;
 };
 
 // Physical button/dpad source -> virtual button, virtual dpad direction ("dpad_up") or stick

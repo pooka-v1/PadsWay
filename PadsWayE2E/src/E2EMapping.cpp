@@ -14,33 +14,77 @@ namespace {
 
 std::string controllersPath() { return Paths::userData("data/controllers.json"); }
 
+// The run loop applies a reload / profile change on its next ~8 ms tick; wait well past that so the
+// first press after this already goes through the new mapping (edge-triggered actions included).
+void settle() { std::this_thread::sleep_for(std::chrono::milliseconds(E2EHarness::kSettleMs)); }
+
 void reloadEngineAndSettle() {
     harness().engine().reloadConfigs();
-    // The run loop applies the reload on its next ~8 ms tick; wait well past that so the first
-    // press after this already goes through the new mapping (edge-triggered actions included).
-    std::this_thread::sleep_for(std::chrono::milliseconds(E2EHarness::kSettleMs));
+    settle();
+}
+
+// The controllers.json entry the Perfiles editor diffs a profile against: MappingEditor looks it up
+// for the active device with the same findConfig call. Held in a static so the pointer stays valid.
+const ControllerConfig* profileBase() {
+    static std::vector<ControllerConfig> configs;
+    configs = loadControllerConfigs(controllersPath());
+    const DeviceCandidate dev = harness().engine().getActiveDevice();
+    return findConfig(configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
 }
 
 } // namespace
 
-MappingModel openMapeador() {
+std::string testProfilePath() {
+    return Paths::userData("data/profiles/") + kTestProfileName + ".json";
+}
+
+MappingModel openEditor(SaveMode mode) {
     MappingModel model;
     model.vid = E2ESandbox::kFakePadVid;
     model.pid = E2ESandbox::kFakePadPid;
-    model.reload(loadControllerConfigs(controllersPath()));
+    if (mode == SaveMode::Normal) {
+        model.reload(loadControllerConfigs(controllersPath()));
+        return model;
+    }
+    const ControllerConfig* base = profileBase();
+    if (!base) throw std::runtime_error("no controllers.json entry for the active device (profile base)");
+    model.loadProfile(*base, loadGameProfile(testProfilePath()));   // missing file = empty profile
     return model;
 }
 
-void saveNormalMode(MappingModel& model) {
-    model.save(controllersPath());
-    reloadEngineAndSettle();
+bool saveAssignment(MappingModel& model, SaveMode mode, std::string& error) {
+    if (mode == SaveMode::Normal) {
+        model.save(controllersPath());
+        reloadEngineAndSettle();
+        return true;
+    }
+    const ControllerConfig* base = profileBase();
+    if (!base) { error = "no controllers.json entry for the active device (profile base)"; return false; }
+    if (!model.saveProfile(testProfilePath(), kTestProfileName, *base)) {
+        error = "saveProfile() failed for " + testProfilePath() + " - see the engine log";
+        return false;
+    }
+    harness().engine().setProfilePath(testProfilePath());
+    harness().engine().requestProfileReload();
+    settle();
+    if (harness().engine().getActiveProfileName() != kTestProfileName) {
+        error = "the engine didn't apply the test profile - see the engine log";
+        return false;
+    }
+    return true;
 }
 
-void restoreBaseline() {
+void undoAssignment(SaveMode mode) {
     std::error_code ec;
-    std::filesystem::copy_file(E2ESandbox::baselineControllersPath(), controllersPath(),
-                               std::filesystem::copy_options::overwrite_existing, ec);
-    reloadEngineAndSettle();
+    if (mode == SaveMode::Normal) {
+        std::filesystem::copy_file(E2ESandbox::baselineControllersPath(), controllersPath(),
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+        reloadEngineAndSettle();
+        return;
+    }
+    harness().engine().setProfilePath("");
+    settle();
+    std::filesystem::remove(testProfilePath(), ec);
 }
 
 void assignVirtual(MappingModel& model, const std::string& physShort, const std::string& virtShort) {

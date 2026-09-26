@@ -5,7 +5,11 @@ one `target` to one `source` through the Mapeador's data path, presses the sourc
 DualShock 4, checks the result, undoes the assignment and checks the source is back to its shipped
 output. The expected result is derived from the target — only macros spell theirs out.
 
-Run it: `x64\Release\PadsWayE2E.exe "[mapeador]"`. One row only: `-c "a -> r2"` (the row's label).
+Every row and chain runs twice: stored in `controllers.json` (Mapeador, tag `[mapeador]`) and as a
+game profile (Perfiles, tag `[perfiles]`) — there is no per-mode list.
+
+Run it: `x64\Release\PadsWayE2E.exe "[mapeador]"` (or `"[perfiles]"`). One row only:
+`"[mapeador]" -c "a -> r2"` (the row's label; without a tag it runs in both modes).
 A malformed file (unknown name, missing field) fails the run with the row number and the reason.
 
 ## Short names
