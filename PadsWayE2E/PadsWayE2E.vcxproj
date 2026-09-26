@@ -114,6 +114,7 @@
     <ClCompile Include="src\E2ESandbox.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="tests\e2e_assignments.cpp" />
+    <ClCompile Include="tests\e2e_progress.cpp" />
     <ClCompile Include="tests\e2e_smoke.cpp" />
   </ItemGroup>
   <ItemGroup>
