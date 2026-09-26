@@ -1140,7 +1140,10 @@ void PadEngine::threadFunc() {
             // Helper: apply a single ButtonAction driven by a float trigger value.
             // physVal is the raw physical trigger value [0..1].
             // prevActive is the per-action edge-detect flag (modified in place).
-            // After the call, the source trigger value in state has been routed/cleared.
+            // After the call, the source trigger value in state has been cleared; a cross-passthrough
+            // value is left in crossToL/crossToR, applied once both triggers are done.
+            float crossToL = 0.0f;
+            float crossToR = 0.0f;
             auto applyTrigAct = [&](float physVal, const ButtonAction& act,
                                      bool& kbPrev, bool& mousPrev, Macro& mac, bool macOk,
                                      bool& botPrev, float& srcTrig) {
@@ -1149,12 +1152,15 @@ void PadEngine::threadFunc() {
                 case ButtonActionType::TriggerPassthrough: {
                     // Cross-passthrough only: only consume source when routing to the OTHER trigger.
                     // Same-trigger (R2→R2 or L2→L2) = identity, leave srcTrig untouched.
+                    // The routed value is written later (crossToL/crossToR), once both triggers
+                    // have consumed their own source — otherwise R2's action would wipe the value
+                    // L2 just routed into it (L2<->R2 swap, L2->R2 + R2->keyboard...).
                     bool srcIsR2 = (&srcTrig == &state.triggerR);
                     if (act.target == "r2" && !srcIsR2) {
-                        state.triggerR = (physVal > state.triggerR ? physVal : state.triggerR);
+                        crossToR = physVal;
                         srcTrig = 0.0f;  // consume L2
                     } else if (act.target == "l2" && srcIsR2) {
-                        state.triggerL = (physVal > state.triggerL ? physVal : state.triggerL);
+                        crossToL = physVal;
                         srcTrig = 0.0f;  // consume R2
                     }
                     // same-trigger: no-op, value passes through unchanged
@@ -1228,6 +1234,8 @@ void PadEngine::threadFunc() {
                     rAct.target == "l2" && physR > 0.0f)
                     trigLWasCrossTarget = true;
             }
+            if (crossToL > state.triggerL) state.triggerL = crossToL;
+            if (crossToR > state.triggerR) state.triggerR = crossToR;
 
             // Ranged trigger actions (overrides simple when non-empty).
             // Skipped for triggers that received a cross-passthrough value.
