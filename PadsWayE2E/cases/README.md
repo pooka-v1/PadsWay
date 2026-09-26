@@ -23,10 +23,10 @@ The same vocabulary as `controllers.json`, for both ends (physical source and vi
 | Stick half-axes | `left_x_pos` `left_x_neg` `left_y_pos` `left_y_neg`, same for `right_` (`_pos` = right/up) |
 
 **Sources**: buttons (`a` `b` `x` `y` `l1` `r1` `select` `start` `l3` `r3`), dpad directions
-(`dpad_up`..., saved under `dpad_remap`) and stick half-axes (`left_x_pos`..., saved under
-`axis_actions`; pressed = pushed all the way) for now. Trigger sources store their assignment
-elsewhere in `controllers.json` and come with their own step. A row whose target is its own source
-is rejected (it would prove nothing).
+(`dpad_up`..., saved under `dpad_remap`), stick half-axes (`left_x_pos`..., saved under
+`axis_actions`; pressed = pushed all the way) and triggers (`l2` `r2`, saved under
+`trigger_actions`; pressed = fully). A row whose target is its own source is rejected (it would
+prove nothing).
 
 **`home` (PS) is excluded** as source and target: a Home on the virtual Xbox pad makes Windows
 inject its own Guide key (VK `0x07`, for the Game Bar), and it maps like any other button, so
@@ -86,8 +86,8 @@ Run only these: `"[chain]"`; one: `-c "a -> b, b -> y"`.
 ## Adding a name
 
 - **Short name**: `setPressed()` in `src/E2ECases.cpp` (and the table above). A new *source* also
-  needs `isButtonOrDpadSource()`/`isHalfAxisSource()` — or its own assign path in `E2EMapping` if
-  it's stored somewhere else.
+  needs a `SourceKind` in `parseAssignment()` — plus its own assign path in `E2EMapping` if it's
+  stored somewhere new.
 - **Keyboard key**: `keyVk()` in `src/E2ECases.cpp`. It's written out independently of the engine's
   own key table on purpose: a test that borrowed the engine's mapping could never catch a wrong entry.
 - **Target type**: `parseTarget()` in `src/E2ECases.cpp` + a check in `tests/e2e_assignments.cpp`.

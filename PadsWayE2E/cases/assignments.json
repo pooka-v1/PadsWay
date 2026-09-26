@@ -39,7 +39,17 @@
     { "source": "right_y_neg", "target": { "type": "bot", "name": "TestBot" } },
     { "source": "left_x_pos",  "target": { "type": "mouse_move", "axis": "x" } },
     { "source": "right_y_neg", "target": { "type": "mouse_move", "axis": "y" } },
-    { "source": "right_x_neg", "target": { "type": "mouse_move", "axis": "y" } }
+    { "source": "right_x_neg", "target": { "type": "mouse_move", "axis": "y" } },
+
+    { "source": "l2", "target": "r2" },
+    { "source": "r2", "target": "a" },
+    { "source": "l2", "target": "dpad_left" },
+    { "source": "r2", "target": "left_x_neg" },
+    { "source": "l2", "target": { "type": "macro", "execution": "X + A=300" },
+      "expect": { "plays": ["x", "a"], "minMs": 200, "maxMs": 600 } },
+    { "source": "r2", "target": { "type": "keyboard", "keys": ["shift", "t"] } },
+    { "source": "l2", "target": { "type": "mouse_click", "button": "left" } },
+    { "source": "r2", "target": { "type": "bot", "name": "TestBot" } }
   ],
 
   "chains": [
@@ -58,6 +68,12 @@
     [ { "source": "dpad_left",  "target": "l1" },
       { "source": "l1",         "target": "dpad_left" } ],
     [ { "source": "left_x_pos",  "target": { "type": "mouse_move", "axis": "x" } },
-      { "source": "right_x_pos", "target": "left_x_pos" } ]
+      { "source": "right_x_pos", "target": "left_x_pos" } ],
+    [ { "source": "l2",         "target": "r2" },
+      { "source": "r2",         "target": "l2" } ],
+    [ { "source": "l2",         "target": "b" },
+      { "source": "b",          "target": "r2" } ],
+    [ { "source": "a",          "target": "l2" },
+      { "source": "l2",         "target": "y" } ]
   ]
 }

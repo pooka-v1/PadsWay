@@ -15,11 +15,18 @@ namespace E2ECases {
 
 enum class TargetKind { Virtual, Trigger, Keyboard, MouseClick, Macro, Bot, MouseMove };
 
+// Where the Mapeador stores an assignment from each kind of source.
+enum class SourceKind {
+    ButtonOrDpad,   // buttonEdits / actionEdits
+    HalfAxis,       // axisActionEdits
+    Trigger,        // trigActionEdits
+};
+
 struct AssignmentCase {
     std::string  label;          // "a -> r2", "l3 -> keyboard shift+k"... report name, -c filter
-    std::string  source;         // physical short name ("a", "dpad_up", "left_x_pos")
+    std::string  source;         // physical short name ("a", "dpad_up", "left_x_pos", "l2")
     GamepadState sourcePress;    // `source` fully pressed on the fake DS4 — and, as shipped, its output
-    bool         halfAxisSource = false;   // stick half-axis: assigned via axisActionEdits, not buttonEdits
+    SourceKind   sourceKind = SourceKind::ButtonOrDpad;
     TargetKind   kind = TargetKind::Virtual;
 
     std::string  virtualTarget;  // Virtual / Trigger: target short name ("b", "dpad_up", "r2")

@@ -27,8 +27,19 @@ void assignHalfAxis(MappingModel& model, const AssignmentCase& c) {
     E2EMapping::assignHalfAxis(model, c.source, ha);
 }
 
+void assignTriggerSource(MappingModel& model, const AssignmentCase& c) {
+    ButtonAction act;
+    switch (c.kind) {
+    case TargetKind::Virtual: act = E2EMapping::triggerToVirtual(c.virtualTarget); break;
+    case TargetKind::Trigger: act = E2EMapping::triggerToTrigger(c.virtualTarget); break;
+    default:                  act = c.action;                                       break;
+    }
+    E2EMapping::assignTriggerSource(model, c.source, act);
+}
+
 void assign(MappingModel& model, const AssignmentCase& c) {
-    if (c.halfAxisSource) { assignHalfAxis(model, c); return; }
+    if (c.sourceKind == E2ECases::SourceKind::HalfAxis) { assignHalfAxis(model, c);      return; }
+    if (c.sourceKind == E2ECases::SourceKind::Trigger)  { assignTriggerSource(model, c); return; }
     switch (c.kind) {
     case TargetKind::Virtual: E2EMapping::assignVirtual(model, c.source, c.virtualTarget); break;
     case TargetKind::Trigger: E2EMapping::assignTrigger(model, c.source, c.virtualTarget); break;

@@ -62,6 +62,16 @@ HalfAxisAction halfAxisFromAction(const ButtonAction& action);
 void assignMouseMoveAxis(MappingModel& model, const std::string& axisKey, const std::string& mouseAxis,
                          float speed);
 
+// Physical trigger source ("l2"/"r2") -> any target, as one ButtonAction in trigActionEdits:
+//   other trigger ("r2")                  -> TriggerPassthrough (onVirtHitTriggerSrc)
+//   button / dpad dir / stick half-axis   -> VirtualButton named after it (onVirtHitTriggerSrc,
+//                                            onVirtArrowHit — the latter also drops that trigger's
+//                                            range edits, mirrored here)
+//   keyboard / mouse / inline macro / bot -> that ButtonAction (action panel, trigger row)
+void assignTriggerSource(MappingModel& model, const std::string& trigger, ButtonAction action);
+ButtonAction triggerToTrigger(const std::string& targetTrigger);
+ButtonAction triggerToVirtual(const std::string& virtShort);
+
 // Inline macro, as the Mapeador's macro creator stores it: no name, the DSL right in the entry.
 ButtonAction inlineMacroAction(const std::string& execution);
 ButtonAction botAction(const std::string& botName);

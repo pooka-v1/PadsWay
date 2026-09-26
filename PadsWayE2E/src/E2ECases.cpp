@@ -58,6 +58,7 @@ bool isButtonOrDpadSource(const std::string& name) {
 }
 
 // Stick half-axes: their own path (axisActionEdits -> axis_actions), see E2EMapping::assignHalfAxis.
+// Triggers ("l2"/"r2") have a third one (trigActionEdits), see E2EMapping::assignTriggerSource.
 bool isHalfAxisSource(const std::string& name) {
     static const char* const kSources[] = { "left_x_pos", "left_x_neg", "left_y_pos", "left_y_neg",
                                             "right_x_pos", "right_x_neg", "right_y_pos", "right_y_neg" };
@@ -158,7 +159,8 @@ void parseTarget(const json& target, const json& row, AssignmentCase& c, const s
         c.action = E2EMapping::botAction(name);
         c.label  = c.source + " -> bot " + name;
     } else if (type == "mouse_move") {
-        if (!c.halfAxisSource) fail(where, "mouse_move needs a stick half-axis source (\"left_x_pos\"...)");
+        if (c.sourceKind != SourceKind::HalfAxis)
+            fail(where, "mouse_move needs a stick half-axis source (\"left_x_pos\"...)");
         const std::string axis = target.value("axis", std::string{});
         if (axis != "x" && axis != "y") fail(where, "mouse_move 'axis' must be \"x\" or \"y\"");
         const bool sourceIsPos = c.source.ends_with("_pos");
@@ -186,11 +188,12 @@ AssignmentCase parseAssignment(const json& row, std::string where) {
     c.source = row["source"].get<std::string>();
     where += " (" + c.source + ")";
     c.sourcePress = pressedOrFail(c.source, where);
-    c.halfAxisSource = isHalfAxisSource(c.source);
-    if (!c.halfAxisSource && !isButtonOrDpadSource(c.source))
-        fail(where, "only button, dpad and stick half-axis sources are supported so far (triggers: next)");
+    if      (isButtonOrDpadSource(c.source))    c.sourceKind = SourceKind::ButtonOrDpad;
+    else if (isHalfAxisSource(c.source))        c.sourceKind = SourceKind::HalfAxis;
+    else if (c.source == "l2" || c.source == "r2") c.sourceKind = SourceKind::Trigger;
+    else fail(where, "'" + c.source + "' can't be a source");
     parseTarget(row["target"], row, c, where);
-    if (c.kind == TargetKind::Virtual && c.virtualTarget == c.source)
+    if ((c.kind == TargetKind::Virtual || c.kind == TargetKind::Trigger) && c.virtualTarget == c.source)
         fail(where, "source and target are the same: the case would prove nothing");
     return c;
 }

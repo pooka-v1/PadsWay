@@ -127,6 +127,29 @@ void assignMouseMoveAxis(MappingModel& model, const std::string& axisKey, const 
     model.axisActionEdits[opposite] = ha;   // the engine gives each half its own sign (_pos > 0, _neg < 0)
 }
 
+void assignTriggerSource(MappingModel& model, const std::string& trigger, ButtonAction action) {
+    action.physical = trigger;
+    const bool toStickSlot = action.type == ButtonActionType::VirtualButton &&
+                             (action.name.ends_with("_pos") || action.name.ends_with("_neg"));
+    if (toStickSlot)
+        (trigger == "l2" ? model.trigLRangeEdits : model.trigRRangeEdits).clear();
+    model.trigActionEdits[trigger] = action;
+}
+
+ButtonAction triggerToTrigger(const std::string& targetTrigger) {
+    ButtonAction act;
+    act.type   = ButtonActionType::TriggerPassthrough;
+    act.target = targetTrigger;
+    return act;
+}
+
+ButtonAction triggerToVirtual(const std::string& virtShort) {
+    ButtonAction act;
+    act.type = ButtonActionType::VirtualButton;
+    act.name = virtShort;   // "b", "dpad_up" and "right_x_neg" alike
+    return act;
+}
+
 ButtonAction inlineMacroAction(const std::string& execution) {
     ButtonAction act;
     act.type      = ButtonActionType::Macro;
