@@ -44,9 +44,11 @@ static std::wstring pathLeaf(const std::wstring& path) {
 
 // True if a whitelist entry belongs to this app, regardless of which volume/folder
 // it points at. Used to purge stale entries left by previous installs / dev builds
-// before re-adding the current exe.
-static bool isOwnExe(const std::wstring& path) {
-    return _wcsicmp(pathLeaf(path).c_str(), L"PadsWay.exe") == 0;
+// before re-adding the current exe. "This app" is whatever exe is running the engine
+// (PadsWay.exe normally, PadsWayE2E.exe for the E2E harness): each host purges only
+// its own entries, so the harness never removes PadsWay's and vice versa.
+static bool isOwnExe(const std::wstring& path, const std::wstring& runningExeLeaf) {
+    return _wcsicmp(pathLeaf(path).c_str(), runningExeLeaf.c_str()) == 0;
 }
 
 #pragma comment(lib, "setupapi.lib")
@@ -163,8 +165,9 @@ void HidHideClient::addSelfToWhitelist() {
     std::vector<std::wstring> kept;
     bool alreadyCurrent = false;
     int  purged = 0;
+    const std::wstring runningExeLeaf = pathLeaf(path);
     for (const auto& s : list) {
-        if (isOwnExe(s)) {
+        if (isOwnExe(s, runningExeLeaf)) {
             if (_wcsicmp(s.c_str(), path.c_str()) == 0) alreadyCurrent = true;
             else ++purged;
             continue;   // drop every own entry; the current one is re-added below
