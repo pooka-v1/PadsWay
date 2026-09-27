@@ -63,6 +63,9 @@
     <ClCompile Include="tests\test_TouchZones.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="tests\test_RawHIDState.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="..\PadsWay\PadEngineActionDispatch.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>

@@ -3,21 +3,9 @@
 #include "../Log.h"
 #include "StickSlotsHelper.h"
 #include "TouchGestures.h"
-#include <hidsdi.h>
 #include <algorithm>
 #include <cmath>
 #include <vector>
-
-#define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_hid.preparsed()))
-
-// HID Generic Desktop axis usage IDs
-static constexpr USHORT kUsageX   = 0x30;
-static constexpr USHORT kUsageY   = 0x31;
-static constexpr USHORT kUsageZ   = 0x32;
-static constexpr USHORT kUsageRx  = 0x33;
-static constexpr USHORT kUsageRy  = 0x34;
-static constexpr USHORT kUsageRz  = 0x35;
-static constexpr USHORT kUsageHat = 0x39;
 
 // Movimiento (Gestos) — starting thresholds, unmeasured (see ARCHITECTURE.md "Harness de
 // umbrales de Gestos"), tuned by feel against real hardware rather than derived from harness
@@ -76,16 +64,25 @@ static void setButtonAssign(GamepadState& dest, const std::string& name, bool v)
 
 // ---------------------------------------------------------------------------
 
-HIDInputSource::AxisUsage HIDInputSource::usageFromAxisName(const std::string& name) {
-    if (name == "hid_x")     return { HID_USAGE_PAGE_GENERIC,    kUsageX  };
-    if (name == "hid_y")     return { HID_USAGE_PAGE_GENERIC,    kUsageY  };
-    if (name == "hid_z")     return { HID_USAGE_PAGE_GENERIC,    kUsageZ  };
-    if (name == "hid_rx")    return { HID_USAGE_PAGE_GENERIC,    kUsageRx };
-    if (name == "hid_ry")    return { HID_USAGE_PAGE_GENERIC,    kUsageRy };
-    if (name == "hid_rz")    return { HID_USAGE_PAGE_GENERIC,    kUsageRz };
-    if (name == "hid_brake") return { HID_USAGE_PAGE_SIMULATION, 0xC4     }; // Brake
-    if (name == "hid_accel") return { HID_USAGE_PAGE_SIMULATION, 0xC5     }; // Accelerator
-    return { 0, 0 };
+// Config axis source names ("axes" keys in controllers.json) → RawHIDState slot.
+static bool rawAxisFromName(const std::string& name, RawAxis& out) {
+    if      (name == "hid_x")     out = RawAxis::X;
+    else if (name == "hid_y")     out = RawAxis::Y;
+    else if (name == "hid_z")     out = RawAxis::Z;
+    else if (name == "hid_rx")    out = RawAxis::Rx;
+    else if (name == "hid_ry")    out = RawAxis::Ry;
+    else if (name == "hid_rz")    out = RawAxis::Rz;
+    else if (name == "hid_brake") out = RawAxis::Brake;
+    else if (name == "hid_accel") out = RawAxis::Accel;
+    else return false;
+    return true;
+}
+
+bool HIDInputSource::readAxisSource(const std::string& source, float& v) const {
+    RawAxis slot;
+    if (!rawAxisFromName(source, slot) || !m_lastRawSnapshot.hasAxis(slot)) return false;
+    v = m_lastRawSnapshot.axis(slot);
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,24 +115,21 @@ bool HIDInputSource::read(GamepadState& state) {
         return true;
     }
 
-    PCHAR buf      = reinterpret_cast<PCHAR>(const_cast<BYTE*>(m_hid.reportBuf().data()));
-    ULONG bufLen   = m_hid.reportLen();
-    ULONG bytesRead = m_hid.lastBytesRead();
-
     // Generic decode (buttons/axes/hat/raw bytes), independent of m_config — see getLastRawSnapshot().
+    // The single place that reads the device's bytes: everything below maps from this snapshot.
     decodeRawHIDReport(m_hid, m_lastRawSnapshot);
+    const std::vector<uint8_t>& report = m_lastRawSnapshot.raw;
 
     // Diagnostic: log raw bytes every ~250ms (30 reads * 8ms) — full report, no offset cap
     if (++m_readCount % 30 == 0) {
-        ULONG dumpLen = bufLen;
-        std::string raw;
-        raw.reserve(dumpLen * 3);
-        for (ULONG i = 0; i < dumpLen; ++i) {
+        std::string dump;
+        dump.reserve(report.size() * 3);
+        for (uint8_t b : report) {
             char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02X ", (unsigned char)buf[i]);
-            raw += tmp;
+            snprintf(tmp, sizeof(tmp), "%02X ", b);
+            dump += tmp;
         }
-        spdlog::trace("[HID][raw] {}", raw);
+        spdlog::trace("[HID][raw] {}", dump);
     }
 
     bool hasAxisDpad = false;
@@ -145,19 +139,19 @@ bool HIDInputSource::read(GamepadState& state) {
     if (m_hasPhysicalController) {
         // ── Component-system path ─────────────────────────────────────────────
         m_physicalState = {};
-        buildPhysicalButtons(buf, bufLen);
-        buildPhysicalAxes(buf, bufLen);
+        buildPhysicalButtons();
+        buildPhysicalAxes();
         // Gyro/accel must land in m_physicalState (the "physical" input to process() below),
         // not just in the output `state` — otherwise PhysicalGyro/PhysicalAccel always see
         // gyroActive/accelActive false and every gyro_actions/accel_actions mapping is a no-op,
         // even though the widget still shows live motion (it reads the applyIMU(state) call
         // further down, which stays as-is for the legacy path and as an output passthrough here).
-        applyIMU(buf, bytesRead, m_physicalState);
+        applyIMU(report, m_physicalState);
 
         // Hat switch → physical state; process() handles virtual output via PhysicalDpadDir.
         if (!hasAxisDpad && m_config.dpad == "hid_hat") {
             bool hatUp, hatDown, hatLeft, hatRight;
-            applyHatSwitch(buf, bufLen, hatUp, hatDown, hatLeft, hatRight);
+            applyHatSwitch(hatUp, hatDown, hatLeft, hatRight);
         }
 
         state = {};
@@ -168,21 +162,21 @@ bool HIDInputSource::read(GamepadState& state) {
         // the Component System) left m_physicalState.touch1Active permanently false — wiped by the
         // `m_physicalState = {}` at the top of this branch and never refreshed in time — so Analog
         // mode's condition on physical.touch1Active could never fire.
-        applyTouchpad(buf, bytesRead, state);
+        applyTouchpad(report, state);
         m_physicalController.process(m_physicalState, state);
-        applyAxesResidual(buf, bufLen, state);
+        applyAxesResidual(state);
 
         spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
                m_name, state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
     } else {
         // ── Legacy path (no PhysicalController loaded) ────────────────────────
-        applyButtons(buf, bufLen, state);
-        applyAxes   (buf, bufLen, state);
+        applyButtons(state);
+        applyAxes   (state);
 
         if (!hasAxisDpad && m_config.dpad == "hid_hat") {
             bool hatUp, hatDown, hatLeft, hatRight;
-            applyHatSwitch(buf, bufLen, hatUp, hatDown, hatLeft, hatRight);
+            applyHatSwitch(hatUp, hatDown, hatLeft, hatRight);
             state.dpadUp    |= hatUp;
             state.dpadDown  |= hatDown;
             state.dpadLeft  |= hatLeft;
@@ -238,14 +232,14 @@ bool HIDInputSource::read(GamepadState& state) {
         }
 
         applyStickSlots(m_config, m_physicalState, state);
-        applyTouchpad(buf, bytesRead, state);
+        applyTouchpad(report, state);
 
         spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X}",
                m_name, state.leftX, state.leftY, state.rightX, state.rightY,
                state.triggerL, state.triggerR, m_lastButtonMask);
     }
 
-    applyIMU     (buf, bytesRead, state);
+    applyIMU     (report, state);
     applyImuActions();
 
     return true;
@@ -253,35 +247,13 @@ bool HIDInputSource::read(GamepadState& state) {
 
 // ---------------------------------------------------------------------------
 
-void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) {
-    USAGE usages[128];
-    ULONG usageCount = 128;
-
-    NTSTATUS btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
-                                        usages, &usageCount, PREPARSED, buf, bufLen);
-
-    // If the device sends a different Report ID than the one in the descriptor,
-    // temporarily swap it so HidP can parse the same data layout.
-    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
-        char savedId = buf[0];
-        buf[0] = static_cast<char>(m_hid.buttonReportId());
-        usageCount = 128;
-        btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
-                                   usages, &usageCount, PREPARSED, buf, bufLen);
-        buf[0] = savedId;
-    }
-
-    if (btnStatus != HIDP_STATUS_SUCCESS) {
+void HIDInputSource::applyButtons(GamepadState& state) {
+    if (!m_lastRawSnapshot.buttonsValid) {
         if (++m_btnErrCount <= 3)
-            spdlog::warn("[HID] HidP_GetUsages failed: 0x{:08X} (count={})",
-                         static_cast<unsigned>(btnStatus), usageCount);
+            spdlog::warn("[HID] No button usages decoded from this report");
         return;
     }
-
-    m_lastButtonMask = 0;
-    for (ULONG i = 0; i < usageCount; ++i)
-        if (usages[i] >= 1 && usages[i] <= 32)
-            m_lastButtonMask |= (1u << (usages[i] - 1));
+    m_lastButtonMask = m_lastRawSnapshot.buttonMask;
 
     // Physical display state: build separately using action.physical names.
     // Must run BEFORE virtual loop so display and ViGEm output stay independent.
@@ -301,7 +273,7 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
     m_physicalState = physDisplay;
     // Restore axis values overwritten by the button-only physDisplay assignment.
     // applyAxes() already wrote stickId axes to m_physicalState, but physDisplay zeroed them.
-    buildPhysicalAxes(buf, bufLen);
+    buildPhysicalAxes();
 
     // Reset virtual button states before remapping so OR logic works correctly
     // regardless of unordered_map iteration order.
@@ -353,21 +325,10 @@ void HIDInputSource::applyButtons(PCHAR buf, ULONG bufLen, GamepadState& state) 
     }
 }
 
-void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
+void HIDInputSource::applyAxes(GamepadState& state) {
     for (const auto& [source, mapping] : m_config.axes) {
-        AxisUsage au = usageFromAxisName(source);
-        if (au.usage == 0) continue;
-
-        // Use the page from the device descriptor when available — handles devices
-        // that put axes on a non-standard page (e.g. triggers on page 0x01 instead of 0x02).
-        auto pit = m_hid.usagePage().find(au.usage);
-        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
-
-        ULONG rawValue = 0;
-        if (!m_hid.getUsageValue(page, au.usage, &rawValue, buf, bufLen))
-            continue;
-
-        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        float v = 0.0f;
+        if (!readAxisSource(source, v)) continue;
         if (mapping.invert) v = -v;
 
         // Physical display: write to stickId position (physical axis), not target (virtual axis).
@@ -421,15 +382,8 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
     for (const auto& [source, mapping] : m_config.axes) {
         if (m_config.axis_actions.empty()) break;  // fast path: nothing to do
 
-        AxisUsage au = usageFromAxisName(source);
-        if (au.usage == 0) continue;
-        auto pit = m_hid.usagePage().find(au.usage);
-        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
-        ULONG rawValue = 0;
-        if (HidP_GetUsageValue(HidP_Input, page, 0, au.usage, &rawValue, PREPARSED, buf, bufLen)
-            != HIDP_STATUS_SUCCESS) continue;
-
-        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        float v = 0.0f;
+        if (!readAxisSource(source, v)) continue;
         if (mapping.invert) v = -v;
 
         auto processHalf = [&](const std::string& key, float halfV) {
@@ -525,31 +479,13 @@ void HIDInputSource::applyAxes(PCHAR buf, ULONG bufLen, GamepadState& state) {
 // Component-system path
 // ---------------------------------------------------------------------------
 
-void HIDInputSource::buildPhysicalButtons(PCHAR buf, ULONG bufLen) {
-    USAGE usages[128];
-    ULONG usageCount = 128;
-
-    NTSTATUS btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
-                                        usages, &usageCount, PREPARSED, buf, bufLen);
-    if (btnStatus == HIDP_STATUS_INCOMPATIBLE_REPORT_ID && m_hid.buttonReportId() != 0xFF) {
-        char savedId = buf[0];
-        buf[0] = static_cast<char>(m_hid.buttonReportId());
-        usageCount = 128;
-        btnStatus = HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0,
-                                   usages, &usageCount, PREPARSED, buf, bufLen);
-        buf[0] = savedId;
-    }
-    if (btnStatus != HIDP_STATUS_SUCCESS) {
+void HIDInputSource::buildPhysicalButtons() {
+    if (!m_lastRawSnapshot.buttonsValid) {
         if (++m_btnErrCount <= 3)
-            spdlog::warn("[HID] HidP_GetUsages failed: 0x{:08X} (count={})",
-                         static_cast<unsigned>(btnStatus), usageCount);
+            spdlog::warn("[HID] No button usages decoded from this report");
         return;
     }
-
-    m_lastButtonMask = 0;
-    for (ULONG i = 0; i < usageCount; ++i)
-        if (usages[i] >= 1 && usages[i] <= 32)
-            m_lastButtonMask |= (1u << (usages[i] - 1));
+    m_lastButtonMask = m_lastRawSnapshot.buttonMask;
 
     for (const auto& [bit, action] : m_config.buttons) {
         if (action.physical.empty()) continue;
@@ -562,19 +498,10 @@ void HIDInputSource::buildPhysicalButtons(PCHAR buf, ULONG bufLen) {
     }
 }
 
-void HIDInputSource::buildPhysicalAxes(PCHAR buf, ULONG bufLen) {
+void HIDInputSource::buildPhysicalAxes() {
     for (const auto& [source, mapping] : m_config.axes) {
-        AxisUsage au = usageFromAxisName(source);
-        if (au.usage == 0) continue;
-
-        auto pit = m_hid.usagePage().find(au.usage);
-        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
-
-        ULONG rawValue = 0;
-        if (!m_hid.getUsageValue(page, au.usage, &rawValue, buf, bufLen))
-            continue;
-
-        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        float v = 0.0f;
+        if (!readAxisSource(source, v)) continue;
         if (mapping.invert) v = -v;
 
         // Physical position (stickId): write signed value so process() can decompose pos/neg halves.
@@ -598,21 +525,12 @@ void HIDInputSource::buildPhysicalAxes(PCHAR buf, ULONG bufLen) {
     }
 }
 
-void HIDInputSource::applyAxesResidual(PCHAR buf, ULONG bufLen, GamepadState& state) {
+void HIDInputSource::applyAxesResidual(GamepadState& state) {
     m_activeAxisActions.clear();
     m_activeAxisRangeActions.clear();
     for (const auto& [source, mapping] : m_config.axes) {
-        AxisUsage au = usageFromAxisName(source);
-        if (au.usage == 0) continue;
-
-        auto pit = m_hid.usagePage().find(au.usage);
-        USHORT page = (pit != m_hid.usagePage().end()) ? pit->second : au.page;
-
-        ULONG rawValue = 0;
-        if (!m_hid.getUsageValue(page, au.usage, &rawValue, buf, bufLen))
-            continue;
-
-        float v = m_hid.normalizeAxis(au.usage, rawValue);
+        float v = 0.0f;
+        if (!readAxisSource(source, v)) continue;
         if (mapping.invert) v = -v;
 
         // Targets not handled by PhysicalController::process() — write directly to state.
@@ -749,7 +667,9 @@ std::string HIDInputSource::classifyTouchRelease(int finger, float x0, float y0,
 
 // ---------------------------------------------------------------------------
 
-void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state) {
+void HIDInputSource::applyTouchpad(const std::vector<uint8_t>& report, GamepadState& state) {
+    const uint8_t* buf       = report.data();
+    const ULONG    bytesRead = static_cast<ULONG>(report.size());
     state.touchDeltaX = 0.0f;
     state.touchDeltaY = 0.0f;
     m_physicalState.touchDeltaX = 0.0f;
@@ -1001,7 +921,9 @@ void HIDInputSource::applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& sta
     }
 }
 
-void HIDInputSource::applyIMU(PCHAR buf, ULONG bytesRead, GamepadState& state) {
+void HIDInputSource::applyIMU(const std::vector<uint8_t>& report, GamepadState& state) {
+    const uint8_t* buf       = report.data();
+    const ULONG    bytesRead = static_cast<ULONG>(report.size());
     state.gyroActive  = false;
     state.accelActive = false;
 
@@ -1141,30 +1063,14 @@ void HIDInputSource::parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& le
     }
 }
 
-void HIDInputSource::applyHatSwitch(PCHAR buf, ULONG bufLen, bool& up, bool& down, bool& left, bool& right) {
-    up = down = left = right = false;
-
-    ULONG hatValue = 0xFFFFFFFF;
-    m_hid.getUsageValue(HID_USAGE_PAGE_GENERIC, kUsageHat, &hatValue, buf, bufLen);
-
-    auto hatCapIt = m_hid.valueCaps().find(kUsageHat);
-    DWORD normHat = 0xFFFFFFFF;
-    if (hatCapIt != m_hid.valueCaps().end()) {
-        ULONG hatMin = static_cast<ULONG>(hatCapIt->second.logMin);
-        ULONG hatMax = static_cast<ULONG>(hatCapIt->second.logMax);
-        if (hatValue >= hatMin && hatValue <= hatMax) {
-            normHat = hatValue - hatMin;
-            parseHIDDpad(normHat, up, down, left, right);
-        }
-    } else {
-        normHat = hatValue;
-        parseHIDDpad(hatValue, up, down, left, right);
-    }
+void HIDInputSource::applyHatSwitch(bool& up, bool& down, bool& left, bool& right) {
+    // Snapshot hat is already relative to the descriptor's logical min, or 0xFFFFFFFF when
+    // neutral / out of range — parseHIDDpad() leaves every direction false for the latter.
+    const DWORD normHat = m_lastRawSnapshot.hat;
+    parseHIDDpad(normHat, up, down, left, right);
     m_lastRawHat.store(normHat);
     m_physicalState.dpadUp    = up;
     m_physicalState.dpadDown  = down;
     m_physicalState.dpadLeft  = left;
     m_physicalState.dpadRight = right;
 }
-
-#undef PREPARSED

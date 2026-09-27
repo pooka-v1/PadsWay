@@ -4,7 +4,11 @@
 #include <vector>
 #include <cstdint>
 
-// Raw HID report snapshot — no ControllerConfig, no GamepadState.
+// Axis slots of RawHIDState, in field order. Bit N of RawHIDState::axisMask = slot N present.
+enum class RawAxis : uint8_t { X, Y, Z, Rx, Ry, Rz, Brake, Accel };
+
+// Raw HID report snapshot — no ControllerConfig, no GamepadState. The canonical input every
+// consumer reads from (mapping included): nothing downstream reads the vendor's bytes directly.
 // buttonMask: bit N set = HID button usage N+1 is pressed (up to 32 buttons).
 // Axes normalised to [-1, 1] using logical min/max from the HID descriptor.
 // hat: raw hat value (relative to logMin); 0xFFFFFFFF = neutral / out of range.
@@ -20,6 +24,27 @@ struct RawHIDState {
     float  axisAccel = 0.0f;   // HID usage 0xC5 (Simulation page) — e.g. Pro 3 R2
     ULONG  hat    = 0xFFFFFFFF;
     bool   valid  = false;
+
+    // What the LAST decoded report actually carried. A field this report didn't carry (usage not
+    // in the descriptor, or not in this report ID) keeps its previous value with its flag clear,
+    // so the mapping can skip it instead of acting on a stale or zero value.
+    bool     buttonsValid = false;   // buttonMask was decoded from this report
+    uint16_t axisMask     = 0;       // bit per RawAxis
+
+    bool  hasAxis(RawAxis a) const { return (axisMask >> static_cast<int>(a)) & 1u; }
+    float axis(RawAxis a) const {
+        switch (a) {
+        case RawAxis::X:     return axisX;
+        case RawAxis::Y:     return axisY;
+        case RawAxis::Z:     return axisZ;
+        case RawAxis::Rx:    return axisRx;
+        case RawAxis::Ry:    return axisRy;
+        case RawAxis::Rz:    return axisRz;
+        case RawAxis::Brake: return axisBrake;
+        case RawAxis::Accel: return axisAccel;
+        }
+        return 0.0f;
+    }
 
     // Full raw input report bytes for this frame (size = bytes actually read).
     // Used by the IMU calibration wizard to scan for undeclared sensor data beyond

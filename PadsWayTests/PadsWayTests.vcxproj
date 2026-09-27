@@ -158,6 +158,7 @@
     <ClCompile Include="tests\test_StickSlotsHelper.cpp" />
     <ClCompile Include="tests\test_TouchGestures.cpp" />
     <ClCompile Include="tests\test_TouchZones.cpp" />
+    <ClCompile Include="tests\test_RawHIDState.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />
