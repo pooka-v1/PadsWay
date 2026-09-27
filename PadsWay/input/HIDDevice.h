@@ -1,4 +1,5 @@
 #pragma once
+#include "HidChannel.h"
 #include <windows.h>
 #include <vector>
 #include <unordered_map>
@@ -8,30 +9,31 @@
 // Owns the Win32 handle, overlapped event, preparsed data, report buffer, and value caps.
 // On disconnect (ReadFile error), closes all handles cleanly and marks itself disconnected.
 // Both HIDInputSource and the Scanner can hold their own independent instance.
-class HIDDevice {
+// final: calls through a HIDDevice (not a HidChannel&) can skip the virtual dispatch.
+class HIDDevice final : public HidChannel {
 public:
     struct ValueRange { LONG logMin; LONG logMax; USHORT bitSize; };
 
-    enum class ReadResult { Ok, Timeout, Disconnected };
+    // ReadOnly is the default: holding write access makes later opens by other apps that don't
+    // share write (FILE_SHARE_READ only) fail, so only protocols that must write ask for it.
+    enum class Access { ReadOnly, ReadWrite };
 
-    // Opens the device at the given path. name is used only for log messages.
-    HIDDevice(const std::string& path, const std::string& name = "");
-    ~HIDDevice();
+    // Opens the device at the given path. name is used only for log messages. ReadWrite falls
+    // back to read-only if the OS refuses write access — canWrite() tells which one it got.
+    HIDDevice(const std::string& path, const std::string& name = "", Access access = Access::ReadOnly);
+    ~HIDDevice() override;
 
     HIDDevice(const HIDDevice&)            = delete;
     HIDDevice& operator=(const HIDDevice&) = delete;
 
     bool isConnected() const { return m_connected; }
 
-    // Blocking read with timeout. Returns:
-    //   Ok          — new report is in reportBuf()
-    //   Timeout     — no new data within timeoutMs; last reportBuf() unchanged
-    //   Disconnected — device gone; handles are already closed
-    ReadResult read(int timeoutMs = 20);
+    // See HidChannel::read. On Disconnected the handles are already closed.
+    ReadResult read(int timeoutMs = 20) override;
 
-    const std::vector<BYTE>&                      reportBuf()       const { return m_reportBuf; }
+    const std::vector<BYTE>&                      reportBuf()       const override { return m_reportBuf; }
     ULONG                                         reportLen()       const { return m_inputReportLen; }
-    ULONG                                         lastBytesRead()   const { return m_lastBytesRead; }
+    ULONG                                         lastBytesRead()   const override { return m_lastBytesRead; }
     void*                                         preparsed()       const { return m_preparsed; }
     BYTE                                          buttonReportId()  const { return m_buttonReportId; }
     const std::unordered_map<USHORT, ValueRange>& valueCaps()       const { return m_valueCaps; }
@@ -46,15 +48,25 @@ public:
     // is restored before returning either way. Returns false if neither attempt produced a value.
     bool getUsageValue(USHORT page, USHORT usage, PULONG value, PCHAR buf, ULONG bufLen) const;
 
+    // HidChannel — raw writes for controller protocols (see HidChannel.h).
+    USHORT vendorId() const override { return m_vendorId; }
+    bool   canWrite() const override { return m_canWrite; }
+    bool   sendOutputReport(const BYTE* data, ULONG len) override;
+    bool   setFeature(const BYTE* data, ULONG len) override;
+    bool   getFeature(BYTE reportId, std::vector<BYTE>& out) override;
+
 private:
-    HANDLE            m_device         = INVALID_HANDLE_VALUE;
-    HANDLE            m_event          = nullptr;
-    void*             m_preparsed      = nullptr;
-    ULONG             m_inputReportLen = 0;
+    HANDLE            m_device           = INVALID_HANDLE_VALUE;
+    HANDLE            m_event            = nullptr;
+    void*             m_preparsed        = nullptr;
+    ULONG             m_inputReportLen   = 0;
+    ULONG             m_featureReportLen = 0;
     std::vector<BYTE> m_reportBuf;
-    bool              m_connected      = false;
-    BYTE              m_buttonReportId = 0xFF;
-    ULONG             m_lastBytesRead  = 0;
+    bool              m_connected        = false;
+    bool              m_canWrite         = false;
+    USHORT            m_vendorId         = 0;
+    BYTE              m_buttonReportId   = 0xFF;
+    ULONG             m_lastBytesRead    = 0;
 
     std::unordered_map<USHORT, ValueRange> m_valueCaps;
     std::unordered_map<USHORT, USHORT>     m_usagePage;

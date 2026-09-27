@@ -9,11 +9,20 @@
 
 // ---------------------------------------------------------------------------
 
-HIDDevice::HIDDevice(const std::string& path, const std::string& name)
+HIDDevice::HIDDevice(const std::string& path, const std::string& name, Access access)
 {
-    m_device = CreateFileA(path.c_str(),
-        GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-        nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE;
+    if (access == Access::ReadWrite) {
+        m_device = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, share,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        m_canWrite = (m_device != INVALID_HANDLE_VALUE);
+        if (!m_canWrite)
+            spdlog::warn("[HIDDevice] Write access refused for '{}' (error {}) — falling back to read-only",
+                         name, GetLastError());
+    }
+    if (m_device == INVALID_HANDLE_VALUE)
+        m_device = CreateFileA(path.c_str(), GENERIC_READ, share,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
 
     if (m_device == INVALID_HANDLE_VALUE) {
         spdlog::error("[HIDDevice] Failed to open '{}' (error {})", name, GetLastError());
@@ -41,8 +50,14 @@ HIDDevice::HIDDevice(const std::string& path, const std::string& name)
         return;
     }
 
-    m_inputReportLen = caps.InputReportByteLength;
+    m_inputReportLen   = caps.InputReportByteLength;
+    m_featureReportLen = caps.FeatureReportByteLength;
     m_reportBuf.resize(m_inputReportLen, 0);
+
+    HIDD_ATTRIBUTES attr = {};
+    attr.Size = sizeof(attr);
+    if (HidD_GetAttributes(m_device, &attr))
+        m_vendorId = attr.VendorID;
 
     // Build value caps map (usage → logical range + page).
     // Handles range caps (e.g. 8BitDo Pro 3 D-mode) and page collisions
@@ -97,8 +112,8 @@ HIDDevice::HIDDevice(const std::string& path, const std::string& name)
         spdlog::warn("[HIDDevice] SetNumInputBuffers(2) failed (error {}) — using OS default queue",
                      GetLastError());
 
-    spdlog::info("[HIDDevice] Opened: {}  ReportLen={}  ValueCaps={}  BtnCaps={}",
-        name.empty() ? path : name, m_inputReportLen, numCaps, numBtnCaps);
+    spdlog::info("[HIDDevice] Opened: {}  ReportLen={}  ValueCaps={}  BtnCaps={}  Write={}",
+        name.empty() ? path : name, m_inputReportLen, numCaps, numBtnCaps, m_canWrite);
 
     m_connected = true;
 }
@@ -125,6 +140,7 @@ void HIDDevice::closeHandles()
         m_device = INVALID_HANDLE_VALUE;
     }
     m_connected = false;
+    m_canWrite  = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,4 +214,39 @@ bool HIDDevice::getUsageValue(USHORT page, USHORT usage, PULONG value, PCHAR buf
         buf[0] = savedId;
     }
     return status == HIDP_STATUS_SUCCESS;
+}
+
+// ---------------------------------------------------------------------------
+// HidChannel writes. HidD_* are synchronous IOCTLs and work on the overlapped handle as-is,
+// without touching m_event (which belongs to read()).
+
+bool HIDDevice::sendOutputReport(const BYTE* data, ULONG len)
+{
+    if (!m_connected || !m_canWrite || !data || len == 0) return false;
+    // Control pipe, report sent at its own length: validated on DS4 / DualSense BT (78-byte
+    // 0x11/0x31 against a 547-byte OutputReportByteLength). A pad that only accepts interrupt-pipe
+    // writes (WriteFile, padded to OutputReportByteLength) would need a second path here.
+    if (HidD_SetOutputReport(m_device, const_cast<BYTE*>(data), len)) return true;
+    spdlog::warn("[HIDDevice] SetOutputReport 0x{:02X} failed (error {})", data[0], GetLastError());
+    return false;
+}
+
+bool HIDDevice::setFeature(const BYTE* data, ULONG len)
+{
+    if (!m_connected || !m_canWrite || !data || len == 0) return false;
+    if (HidD_SetFeature(m_device, const_cast<BYTE*>(data), len)) return true;
+    spdlog::warn("[HIDDevice] SetFeature 0x{:02X} failed (error {})", data[0], GetLastError());
+    return false;
+}
+
+bool HIDDevice::getFeature(BYTE reportId, std::vector<BYTE>& out)
+{
+    // Not gated on m_canWrite: reading a feature report doesn't need write access — but note that
+    // on Sony pads this very read is what switches them to full mode.
+    if (!m_connected || m_featureReportLen == 0) return false;
+    out.assign(m_featureReportLen, 0);
+    out[0] = reportId;
+    if (HidD_GetFeature(m_device, out.data(), m_featureReportLen)) return true;
+    spdlog::warn("[HIDDevice] GetFeature 0x{:02X} failed (error {})", reportId, GetLastError());
+    return false;
 }

@@ -191,6 +191,7 @@
     <ClInclude Include="input\IInputSource.h" />
     <ClInclude Include="input\HIDScanner.h" />
     <ClInclude Include="input\HIDDevice.h" />
+    <ClInclude Include="input\HidChannel.h" />
     <ClInclude Include="input\HIDInputSource.h" />
     <ClInclude Include="bots\bot_api.h" />
     <ClInclude Include="bots\BotLoader.h" />

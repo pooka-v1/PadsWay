@@ -220,6 +220,9 @@
     <ClInclude Include="input\HIDDevice.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
+    <ClInclude Include="input\HidChannel.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
     <ClInclude Include="ui\MacroManagerPanel.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
