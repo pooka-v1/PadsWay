@@ -3,6 +3,7 @@
 #include "../Log.h"
 #include "StickSlotsHelper.h"
 #include "TouchGestures.h"
+#include "ControllerProtocolRegistry.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -88,8 +89,16 @@ bool HIDInputSource::readAxisSource(const std::string& source, float& v) const {
 // ---------------------------------------------------------------------------
 
 HIDInputSource::HIDInputSource(const std::string& devicePath, const ControllerConfig& config)
-    : m_hid(devicePath, config.source_name), m_config(config), m_name(config.source_name)
+    : m_hid(devicePath, config.source_name), m_config(config),
+      m_protocol(createControllerProtocol(config.protocol, m_hid)), m_name(config.source_name)
 {
+}
+
+void HIDInputSource::setConfig(const ControllerConfig& cfg) {
+    // A reloaded config may name another protocol — rebuild it then, keep it otherwise.
+    if (cfg.protocol != m_config.protocol)
+        m_protocol = createControllerProtocol(cfg.protocol, m_hid);
+    m_config = cfg;
 }
 
 HIDInputSource::~HIDInputSource() {
@@ -115,9 +124,14 @@ bool HIDInputSource::read(GamepadState& state) {
         return true;
     }
 
-    // Generic decode (buttons/axes/hat/raw bytes), independent of m_config — see getLastRawSnapshot().
-    // The single place that reads the device's bytes: everything below maps from this snapshot.
-    decodeRawHIDReport(m_hid, m_lastRawSnapshot);
+    // Protocol decode (buttons/axes/hat/raw bytes) into the canonical snapshot, independent of the
+    // mapping — see getLastRawSnapshot(). The single place that reads the device's bytes:
+    // everything below maps from this snapshot.
+    if (!m_protocol->decode(m_hid.reportBuf().data(), m_hid.lastBytesRead(), m_lastRawSnapshot)) {
+        state.touchDeltaX = 0.0f;   // a report the protocol doesn't understand = no new report
+        state.touchDeltaY = 0.0f;
+        return true;
+    }
     const std::vector<uint8_t>& report = m_lastRawSnapshot.raw;
 
     // Diagnostic: log raw bytes every ~250ms (30 reads * 8ms) — full report, no offset cap

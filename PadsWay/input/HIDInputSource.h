@@ -4,6 +4,8 @@
 #include "ControllerConfig.h"
 #include "ComponentTypes.h"
 #include "RawHIDReader.h"
+#include "ControllerProtocol.h"
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <atomic>
@@ -24,7 +26,7 @@ public:
     const char* getName()             const override { return m_name.c_str(); }
     DWORD       getLastButtonMask()   const override { return m_lastButtonMask; }
     DWORD       getLastRawHat()       const override { return m_lastRawHat.load(); }
-    void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
+    void        setConfig(const ControllerConfig& cfg) override;
     GamepadState getPhysicalState()   const override { return m_physicalState; }
     // Generic HID decode (buttons/axes/hat/raw bytes), independent of controllers.json mapping.
     // Populated every read() alongside the mapped GamepadState above. Used by DeviceHub to serve
@@ -44,6 +46,9 @@ public:
 private:
     HIDDevice        m_hid;
     ControllerConfig m_config;
+    // Built from m_config.protocol; turns each report into m_lastRawSnapshot. Declared after m_hid
+    // on purpose: members are constructed in declaration order and it holds a reference to m_hid.
+    std::unique_ptr<ControllerProtocol> m_protocol;
     std::string      m_name;
     DWORD            m_lastButtonMask = 0;
     std::atomic<DWORD> m_lastRawHat  { 0xFFFFFFFF };

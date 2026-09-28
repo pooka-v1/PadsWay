@@ -32,6 +32,9 @@
     <ClCompile Include="input\HIDInputSource.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="input\ControllerProtocolRegistry.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="bots\BotLoader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -221,6 +224,15 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="input\HidChannel.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="input\ControllerProtocol.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="input\GenericHidProtocol.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="input\ControllerProtocolRegistry.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ui\MacroManagerPanel.h">
