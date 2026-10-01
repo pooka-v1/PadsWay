@@ -56,8 +56,10 @@ HIDDevice::HIDDevice(const std::string& path, const std::string& name, Access ac
 
     HIDD_ATTRIBUTES attr = {};
     attr.Size = sizeof(attr);
-    if (HidD_GetAttributes(m_device, &attr))
-        m_vendorId = attr.VendorID;
+    if (HidD_GetAttributes(m_device, &attr)) {
+        m_vendorId  = attr.VendorID;
+        m_productId = attr.ProductID;
+    }
 
     // Build value caps map (usage → logical range + page).
     // Handles range caps (e.g. 8BitDo Pro 3 D-mode) and page collisions

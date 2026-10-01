@@ -50,6 +50,8 @@ public:
 
     // HidChannel — raw writes for controller protocols (see HidChannel.h).
     USHORT vendorId() const override { return m_vendorId; }
+    // Read from the device too — with vendorId(), picks the controller protocol (registry).
+    USHORT productId() const { return m_productId; }
     bool   canWrite() const override { return m_canWrite; }
     bool   sendOutputReport(const BYTE* data, ULONG len) override;
     bool   setFeature(const BYTE* data, ULONG len) override;
@@ -65,6 +67,7 @@ private:
     bool              m_connected        = false;
     bool              m_canWrite         = false;
     USHORT            m_vendorId         = 0;
+    USHORT            m_productId        = 0;
     BYTE              m_buttonReportId   = 0xFF;
     ULONG             m_lastBytesRead    = 0;
 

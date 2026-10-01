@@ -842,7 +842,6 @@
           "virtual": "select"
         }
       },
-      "connection": "usb",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,

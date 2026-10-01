@@ -217,7 +217,7 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         cfg.layout_id    = c.value("layout_id", "");
         cfg.connection    = c.value("connection",    "");
         cfg.product_name  = c.value("product_name", "");
-        cfg.protocol      = c.value("protocol",     "generic_hid");
+        cfg.protocol      = c.value("protocol",     "");
         if (c.contains("context_bots") && c["context_bots"].is_array())
             for (const auto& b : c["context_bots"])
                 cfg.context_bots.push_back(b.get<std::string>());

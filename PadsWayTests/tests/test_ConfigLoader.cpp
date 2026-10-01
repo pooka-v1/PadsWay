@@ -52,9 +52,9 @@ TEST_CASE("loadControllerConfigs parses one controller", "[ConfigLoader]") {
     REQUIRE(cfg.buttons.at(1).name == "A");
 }
 
-TEST_CASE("loadControllerConfigs: protocol defaults to generic_hid and reads an explicit one",
+TEST_CASE("loadControllerConfigs: protocol defaults to empty (by hardware) and reads an explicit one",
           "[ConfigLoader]") {
-    // Every existing entry has no "protocol" field — it must keep meaning "generic HID, read-only".
+    // Every existing entry has no "protocol" field — it must mean "pick by VID/PID", not force one.
     const std::string path = "test_tmp_controllers_protocol.json";
     { std::ofstream f(path);
       f << R"({
@@ -67,9 +67,9 @@ TEST_CASE("loadControllerConfigs: protocol defaults to generic_hid and reads an 
     auto result = loadControllerConfigs(path);
     std::remove(path.c_str());
     REQUIRE(result.size() == 2);
-    CHECK(result[0].protocol == "generic_hid");
+    CHECK(result[0].protocol.empty());
     CHECK(result[1].protocol == "some_family");
-    CHECK(ControllerConfig{}.protocol == "generic_hid");   // DeviceHub::watch() builds one of these
+    CHECK(ControllerConfig{}.protocol.empty());   // DeviceHub::watch() builds one of these
 }
 
 TEST_CASE("findConfig returns nullptr for empty configs", "[ConfigLoader]") {

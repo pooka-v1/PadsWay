@@ -1,4 +1,5 @@
 #include "HIDScanner.h"
+#include "ControllerProtocol.h"   // hidTransportFromPath
 #include "../Log.h"
 #include <setupapi.h>
 #include <hidsdi.h>
@@ -81,12 +82,7 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         }
 
         // Detect BT now so we can choose the right name source below.
-        std::string pathUpper = path;
-        for (auto& ch : pathUpper) ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
-        bool isBt = (pathUpper.find("BTHENUM")               != std::string::npos ||
-                     pathUpper.find("BLUETOOTHHIDDEVICE")    != std::string::npos ||
-                     pathUpper.find("BTH_HID")               != std::string::npos ||
-                     pathUpper.find("00001124-0000-1000-8000-00805F9B34FB") != std::string::npos);
+        bool isBt = (hidTransportFromPath(path) == HidTransport::Bluetooth);
 
         // For BT devices the HID interface node has a generic class-driver name.
         // The real manufacturer name is in the BTHENUM parent node's instance ID:
