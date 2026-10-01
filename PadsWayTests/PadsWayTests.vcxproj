@@ -160,6 +160,8 @@
     <ClCompile Include="tests\test_TouchZones.cpp" />
     <ClCompile Include="tests\test_RawHIDState.cpp" />
     <ClCompile Include="tests\test_ControllerProtocolRegistry.cpp" />
+    <ClCompile Include="..\PadsWay\input\Ds4Protocol.cpp" />
+    <ClCompile Include="tests\test_Ds4Protocol.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />
