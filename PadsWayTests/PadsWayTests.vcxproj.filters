@@ -90,6 +90,9 @@
     <ClCompile Include="tests\test_ShippedData.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="..\PadsWay\input\SonyProtocol.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="..\PadsWay\input\Ds4Protocol.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>

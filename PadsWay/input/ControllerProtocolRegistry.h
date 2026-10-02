@@ -40,7 +40,7 @@ inline std::string_view resolveControllerProtocol(std::string_view configured, U
 std::unique_ptr<ControllerProtocol> createControllerProtocol(const std::string& configured,
                                                              const HIDDevice& device);
 
-// Activation tries before giving up — each try is bounded by the protocol itself (Ds4Protocol:
+// Activation tries before giving up — each try is bounded by the protocol itself (SonyProtocol:
 // ~320 ms worst case), so a pad that never answers costs about a second, once.
 inline constexpr int kFullModeAttempts = 3;
 

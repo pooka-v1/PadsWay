@@ -35,6 +35,9 @@
     <ClCompile Include="input\ControllerProtocolRegistry.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="input\SonyProtocol.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="input\Ds4Protocol.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -236,6 +239,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="input\ControllerProtocolRegistry.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="input\SonyProtocol.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="input\Ds4Protocol.h">
