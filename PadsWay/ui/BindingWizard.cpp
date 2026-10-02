@@ -459,7 +459,8 @@ void BindingWizard::renderBinding() {
                 sampleTouchFrame();
                 int bestEdgesSoFar = 0;
                 for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
-                    if (m_touchLiftAlive[o] && m_touchConfirmEdges[o] > bestEdgesSoFar)
+                    if (m_touchLiftAlive[o] && !m_touchConfirmChangedWhileTouching[o] &&
+                        m_touchConfirmEdges[o] > bestEdgesSoFar)
                         bestEdgesSoFar = m_touchConfirmEdges[o];
                 }
                 bool canAdvance = m_touchPhaseFrames >= kTouchConfirmMinFrames;
@@ -519,6 +520,9 @@ void BindingWizard::renderBinding() {
                     m_touchDataOffset = -1;
                     std::fill(m_touchConfirmEdges.begin(), m_touchConfirmEdges.end(), 0);
                     std::fill(m_touchConfirmPrevTouching.begin(), m_touchConfirmPrevTouching.end(), false);
+                    std::fill(m_touchConfirmPrevValue.begin(), m_touchConfirmPrevValue.end(), 0);
+                    std::fill(m_touchConfirmChangedWhileTouching.begin(),
+                              m_touchConfirmChangedWhileTouching.end(), false);
                 } else { // back to Lift
                     m_touchLiftAlive.clear(); // forces sampleTouchFrame() to reinit all-true
                     m_touchLiftMin.clear();
@@ -1114,6 +1118,8 @@ void BindingWizard::resetTouchSurfaceState() {
     m_touchLiftMax.clear();
     m_touchConfirmEdges.clear();
     m_touchConfirmPrevTouching.clear();
+    m_touchConfirmPrevValue.clear();
+    m_touchConfirmChangedWhileTouching.clear();
     m_touchDataOffset       = -1;
     m_touchRangeMaxX        = 0;
     m_touchRangeMaxY        = 0;
@@ -1165,12 +1171,21 @@ bool BindingWizard::sampleTouchFrame() {
             // Baseline "not touching" — matches how the phase actually starts (right after Lift,
             // finger off the pad), so the very first tap counts as an edge too.
             m_touchConfirmPrevTouching.assign(n, false);
+            m_touchConfirmPrevValue.assign(n, 0);
+            m_touchConfirmChangedWhileTouching.assign(n, false);
         }
         for (int o = 0; o < n && o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
             if (!m_touchLiftAlive[o]) continue; // not a Lift candidate, skip scoring it
-            bool touching = (s.raw[o] & 0x80) == 0;
+            if (m_touchConfirmChangedWhileTouching[o]) continue; // already ruled out
+            uint8_t v = static_cast<uint8_t>(s.raw[o]);
+            bool touching = (v & 0x80) == 0;
+            if (touching && m_touchConfirmPrevTouching[o] && v != m_touchConfirmPrevValue[o]) {
+                m_touchConfirmChangedWhileTouching[o] = true; // moves mid-touch: not the activity byte
+                continue;
+            }
             if (touching && !m_touchConfirmPrevTouching[o]) ++m_touchConfirmEdges[o]; // clean tap detected
             m_touchConfirmPrevTouching[o] = touching;
+            m_touchConfirmPrevValue[o]    = v;
         }
     } else { // RangeX / RangeY — decode against the confirmed dataOffset
         int o = m_touchDataOffset;
@@ -1213,6 +1228,8 @@ void BindingWizard::commitTouchPhase() {
         m_touchPhase = TouchPhase::Confirm;
         m_touchConfirmEdges.assign(m_touchLiftAlive.size(), 0);
         m_touchConfirmPrevTouching.assign(m_touchLiftAlive.size(), false);
+        m_touchConfirmPrevValue.assign(m_touchLiftAlive.size(), 0);
+        m_touchConfirmChangedWhileTouching.assign(m_touchLiftAlive.size(), false);
     } else if (m_touchPhase == TouchPhase::Confirm) {
         // Winner = the lowest-offset candidate whose edge count actually lands within
         // +-kTouchConfirmTapTolerance of the requested kTouchConfirmTargetTaps — not "whichever
@@ -1221,7 +1238,7 @@ void BindingWizard::commitTouchPhase() {
         // IS the lowest-offset one — no separate tie-break needed.
         int winner = -1;
         for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
-            if (!m_touchLiftAlive[o]) continue;
+            if (!m_touchLiftAlive[o] || m_touchConfirmChangedWhileTouching[o]) continue;
             int diff = m_touchConfirmEdges[o] - kTouchConfirmTargetTaps;
             if (diff < 0) diff = -diff;
             if (diff <= kTouchConfirmTapTolerance) { winner = o; break; }

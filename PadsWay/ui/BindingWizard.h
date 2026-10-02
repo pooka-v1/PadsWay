@@ -457,6 +457,13 @@ private:
     std::vector<int>  m_touchConfirmEdges;
     // Previous frame's "touching" (bit7==0) state per offset, to detect the rising edge above.
     std::vector<bool> m_touchConfirmPrevTouching;
+    // Confirm: per offset, the byte's value in the previous frame, and whether it ever changed
+    // between two consecutive "touching" frames — such a byte is dropped from the pool. The real
+    // activity byte holds one value for the whole touch (bit7=0 + touch ID); the DS4's touch
+    // packet counter (byte 34, right before it) counts on every report while a finger is down, so
+    // its bit7 crossings could fake the tap count and win the lowest-offset tie-break.
+    std::vector<uint8_t> m_touchConfirmPrevValue;
+    std::vector<bool>    m_touchConfirmChangedWhileTouching;
     int        m_touchDataOffset = -1; // Confirm's winning offset, consumed by RangeX/RangeY and saveResult()
     int        m_touchRangeMaxX  = 0;  // running max X seen in RangeX while touching
     int        m_touchRangeMaxY  = 0;  // running max Y seen in RangeY while touching
