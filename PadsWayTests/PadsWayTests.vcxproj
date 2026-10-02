@@ -163,6 +163,8 @@
     <ClCompile Include="..\PadsWay\input\SonyProtocol.cpp" />
     <ClCompile Include="..\PadsWay\input\Ds4Protocol.cpp" />
     <ClCompile Include="tests\test_Ds4Protocol.cpp" />
+    <ClCompile Include="..\PadsWay\input\DualSenseProtocol.cpp" />
+    <ClCompile Include="tests\test_DualSenseProtocol.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />

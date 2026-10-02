@@ -10,10 +10,11 @@ class HIDDevice;
 // per model (ARCHITECTURE.md, "Protocolos de mando" → principios). Add the name here, its hardware
 // IDs in protocolForHardware() and its factory in ControllerProtocolRegistry.cpp together.
 inline constexpr std::string_view kGenericHidProtocol = "generic_hid";
-inline constexpr std::string_view kSonyDs4Protocol    = "sony_ds4";
+inline constexpr std::string_view kDualShock4Protocol = "dualshock4";
+inline constexpr std::string_view kDualSenseProtocol  = "dualsense";
 
 inline bool isKnownControllerProtocol(std::string_view name) {
-    return name == kGenericHidProtocol || name == kSonyDs4Protocol;
+    return name == kGenericHidProtocol || name == kDualShock4Protocol || name == kDualSenseProtocol;
 }
 
 // The family a pad belongs to by its own hardware identity — a fact of the hardware, not a
@@ -23,7 +24,9 @@ inline std::string_view protocolForHardware(USHORT vid, USHORT pid) {
     if (vid == kSony && (pid == 0x05C4      // DS4 v1
                       || pid == 0x09CC      // DS4 v2
                       || pid == 0x0BA0))    // DS4 USB wireless adapter (USB layout, nothing to do)
-        return kSonyDs4Protocol;
+        return kDualShock4Protocol;
+    if (vid == kSony && pid == 0x0CE6)      // DualSense
+        return kDualSenseProtocol;
     return kGenericHidProtocol;
 }
 

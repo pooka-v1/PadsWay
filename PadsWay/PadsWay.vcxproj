@@ -152,6 +152,7 @@
     <ClCompile Include="input\ControllerProtocolRegistry.cpp" />
     <ClCompile Include="input\SonyProtocol.cpp" />
     <ClCompile Include="input\Ds4Protocol.cpp" />
+    <ClCompile Include="input\DualSenseProtocol.cpp" />
     <ClCompile Include="bots\BotLoader.cpp" />
     <ClCompile Include="input\RawHIDReader.cpp" />
     <ClCompile Include="input\DeviceHub.cpp" />
@@ -200,6 +201,7 @@
     <ClInclude Include="input\ControllerProtocolRegistry.h" />
     <ClInclude Include="input\SonyProtocol.h" />
     <ClInclude Include="input\Ds4Protocol.h" />
+    <ClInclude Include="input\DualSenseProtocol.h" />
     <ClInclude Include="input\SonyCrc.h" />
     <ClInclude Include="input\HIDInputSource.h" />
     <ClInclude Include="bots\bot_api.h" />

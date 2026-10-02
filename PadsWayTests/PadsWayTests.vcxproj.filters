@@ -99,6 +99,12 @@
     <ClCompile Include="tests\test_Ds4Protocol.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="..\PadsWay\input\DualSenseProtocol.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="tests\test_DualSenseProtocol.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp">

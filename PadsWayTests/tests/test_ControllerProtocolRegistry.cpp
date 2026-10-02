@@ -16,41 +16,44 @@ constexpr USHORT k8BitDo = 0x2DC8;
 TEST_CASE("known protocol names", "[ControllerProtocolRegistry]") {
     CHECK(isKnownControllerProtocol("generic_hid"));
     CHECK(isKnownControllerProtocol(kGenericHidProtocol));
-    CHECK(isKnownControllerProtocol("sony_ds4"));
-    CHECK(isKnownControllerProtocol(kSonyDs4Protocol));
+    CHECK(isKnownControllerProtocol("dualshock4"));
+    CHECK(isKnownControllerProtocol(kDualShock4Protocol));
+    CHECK(isKnownControllerProtocol("dualsense"));
+    CHECK(isKnownControllerProtocol(kDualSenseProtocol));
 }
 
 TEST_CASE("unknown or malformed protocol names are not known", "[ControllerProtocolRegistry]") {
     CHECK_FALSE(isKnownControllerProtocol(""));
     CHECK_FALSE(isKnownControllerProtocol("Generic_HID"));   // case-sensitive, like every JSON key
     CHECK_FALSE(isKnownControllerProtocol("generic_hid "));
-    CHECK_FALSE(isKnownControllerProtocol("sony_dualsense"));   // not registered yet (task 5)
+    CHECK_FALSE(isKnownControllerProtocol("sony_ds5"));
 }
 
-TEST_CASE("protocolForHardware picks the DS4 family by VID/PID only", "[ControllerProtocolRegistry]") {
-    CHECK(protocolForHardware(kSony, 0x05C4) == kSonyDs4Protocol);   // DS4 v1
-    CHECK(protocolForHardware(kSony, 0x09CC) == kSonyDs4Protocol);   // DS4 v2
-    CHECK(protocolForHardware(kSony, 0x0BA0) == kSonyDs4Protocol);   // wireless adapter
-    CHECK(protocolForHardware(kSony, 0x0CE6) == kGenericHidProtocol);   // DualSense: task 5
+TEST_CASE("protocolForHardware picks the Sony models by VID/PID only", "[ControllerProtocolRegistry]") {
+    CHECK(protocolForHardware(kSony, 0x05C4) == kDualShock4Protocol);   // DS4 v1
+    CHECK(protocolForHardware(kSony, 0x09CC) == kDualShock4Protocol);   // DS4 v2
+    CHECK(protocolForHardware(kSony, 0x0BA0) == kDualShock4Protocol);   // wireless adapter
+    CHECK(protocolForHardware(kSony, 0x0CE6) == kDualSenseProtocol);   // DualSense
     CHECK(protocolForHardware(k8BitDo, 0x09CC) == kGenericHidProtocol); // same PID, other brand
+    CHECK(protocolForHardware(k8BitDo, 0x0CE6) == kGenericHidProtocol);
     CHECK(protocolForHardware(0, 0) == kGenericHidProtocol);
 }
 
 TEST_CASE("resolveControllerProtocol: config overrides, empty or unknown goes by hardware",
           "[ControllerProtocolRegistry]") {
     SECTION("no protocol in the config") {
-        CHECK(resolveControllerProtocol("", kSony, 0x09CC)   == kSonyDs4Protocol);
+        CHECK(resolveControllerProtocol("", kSony, 0x09CC)   == kDualShock4Protocol);
         CHECK(resolveControllerProtocol("", k8BitDo, 0x6012) == kGenericHidProtocol);
     }
     SECTION("an explicit known name wins over the hardware") {
         CHECK(resolveControllerProtocol("generic_hid", kSony, 0x09CC) == kGenericHidProtocol);
-        // Forcing sony_ds4 on another brand is allowed here: Ds4Protocol itself refuses to write
+        // Forcing dualshock4 on another brand is allowed here: Ds4Protocol itself refuses to write
         // to a non-Sony pad (vendor ID read from the device), see test_Ds4Protocol.cpp.
-        CHECK(resolveControllerProtocol("sony_ds4", k8BitDo, 0x6012) == kSonyDs4Protocol);
+        CHECK(resolveControllerProtocol("dualshock4", k8BitDo, 0x6012) == kDualShock4Protocol);
     }
     SECTION("a typo never leaves the pad without its family") {
-        CHECK(resolveControllerProtocol("sony_ds5", kSony, 0x09CC)  == kSonyDs4Protocol);
-        CHECK(resolveControllerProtocol("SONY_DS4", k8BitDo, 0x6012) == kGenericHidProtocol);
+        CHECK(resolveControllerProtocol("sony_ds5", kSony, 0x09CC)  == kDualShock4Protocol);
+        CHECK(resolveControllerProtocol("DUALSHOCK4", k8BitDo, 0x6012) == kGenericHidProtocol);
     }
 }
 
