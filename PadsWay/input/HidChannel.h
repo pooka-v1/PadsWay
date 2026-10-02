@@ -1,6 +1,24 @@
 #pragma once
 #include <windows.h>
+#include <cctype>
+#include <string>
+#include <string_view>
 #include <vector>
+
+enum class HidTransport { Unknown, Usb, Bluetooth };
+
+// Transport of a HID device from its interface path: Bluetooth HID nodes carry the BT enumerator
+// or the HID-over-BT service GUID in it. Anything else is treated as USB (dongles included).
+// The one place this is decided — HIDScanner (connectionType) and HIDDevice::transport() use it.
+inline HidTransport hidTransportFromPath(std::string_view path)
+{
+    std::string upper(path);
+    for (auto& ch : upper) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    for (std::string_view marker : { "BTHENUM", "BLUETOOTHHIDDEVICE", "BTH_HID",
+                                     "00001124-0000-1000-8000-00805F9B34FB" })
+        if (upper.find(marker) != std::string::npos) return HidTransport::Bluetooth;
+    return HidTransport::Usb;
+}
 
 // Raw report I/O over one HID device, as a controller protocol needs it: read what the pad sends,
 // and write the output/feature reports that switch it to its full mode (ARCHITECTURE.md,

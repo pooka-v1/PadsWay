@@ -1,4 +1,5 @@
 #include "RawHIDReader.h"
+#include "ControllerProtocolRegistry.h"
 #include <hidsdi.h>
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(hid.preparsed()))
@@ -16,19 +17,28 @@ static constexpr USHORT kUsageAccel = 0xC5;
 // ---------------------------------------------------------------------------
 
 RawHIDReader::RawHIDReader(const std::string& devicePath, const std::string& name)
-    : m_hid(devicePath, name)
+    : m_hid(devicePath, name), m_name(name.empty() ? devicePath : name),
+      m_protocol(createControllerProtocol("", m_hid))   // "" = by the device's VID/PID
 {
 }
+
+RawHIDReader::~RawHIDReader() = default;
 
 // ---------------------------------------------------------------------------
 
 bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
 {
+    if (m_fullModePending) {
+        m_fullModePending = false;
+        enableFullModeWithRetries(*m_protocol, m_hid, m_name);
+    }
+
     auto result = m_hid.read(timeoutMs);
     if (result == HIDDevice::ReadResult::Disconnected) return false;
     if (result == HIDDevice::ReadResult::Timeout)      return true;
 
-    decodeRawHIDReport(m_hid, out);
+    // A report the protocol drops (e.g. a corrupted one) counts as "no new data".
+    m_protocol->decode(m_hid.reportBuf().data(), m_hid.lastBytesRead(), out);
     return true;
 }
 

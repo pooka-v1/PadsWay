@@ -39,3 +39,12 @@ inline std::string_view resolveControllerProtocol(std::string_view configured, U
 // unread, so it falls back to the hardware's family.
 std::unique_ptr<ControllerProtocol> createControllerProtocol(const std::string& configured,
                                                              const HIDDevice& device);
+
+// Activation tries before giving up — each try is bounded by the protocol itself (Ds4Protocol:
+// ~320 ms worst case), so a pad that never answers costs about a second, once.
+inline constexpr int kFullModeAttempts = 3;
+
+// Level 2 with the common retry skeleton: asks the protocol for the pad's full mode up to
+// kFullModeAttempts times, logging the outcome under name. False = the pad stays in its basic
+// mode (still read through the protocol). Call it from the thread that reads the pad.
+bool enableFullModeWithRetries(ControllerProtocol& protocol, HIDDevice& device, const std::string& name);

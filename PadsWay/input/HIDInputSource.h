@@ -49,9 +49,8 @@ private:
     // Built from m_config.protocol; turns each report into m_lastRawSnapshot. Declared after m_hid
     // on purpose: members are constructed in declaration order and it holds a reference to m_hid.
     std::unique_ptr<ControllerProtocol> m_protocol;
-    HidTransport     m_transport;
     // Level 2 (full report) is requested on the first read() after the protocol is built, from
-    // the thread that reads this pad — the only one that ever talks to it. See activateFullMode().
+    // the thread that reads this pad — the only one that ever talks to it.
     bool             m_fullModePending = true;
     std::string      m_name;
     DWORD            m_lastButtonMask = 0;
@@ -120,9 +119,6 @@ private:
     // Normalized value of a config axis source ("hid_x", "hid_brake", ...) in the current report.
     // False if the name is unknown or this report didn't carry that axis — callers skip it.
     bool          readAxisSource(const std::string& source, float& v) const;
-    // Asks the protocol for the pad's full mode, kActivationAttempts tries. On failure the pad
-    // stays in its basic mode (still read through the protocol's fallback) and a warning is logged.
-    void          activateFullMode();
     static void   parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right);
     // Decodes the snapshot's hat (already normalized against the descriptor's logical min/max)
     // into 4 cardinal directions, updates m_lastRawHat, and writes m_physicalState.dpad* — common

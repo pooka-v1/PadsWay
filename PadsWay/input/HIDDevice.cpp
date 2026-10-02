@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 HIDDevice::HIDDevice(const std::string& path, const std::string& name, Access access)
+    : m_transport(hidTransportFromPath(path))
 {
     const DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE;
     if (access == Access::ReadWrite) {

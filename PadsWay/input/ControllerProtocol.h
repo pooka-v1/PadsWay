@@ -1,25 +1,7 @@
 #pragma once
-#include "HidChannel.h"
+#include "HidChannel.h"   // HidChannel, HidTransport
 #include "RawHIDReader.h"
-#include <cctype>
 #include <cstdint>
-#include <string>
-#include <string_view>
-
-enum class HidTransport { Unknown, Usb, Bluetooth };
-
-// Transport of a HID device from its interface path: Bluetooth HID nodes carry the BT enumerator
-// or the HID-over-BT service GUID in it. Anything else is treated as USB (dongles included).
-// The one place this is decided — HIDScanner (connectionType) and HIDInputSource both use it.
-inline HidTransport hidTransportFromPath(std::string_view path)
-{
-    std::string upper(path);
-    for (auto& ch : upper) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-    for (std::string_view marker : { "BTHENUM", "BLUETOOTHHIDDEVICE", "BTH_HID",
-                                     "00001124-0000-1000-8000-00805F9B34FB" })
-        if (upper.find(marker) != std::string::npos) return HidTransport::Bluetooth;
-    return HidTransport::Usb;
-}
 
 // How PadsWay talks to one family of controllers (ARCHITECTURE.md, "Protocolos de mando"): the only
 // hardware-specific layer. It may activate the pad (write the vendor's requests) and it translates

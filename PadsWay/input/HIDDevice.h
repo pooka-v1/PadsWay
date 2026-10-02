@@ -52,6 +52,8 @@ public:
     USHORT vendorId() const override { return m_vendorId; }
     // Read from the device too — with vendorId(), picks the controller protocol (registry).
     USHORT productId() const { return m_productId; }
+    // USB or Bluetooth, from the path this device was opened with (hidTransportFromPath).
+    HidTransport transport() const { return m_transport; }
     bool   canWrite() const override { return m_canWrite; }
     bool   sendOutputReport(const BYTE* data, ULONG len) override;
     bool   setFeature(const BYTE* data, ULONG len) override;
@@ -68,6 +70,7 @@ private:
     bool              m_canWrite         = false;
     USHORT            m_vendorId         = 0;
     USHORT            m_productId        = 0;
+    HidTransport      m_transport        = HidTransport::Unknown;
     BYTE              m_buttonReportId   = 0xFF;
     ULONG             m_lastBytesRead    = 0;
 

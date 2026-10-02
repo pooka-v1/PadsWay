@@ -17,3 +17,18 @@ std::unique_ptr<ControllerProtocol> createControllerProtocol(const std::string& 
     }
     return std::make_unique<GenericHidProtocol>(device);
 }
+
+bool enableFullModeWithRetries(ControllerProtocol& protocol, HIDDevice& device, const std::string& name)
+{
+    for (int attempt = 1; attempt <= kFullModeAttempts; ++attempt) {
+        if (protocol.enableFullMode(device, device.transport())) {
+            if (attempt > 1)
+                spdlog::info("[Protocol][{}] Full mode enabled on attempt {}", name, attempt);
+            return true;
+        }
+        if (!device.isConnected()) return false;   // the next read() reports the disconnect
+    }
+    spdlog::warn("[Protocol][{}] Full mode not confirmed after {} attempts — staying in basic mode",
+                 name, kFullModeAttempts);
+    return false;
+}

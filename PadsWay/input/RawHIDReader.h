@@ -1,5 +1,6 @@
 #pragma once
 #include "HIDDevice.h"
+#include <memory>
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -59,22 +60,32 @@ struct RawHIDState {
 // the reads — config-independent, works even for a device with no controllers.json entry yet.
 void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out);
 
-// Lightweight HID reader for the binding wizard and Scanner.
+class ControllerProtocol;   // ControllerProtocol.h includes this header (RawHIDState)
+
+// Lightweight HID reader for the binding wizard.
 // Opens a device by path (from HIDScanner) and reads raw button/axis data
 // without any controller config or GamepadState mapping.
+// Goes through the pad's controller protocol, picked by its VID/PID (there is no config yet —
+// the wizard exists to create it), so it sees exactly what the engine will read: a DS4 over BT
+// is activated and decoded in the USB layout, same as in HIDInputSource.
 // Uses HIDDevice for I/O; handles are closed cleanly on disconnect.
 class RawHIDReader {
 public:
     explicit RawHIDReader(const std::string& devicePath, const std::string& name = "");
-    ~RawHIDReader() = default;
+    ~RawHIDReader();   // defined in the .cpp: ControllerProtocol is incomplete here
 
     bool isOpen() const { return m_hid.isConnected(); }
 
     // Reads one report. Returns false on disconnect (device is closed cleanly).
-    // On timeout (no new data within timeoutMs) returns true with the previous state unchanged.
+    // On timeout (no new data within timeoutMs), or a report the protocol drops, returns true
+    // with the previous state unchanged. The first call also activates the pad's full mode.
     // Use timeoutMs=0 from the render thread to avoid blocking.
     bool read(RawHIDState& out, int timeoutMs = 20);
 
 private:
-    HIDDevice m_hid;
+    HIDDevice                           m_hid;
+    std::string                         m_name;
+    // Built after m_hid (declaration order): it may hold a reference to it.
+    std::unique_ptr<ControllerProtocol> m_protocol;
+    bool                                m_fullModePending = true;
 };

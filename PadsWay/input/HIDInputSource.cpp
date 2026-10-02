@@ -88,14 +88,9 @@ bool HIDInputSource::readAxisSource(const std::string& source, float& v) const {
 
 // ---------------------------------------------------------------------------
 
-// Activation (level 2) tries before giving up — each try is bounded by the protocol itself
-// (Ds4Protocol: ~320 ms worst case), so a pad that never answers costs about a second, once.
-static constexpr int kActivationAttempts = 3;
-
 HIDInputSource::HIDInputSource(const std::string& devicePath, const ControllerConfig& config)
     : m_hid(devicePath, config.source_name), m_config(config),
-      m_protocol(createControllerProtocol(config.protocol, m_hid)),
-      m_transport(hidTransportFromPath(devicePath)), m_name(config.source_name)
+      m_protocol(createControllerProtocol(config.protocol, m_hid)), m_name(config.source_name)
 {
 }
 
@@ -109,20 +104,6 @@ void HIDInputSource::setConfig(const ControllerConfig& cfg) {
     m_config = cfg;
 }
 
-void HIDInputSource::activateFullMode() {
-    m_fullModePending = false;
-    for (int attempt = 1; attempt <= kActivationAttempts; ++attempt) {
-        if (m_protocol->enableFullMode(m_hid, m_transport)) {
-            if (attempt > 1)
-                spdlog::info("[Protocol][{}] Full mode enabled on attempt {}", m_name, attempt);
-            return;
-        }
-        if (!m_hid.isConnected()) return;   // read() reports the disconnect next
-    }
-    spdlog::warn("[Protocol][{}] Full mode not confirmed after {} attempts — staying in basic mode",
-                 m_name, kActivationAttempts);
-}
-
 HIDInputSource::~HIDInputSource() {
 }
 
@@ -133,7 +114,10 @@ bool HIDInputSource::isConnected() const {
 }
 
 bool HIDInputSource::read(GamepadState& state) {
-    if (m_fullModePending) activateFullMode();
+    if (m_fullModePending) {
+        m_fullModePending = false;
+        enableFullModeWithRetries(*m_protocol, m_hid, m_name);
+    }
 
     auto result = m_hid.read(20);
     if (result == HIDDevice::ReadResult::Disconnected) return false;

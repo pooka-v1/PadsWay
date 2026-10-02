@@ -1,5 +1,5 @@
 #include "HIDScanner.h"
-#include "ControllerProtocol.h"   // hidTransportFromPath
+#include "HidChannel.h"   // hidTransportFromPath
 #include "../Log.h"
 #include <setupapi.h>
 #include <hidsdi.h>
