@@ -491,6 +491,9 @@ void BindingWizard::renderBinding() {
         if (ImGui::Button(trid("btn.back", "bind").c_str(), { 90.0f, 0.0f })) {
             if (midGyroPhases) {
                 m_gyroPhase = static_cast<GyroPhase>(static_cast<int>(m_gyroPhase) - 1);
+                // Without an accel block Flip was never entered (see commitGyroPhase()), so
+                // stepping back from Roll must land on Baseline, not on a Flip that doesn't exist.
+                if (m_gyroPhase == GyroPhase::Flip && !m_gyroHasAccel) m_gyroPhase = GyroPhase::Baseline;
                 resetGyroRoundState(/*clearVotes=*/true);
                 if (m_gyroPhase == GyroPhase::Baseline) {
                     m_gyroCandidates.clear();
