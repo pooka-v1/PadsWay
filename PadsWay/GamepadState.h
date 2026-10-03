@@ -59,6 +59,9 @@ struct GamepadState {
     bool btnLP = false;   // paddle largo izquierdo (Lp / L5)
     bool btnRP = false;   // paddle largo derecho   (Rp / R5)
 
+    // --- Microphone mute button (DualSense) ---
+    bool btnMute = false;
+
     // --- Touchpad (DS4-style physical touchpad) ---
     bool  btnTouch     = false;  // physical touchpad press
     bool  touch1Active = false;  // finger 1 on pad surface

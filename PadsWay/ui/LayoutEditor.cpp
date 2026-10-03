@@ -17,7 +17,7 @@
 static const char* kStateGroups[][16] = {
     { "── Cara ──",     "btnA","btnB","btnX","btnY", nullptr },
     { "── Hombros ──",  "btnLB","btnRB","triggerL","triggerR", nullptr },
-    { "── Extras ──",   "btnL3","btnR3","btnL4","btnR4","btnLP","btnRP",
+    { "── Extras ──",   "btnL3","btnR3","btnL4","btnR4","btnLP","btnRP","btnMute",
                         "btnBack","btnStart","btnHome", nullptr },
     { "── D-pad ──",    "dpadUp","dpadDown","dpadLeft","dpadRight", nullptr },
     { "── Ejes ──",     "leftX","leftY","rightX","rightY", nullptr },
@@ -391,7 +391,7 @@ void LayoutEditor::renderRightPanel(float w) {
         static const char* kBtnIds[]  = { "btnA","btnB","btnX","btnY",
                                           "btnLB","btnRB","triggerL","triggerR",
                                           "btnL3","btnR3","btnL4","btnR4",
-                                          "btnLP","btnRP","btnBack","btnStart","btnHome",
+                                          "btnLP","btnRP","btnMute","btnBack","btnStart","btnHome",
                                           nullptr };
         static const char* kStickIds[]= { "leftStick","rightStick", nullptr };
         static const char* kDpadIds[] = { "dpad", nullptr };

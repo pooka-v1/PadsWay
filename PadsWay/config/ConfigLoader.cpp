@@ -864,6 +864,7 @@ static std::optional<ComponentId> physicalNameToComponentId(const std::string& p
     if (phys == "r4")                    return ComponentId::BtnR4;
     if (phys == "lp" || phys == "l5")   return ComponentId::BtnLP;
     if (phys == "rp" || phys == "r5")   return ComponentId::BtnRP;
+    if (phys == "mute")                  return ComponentId::BtnMute;
     return std::nullopt;
 }
 

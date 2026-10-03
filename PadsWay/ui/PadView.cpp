@@ -198,6 +198,7 @@ static bool resolveState(const GamepadState& s, const std::string& name, float t
     if (name == "btnR4")     return s.btnR4;
     if (name == "btnLP")     return s.btnLP;
     if (name == "btnRP")     return s.btnRP;
+    if (name == "btnMute")   return s.btnMute;
     if (name == "btnBack")   return s.btnBack;
     if (name == "btnStart")  return s.btnStart;
     if (name == "btnHome")   return s.btnHome;

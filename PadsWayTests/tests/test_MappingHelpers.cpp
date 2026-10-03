@@ -14,7 +14,7 @@ namespace {
 // Every digital source the Mapper knows by short name (see shortToState's table).
 const std::vector<std::string> kShortButtonNames = {
     "a", "b", "x", "y", "l1", "r1", "select", "start", "home", "l3", "r3",
-    "l4", "r4", "lp", "rp", "touch_btn", "dpad_up", "dpad_down", "dpad_left", "dpad_right",
+    "l4", "r4", "lp", "rp", "mute", "touch_btn", "dpad_up", "dpad_down", "dpad_left", "dpad_right",
 };
 } // namespace
 

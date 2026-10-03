@@ -2126,6 +2126,7 @@ GamepadState BindingWizard::buildFakeState() const {
         else if (name == "btnR4")     s.btnR4     = true;
         else if (name == "btnLP")     s.btnLP     = true;
         else if (name == "btnRP")     s.btnRP     = true;
+        else if (name == "btnMute")   s.btnMute   = true;
         else if (name == "btnTouch")  s.btnTouch  = true;
         else if (name == "dpadUp")    s.dpadUp    = true;
         else if (name == "dpadDown")  s.dpadDown  = true;

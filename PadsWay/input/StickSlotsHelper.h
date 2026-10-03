@@ -33,6 +33,7 @@ static inline float stickSlotSourceValue(
     if (src == "r4")     return phys.btnR4    ? 1.0f : 0.0f;
     if (src == "lp")     return phys.btnLP    ? 1.0f : 0.0f;
     if (src == "rp")     return phys.btnRP    ? 1.0f : 0.0f;
+    if (src == "mute")   return phys.btnMute  ? 1.0f : 0.0f;
     return 0.0f;
 }
 

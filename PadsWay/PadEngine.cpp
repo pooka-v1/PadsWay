@@ -58,6 +58,7 @@ static void applyVirtualBtnByName(GamepadState& state, const std::string& name, 
     else if (name == "r4")     state.btnR4    = true;
     else if (name == "lp")     state.btnLP    = true;
     else if (name == "rp")     state.btnRP    = true;
+    else if (name == "mute")   state.btnMute  = true;
     else if (name == "up"    || name == "dpad_up")    state.dpadUp   = true;
     else if (name == "down"  || name == "dpad_down")  state.dpadDown = true;
     else if (name == "left"  || name == "dpad_left")  state.dpadLeft = true;

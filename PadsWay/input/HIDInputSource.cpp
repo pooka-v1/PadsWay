@@ -36,6 +36,7 @@ static void setButtonOr(GamepadState& dest, const std::string& name, bool v) {
     else if (name == "r4")        dest.btnR4    = true;
     else if (name == "lp")        dest.btnLP    = true;
     else if (name == "rp")        dest.btnRP    = true;
+    else if (name == "mute")      dest.btnMute  = true;
     else if (name == "touch_btn") dest.btnTouch = true;
 }
 
@@ -60,6 +61,7 @@ static void setButtonAssign(GamepadState& dest, const std::string& name, bool v)
     else if (name == "r4")        dest.btnR4    = v;
     else if (name == "lp")        dest.btnLP    = v;
     else if (name == "rp")        dest.btnRP    = v;
+    else if (name == "mute")      dest.btnMute  = v;
     else if (name == "touch_btn") dest.btnTouch = v;
 }
 
@@ -305,6 +307,7 @@ void HIDInputSource::applyButtons(GamepadState& state) {
     state.btnL3 = state.btnR3 = false;
     state.btnL4 = state.btnR4 = false;
     state.btnLP = state.btnRP = state.btnTouch = false;
+    state.btnMute = false;
     // Triggers also reset each frame so button-mapped triggers clear when released
     state.triggerL = state.triggerR = 0.0f;
     // Dpad bits reset so axis_actions Dpad assignments clear when stick returns to neutral

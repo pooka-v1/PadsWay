@@ -284,7 +284,7 @@ static std::string physButtonDisplayLabel(const std::string& shortCode) {
     static const std::pair<const char*, const char*> kLabels[] = {
         { "a", "A" }, { "b", "B" }, { "x", "X" }, { "y", "Y" },
         { "l1", "L1" }, { "r1", "R1" }, { "l3", "L3" }, { "r3", "R3" },
-        { "l4", "L4" }, { "r4", "R4" }, { "lp", "LP" }, { "rp", "RP" },
+        { "l4", "L4" }, { "r4", "R4" }, { "lp", "LP" }, { "rp", "RP" }, { "mute", "Mute" },
         { "select", "Select" }, { "start", "Start" }, { "home", "Home" },
         { "touch_btn", "Touch" },
         { "dpad_up", "D-Pad \xe2\x86\x91" }, { "dpad_down", "D-Pad \xe2\x86\x93" },
