@@ -399,13 +399,37 @@ void BindingWizard::renderBinding() {
                     // saw a single "clean" frame and sat at 0% the whole capture.
                     if (m_hidReader && m_hidReader->isOpen())
                         m_hidReader->read(m_gyroAxisBaseline);
+                    if (m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) {
+                        m_gyroSettling    = true;
+                        m_gyroSettleUntil = std::chrono::steady_clock::now()
+                                          + std::chrono::milliseconds(kGyroStartSettleMs);
+                    }
                 }
+            } else if ((m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) && m_gyroSettling) {
+                // Keep the bump of the start press out of the quiet capture (see m_gyroSettling):
+                // the timer restarts every frame a button is still held, so it counts from release.
+                int dummyIdx = 0;
+                captureButton(dummyIdx); // keeps m_prevButtonMask current
+                auto now = std::chrono::steady_clock::now();
+                if (m_prevButtonMask != 0) {
+                    m_gyroSettleUntil = now + std::chrono::milliseconds(kGyroStartSettleMs);
+                } else if (now >= m_gyroSettleUntil) {
+                    m_gyroSettling = false;
+                    // Re-snapshot now that nothing is held: the start button may have been one
+                    // with an analog side (L2/R2), read half-pressed at the press itself.
+                    if (m_hidReader && m_hidReader->isOpen())
+                        m_hidReader->read(m_gyroAxisBaseline);
+                }
+                ImGui::Text(tr("wizard.gyro_capturing"), 0);
             } else if (m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) {
                 // Baseline and Flip have no back-and-forth gesture to repeat — they just need the
                 // controller quiet (in a different orientation each) for a fixed time, so both
                 // keep the same time-based gate instead of the Roll/Pitch/Yaw round machine.
-                sampleGyroFrame();
                 int  minFrames  = (m_gyroPhase == GyroPhase::Baseline) ? kGyroMinCaptureFrames : kGyroFlipMinCaptureFrames;
+                // Stop sampling once the window is full: the frames after it are the user reaching
+                // for the mouse to click Continue, leaning on the same table — table vibration
+                // reached 866 peak-to-peak on the DualSense's vertical accel axis, past the floor.
+                if (m_gyroPhaseFrames < minFrames) sampleGyroFrame();
                 bool canAdvance = m_gyroPhaseFrames >= minFrames;
                 int  pct        = std::min(100, (m_gyroPhaseFrames * 100) / minFrames);
                 ImGui::Text(tr("wizard.gyro_capturing"), pct);
@@ -1547,6 +1571,23 @@ void BindingWizard::computeGyroCandidatePool() {
     if (n == 0) return;
 
     std::vector<bool> alive = computeAliveOffsets();
+
+    // Diagnostic: Baseline peak-to-peak per offset over the usual IMU area, so a lost accel block
+    // (hasAccel=false below) shows which byte crossed kGyroBaselineNoiseFloor and by how much.
+    // "*" marks an offset computeAliveOffsets() rejected.
+    if (spdlog::should_log(spdlog::level::trace)) {
+        constexpr int kImuAreaFirst = 13;
+        constexpr int kImuAreaLast  = 30;
+        std::string amps;
+        for (int o = kImuAreaFirst; o <= kImuAreaLast && o < n; ++o) {
+            const GyroOffsetStats& b = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
+            int amp = (b.count > 0) ? static_cast<int>(b.maxV - b.minV) : -1;
+            amps += " " + std::to_string(o) + "=" + std::to_string(amp) + (alive[o] ? "" : "*");
+        }
+        spdlog::trace("[GyroCal] baseline p2p (frames={}, floor={:.0f}):{}",
+                      m_gyroSamples[0][static_cast<int>(GyroPhase::Baseline)].count,
+                      kGyroBaselineNoiseFloor, amps);
+    }
 
     // Longest run of alive offsets spaced 2 bytes apart. See the historical comment that used to
     // live here (now in classifyGyro()'s Step 5/6 block) for why the LONGEST run is taken instead
