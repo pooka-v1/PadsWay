@@ -65,6 +65,7 @@ inline bool isStateActive(const GamepadState& s, const std::string& n) {
     if (n == "btnR4")     return s.btnR4;
     if (n == "btnLP")     return s.btnLP;
     if (n == "btnRP")     return s.btnRP;
+    if (n == "btnMute")   return s.btnMute;
     if (n == "btnTouch")  return s.btnTouch;
     if (n == "dpadUp")    return s.dpadUp;
     if (n == "dpadDown")  return s.dpadDown;
@@ -79,7 +80,7 @@ inline std::string shortToState(const std::string& s) {
         {"l1","btnLB"},   {"r1","btnRB"},
         {"select","btnBack"}, {"start","btnStart"}, {"home","btnHome"},
         {"l3","btnL3"},   {"r3","btnR3"},     {"l4","btnL4"},   {"r4","btnR4"},
-        {"lp","btnLP"},   {"rp","btnRP"},     {"touch_btn","btnTouch"},
+        {"lp","btnLP"},   {"rp","btnRP"},     {"mute","btnMute"}, {"touch_btn","btnTouch"},
         {"dpad_up","dpadUp"}, {"dpad_down","dpadDown"},
         {"dpad_left","dpadLeft"}, {"dpad_right","dpadRight"},
     };
@@ -93,7 +94,7 @@ inline std::string stateToShort(const std::string& s) {
         {"l1","btnLB"},   {"r1","btnRB"},
         {"select","btnBack"}, {"start","btnStart"}, {"home","btnHome"},
         {"l3","btnL3"},   {"r3","btnR3"},     {"l4","btnL4"},   {"r4","btnR4"},
-        {"lp","btnLP"},   {"rp","btnRP"},     {"touch_btn","btnTouch"},
+        {"lp","btnLP"},   {"rp","btnRP"},     {"mute","btnMute"}, {"touch_btn","btnTouch"},
         {"dpad_up","dpadUp"}, {"dpad_down","dpadDown"},
         {"dpad_left","dpadLeft"}, {"dpad_right","dpadRight"},
     };
@@ -128,6 +129,7 @@ inline void activateState(GamepadState& s, const std::string& name) {
     else if (name == "btnR4")     s.btnR4     = true;
     else if (name == "btnLP")     s.btnLP     = true;
     else if (name == "btnRP")     s.btnRP     = true;
+    else if (name == "btnMute")   s.btnMute   = true;
     else if (name == "triggerL")  s.triggerL  = 1.0f;
     else if (name == "triggerR")  s.triggerR  = 1.0f;
     else if (name == "dpadUp")    s.dpadUp    = true;

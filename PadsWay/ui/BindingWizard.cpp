@@ -399,13 +399,37 @@ void BindingWizard::renderBinding() {
                     // saw a single "clean" frame and sat at 0% the whole capture.
                     if (m_hidReader && m_hidReader->isOpen())
                         m_hidReader->read(m_gyroAxisBaseline);
+                    if (m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) {
+                        m_gyroSettling    = true;
+                        m_gyroSettleUntil = std::chrono::steady_clock::now()
+                                          + std::chrono::milliseconds(kGyroStartSettleMs);
+                    }
                 }
+            } else if ((m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) && m_gyroSettling) {
+                // Keep the bump of the start press out of the quiet capture (see m_gyroSettling):
+                // the timer restarts every frame a button is still held, so it counts from release.
+                int dummyIdx = 0;
+                captureButton(dummyIdx); // keeps m_prevButtonMask current
+                auto now = std::chrono::steady_clock::now();
+                if (m_prevButtonMask != 0) {
+                    m_gyroSettleUntil = now + std::chrono::milliseconds(kGyroStartSettleMs);
+                } else if (now >= m_gyroSettleUntil) {
+                    m_gyroSettling = false;
+                    // Re-snapshot now that nothing is held: the start button may have been one
+                    // with an analog side (L2/R2), read half-pressed at the press itself.
+                    if (m_hidReader && m_hidReader->isOpen())
+                        m_hidReader->read(m_gyroAxisBaseline);
+                }
+                ImGui::Text(tr("wizard.gyro_capturing"), 0);
             } else if (m_gyroPhase == GyroPhase::Baseline || m_gyroPhase == GyroPhase::Flip) {
                 // Baseline and Flip have no back-and-forth gesture to repeat — they just need the
                 // controller quiet (in a different orientation each) for a fixed time, so both
                 // keep the same time-based gate instead of the Roll/Pitch/Yaw round machine.
-                sampleGyroFrame();
                 int  minFrames  = (m_gyroPhase == GyroPhase::Baseline) ? kGyroMinCaptureFrames : kGyroFlipMinCaptureFrames;
+                // Stop sampling once the window is full: the frames after it are the user reaching
+                // for the mouse to click Continue, leaning on the same table — table vibration
+                // reached 866 peak-to-peak on the DualSense's vertical accel axis, past the floor.
+                if (m_gyroPhaseFrames < minFrames) sampleGyroFrame();
                 bool canAdvance = m_gyroPhaseFrames >= minFrames;
                 int  pct        = std::min(100, (m_gyroPhaseFrames * 100) / minFrames);
                 ImGui::Text(tr("wizard.gyro_capturing"), pct);
@@ -459,7 +483,8 @@ void BindingWizard::renderBinding() {
                 sampleTouchFrame();
                 int bestEdgesSoFar = 0;
                 for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
-                    if (m_touchLiftAlive[o] && m_touchConfirmEdges[o] > bestEdgesSoFar)
+                    if (m_touchLiftAlive[o] && !m_touchConfirmChangedWhileTouching[o] &&
+                        m_touchConfirmEdges[o] > bestEdgesSoFar)
                         bestEdgesSoFar = m_touchConfirmEdges[o];
                 }
                 bool canAdvance = m_touchPhaseFrames >= kTouchConfirmMinFrames;
@@ -490,6 +515,9 @@ void BindingWizard::renderBinding() {
         if (ImGui::Button(trid("btn.back", "bind").c_str(), { 90.0f, 0.0f })) {
             if (midGyroPhases) {
                 m_gyroPhase = static_cast<GyroPhase>(static_cast<int>(m_gyroPhase) - 1);
+                // Without an accel block Flip was never entered (see commitGyroPhase()), so
+                // stepping back from Roll must land on Baseline, not on a Flip that doesn't exist.
+                if (m_gyroPhase == GyroPhase::Flip && !m_gyroHasAccel) m_gyroPhase = GyroPhase::Baseline;
                 resetGyroRoundState(/*clearVotes=*/true);
                 if (m_gyroPhase == GyroPhase::Baseline) {
                     m_gyroCandidates.clear();
@@ -519,6 +547,9 @@ void BindingWizard::renderBinding() {
                     m_touchDataOffset = -1;
                     std::fill(m_touchConfirmEdges.begin(), m_touchConfirmEdges.end(), 0);
                     std::fill(m_touchConfirmPrevTouching.begin(), m_touchConfirmPrevTouching.end(), false);
+                    std::fill(m_touchConfirmPrevValue.begin(), m_touchConfirmPrevValue.end(), 0);
+                    std::fill(m_touchConfirmChangedWhileTouching.begin(),
+                              m_touchConfirmChangedWhileTouching.end(), false);
                 } else { // back to Lift
                     m_touchLiftAlive.clear(); // forces sampleTouchFrame() to reinit all-true
                     m_touchLiftMin.clear();
@@ -1114,6 +1145,8 @@ void BindingWizard::resetTouchSurfaceState() {
     m_touchLiftMax.clear();
     m_touchConfirmEdges.clear();
     m_touchConfirmPrevTouching.clear();
+    m_touchConfirmPrevValue.clear();
+    m_touchConfirmChangedWhileTouching.clear();
     m_touchDataOffset       = -1;
     m_touchRangeMaxX        = 0;
     m_touchRangeMaxY        = 0;
@@ -1165,12 +1198,21 @@ bool BindingWizard::sampleTouchFrame() {
             // Baseline "not touching" — matches how the phase actually starts (right after Lift,
             // finger off the pad), so the very first tap counts as an edge too.
             m_touchConfirmPrevTouching.assign(n, false);
+            m_touchConfirmPrevValue.assign(n, 0);
+            m_touchConfirmChangedWhileTouching.assign(n, false);
         }
         for (int o = 0; o < n && o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
             if (!m_touchLiftAlive[o]) continue; // not a Lift candidate, skip scoring it
-            bool touching = (s.raw[o] & 0x80) == 0;
+            if (m_touchConfirmChangedWhileTouching[o]) continue; // already ruled out
+            uint8_t v = static_cast<uint8_t>(s.raw[o]);
+            bool touching = (v & 0x80) == 0;
+            if (touching && m_touchConfirmPrevTouching[o] && v != m_touchConfirmPrevValue[o]) {
+                m_touchConfirmChangedWhileTouching[o] = true; // moves mid-touch: not the activity byte
+                continue;
+            }
             if (touching && !m_touchConfirmPrevTouching[o]) ++m_touchConfirmEdges[o]; // clean tap detected
             m_touchConfirmPrevTouching[o] = touching;
+            m_touchConfirmPrevValue[o]    = v;
         }
     } else { // RangeX / RangeY — decode against the confirmed dataOffset
         int o = m_touchDataOffset;
@@ -1213,6 +1255,8 @@ void BindingWizard::commitTouchPhase() {
         m_touchPhase = TouchPhase::Confirm;
         m_touchConfirmEdges.assign(m_touchLiftAlive.size(), 0);
         m_touchConfirmPrevTouching.assign(m_touchLiftAlive.size(), false);
+        m_touchConfirmPrevValue.assign(m_touchLiftAlive.size(), 0);
+        m_touchConfirmChangedWhileTouching.assign(m_touchLiftAlive.size(), false);
     } else if (m_touchPhase == TouchPhase::Confirm) {
         // Winner = the lowest-offset candidate whose edge count actually lands within
         // +-kTouchConfirmTapTolerance of the requested kTouchConfirmTargetTaps — not "whichever
@@ -1221,7 +1265,7 @@ void BindingWizard::commitTouchPhase() {
         // IS the lowest-offset one — no separate tie-break needed.
         int winner = -1;
         for (int o = 0; o < static_cast<int>(m_touchLiftAlive.size()); ++o) {
-            if (!m_touchLiftAlive[o]) continue;
+            if (!m_touchLiftAlive[o] || m_touchConfirmChangedWhileTouching[o]) continue;
             int diff = m_touchConfirmEdges[o] - kTouchConfirmTargetTaps;
             if (diff < 0) diff = -diff;
             if (diff <= kTouchConfirmTapTolerance) { winner = o; break; }
@@ -1527,6 +1571,23 @@ void BindingWizard::computeGyroCandidatePool() {
     if (n == 0) return;
 
     std::vector<bool> alive = computeAliveOffsets();
+
+    // Diagnostic: Baseline peak-to-peak per offset over the usual IMU area, so a lost accel block
+    // (hasAccel=false below) shows which byte crossed kGyroBaselineNoiseFloor and by how much.
+    // "*" marks an offset computeAliveOffsets() rejected.
+    if (spdlog::should_log(spdlog::level::trace)) {
+        constexpr int kImuAreaFirst = 13;
+        constexpr int kImuAreaLast  = 30;
+        std::string amps;
+        for (int o = kImuAreaFirst; o <= kImuAreaLast && o < n; ++o) {
+            const GyroOffsetStats& b = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
+            int amp = (b.count > 0) ? static_cast<int>(b.maxV - b.minV) : -1;
+            amps += " " + std::to_string(o) + "=" + std::to_string(amp) + (alive[o] ? "" : "*");
+        }
+        spdlog::trace("[GyroCal] baseline p2p (frames={}, floor={:.0f}):{}",
+                      m_gyroSamples[0][static_cast<int>(GyroPhase::Baseline)].count,
+                      kGyroBaselineNoiseFloor, amps);
+    }
 
     // Longest run of alive offsets spaced 2 bytes apart. See the historical comment that used to
     // live here (now in classifyGyro()'s Step 5/6 block) for why the LONGEST run is taken instead
@@ -2065,6 +2126,7 @@ GamepadState BindingWizard::buildFakeState() const {
         else if (name == "btnR4")     s.btnR4     = true;
         else if (name == "btnLP")     s.btnLP     = true;
         else if (name == "btnRP")     s.btnRP     = true;
+        else if (name == "btnMute")   s.btnMute   = true;
         else if (name == "btnTouch")  s.btnTouch  = true;
         else if (name == "dpadUp")    s.dpadUp    = true;
         else if (name == "dpadDown")  s.dpadDown  = true;

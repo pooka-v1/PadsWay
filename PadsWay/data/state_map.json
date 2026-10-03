@@ -16,6 +16,7 @@
     "btnR4":    { "physical": "r4",        "type": "physical_only" },
     "btnLP":    { "physical": "lp",        "type": "physical_only" },
     "btnRP":    { "physical": "rp",        "type": "physical_only" },
+    "btnMute":  { "physical": "mute",      "type": "physical_only" },
     "btnTouch": { "physical": "touch_btn", "type": "physical_only" },
 
     "triggerL": {

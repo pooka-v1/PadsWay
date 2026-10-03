@@ -497,77 +497,6 @@
       },
       "buttons": {
         "1": {
-          "physical": "a",
-          "virtual": "a"
-        },
-        "11": {
-          "physical": "select",
-          "virtual": "select"
-        },
-        "12": {
-          "physical": "start",
-          "virtual": "start"
-        },
-        "2": {
-          "physical": "b",
-          "virtual": "b"
-        },
-        "4": {
-          "physical": "x",
-          "virtual": "x"
-        },
-        "5": {
-          "physical": "y",
-          "virtual": "y"
-        },
-        "7": {
-          "physical": "l1",
-          "virtual": "l1"
-        },
-        "8": {
-          "physical": "r1",
-          "virtual": "r1"
-        }
-      },
-      "dpad_remap": {
-        "down": "left_y_neg",
-        "left": "left_x_neg",
-        "right": "left_x_pos",
-        "up": "left_y_pos"
-      },
-      "layout_id": "8BitDo-Zero2",
-      "mode": "hid",
-      "pid": "3230",
-      "source_name": "Bluetooth Wireless Controller   ",
-      "vid": "2DC8"
-    },
-    {
-      "axes": {
-        "hid_x": {
-          "invert": false,
-          "target": "left_x"
-        },
-        "hid_y": {
-          "invert": true,
-          "target": "left_y"
-        }
-      },
-      "axis_actions": {
-        "left_x_neg": {
-          "virtual": "dpad_left"
-        },
-        "left_x_pos": {
-          "virtual": "dpad_right"
-        },
-        "left_y_neg": {
-          "virtual": "dpad_down"
-        },
-        "left_y_pos": {
-          "virtual": "dpad_up"
-        }
-      },
-      "buttons": {
-        "1": {
           "physical": "b",
           "virtual": "b"
         },
@@ -670,7 +599,7 @@
       "mode": "hid",
       "pid": "3230",
       "product_name": "8BitDo Zero 2 gamepad",
-      "source_name": "8BitDo Zero 2 D-mode",
+      "source_name": "8BitDo Zero 2 (D-mode)",
       "vid": "2DC8"
     },
     {
@@ -737,7 +666,7 @@
       "mode": "hid",
       "pid": "9018",
       "product_name": "8BitDo Zero 2 gamepad",
-      "source_name": "8BitDo Zero 2 gamepad",
+      "source_name": "8BitDo Zero 2 (D-mode)",
       "vid": "2DC8"
     },
     {
@@ -842,7 +771,6 @@
           "virtual": "select"
         }
       },
-      "connection": "usb",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,
@@ -877,7 +805,7 @@
       "mode": "hid",
       "pid": "09CC",
       "product_name": "Wireless Controller",
-      "source_name": "Dualshock 4 (USB)",
+      "source_name": "DualShock 4 v2",
       "stick_calibration": {
         "left": {
           "deadzone": 0.03999999910593033,
@@ -1217,8 +1145,15 @@
           "physical": "r3",
           "virtual": "r3"
         },
+        "13": {
+          "physical": "home",
+          "virtual": "home"
+        },
         "14": {
           "physical": "touch_btn"
+        },
+        "15": {
+          "physical": "mute"
         },
         "2": {
           "physical": "a",
@@ -1245,42 +1180,41 @@
           "virtual": "select"
         }
       },
-      "connection": "usb",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
         "accel_x_invert": true,
-        "accel_x_max": 0.23999999463558197,
+        "accel_x_max": 0.25999999046325684,
         "accel_x_offset": 22,
         "accel_y_deadzone": 0.0,
         "accel_y_invert": false,
-        "accel_y_max": 0.23999999463558197,
+        "accel_y_max": 0.25999999046325684,
         "accel_y_offset": 26,
         "accel_z_deadzone": 0.0,
         "accel_z_invert": false,
-        "accel_z_max": 0.23999999463558197,
+        "accel_z_max": 0.25999999046325684,
         "accel_z_offset": 24,
         "enabled": true,
         "gyro_scale": 3.0517578125e-05,
         "gyro_x_deadzone": 0.0,
         "gyro_x_invert": true,
-        "gyro_x_max": 0.4399999976158142,
+        "gyro_x_max": 0.46000000834465027,
         "gyro_x_offset": 16,
         "gyro_y_deadzone": 0.0,
         "gyro_y_invert": true,
-        "gyro_y_max": 0.41999998688697815,
+        "gyro_y_max": 0.46000000834465027,
         "gyro_y_offset": 18,
         "gyro_z_deadzone": 0.0,
         "gyro_z_invert": true,
-        "gyro_z_max": 0.41999998688697815,
+        "gyro_z_max": 0.46000000834465027,
         "gyro_z_offset": 20
       },
       "layout_id": "Dual Sense",
       "mode": "hid",
       "pid": "0CE6",
       "product_name": "DualSense Wireless Controller",
-      "source_name": "DualSense (USB)",
+      "source_name": "DualSense",
       "stick_calibration": {
         "left": {
           "deadzone": 0.0,
@@ -1295,7 +1229,10 @@
         "data_offset": 33,
         "enabled": true,
         "max_x": 1919,
-        "max_y": 1079
+        "max_y": 1079,
+        "surface_mode": "unassigned",
+        "x_max": 1.0,
+        "y_max": 1.0
       },
       "trigger_calibration": {
         "l2": {

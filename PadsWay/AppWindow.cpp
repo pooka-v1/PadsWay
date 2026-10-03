@@ -507,7 +507,8 @@ void AppWindow::renderScannerDeviceList() {
     } else {
         for (int i = 0; i < (int)m_hidDevices.size(); ++i) {
             const auto& dev = m_hidDevices[i];
-            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid);
+            const ControllerConfig* cfg = findConfig(m_controllerConfigs, dev.vid, dev.pid,
+                                                     dev.connectionType, "", dev.productName);
             // Always show the raw device name so we can see what the hardware reports.
             const std::string& rawName = dev.productName;
             char label[128];
@@ -802,7 +803,7 @@ void AppWindow::renderScannerInputMonitor() {
 
     const auto& hdev = m_hidDevices[m_hidSelected];
     const ControllerConfig* cfg = findConfig(m_controllerConfigs, hdev.vid, hdev.pid,
-                                             hdev.connectionType);
+                                             hdev.connectionType, "", hdev.productName);
 
     // Selection changed — re-arm the IMU block detector for the new device.
     if (m_hidSelected != m_scanDeviceIdx) {

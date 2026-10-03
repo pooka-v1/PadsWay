@@ -137,6 +137,7 @@ static bool physPressed(ComponentId id, const GamepadState& s) {
         case ComponentId::BtnR4:     return s.btnR4;
         case ComponentId::BtnLP:     return s.btnLP;
         case ComponentId::BtnRP:     return s.btnRP;
+        case ComponentId::BtnMute:   return s.btnMute;
         default:                     return false;
     }
 }

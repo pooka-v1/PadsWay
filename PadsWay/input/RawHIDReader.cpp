@@ -1,4 +1,5 @@
 #include "RawHIDReader.h"
+#include "ControllerProtocolRegistry.h"
 #include <hidsdi.h>
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(hid.preparsed()))
@@ -10,23 +11,34 @@ static constexpr USHORT kUsageRx  = 0x33;
 static constexpr USHORT kUsageRy  = 0x34;
 static constexpr USHORT kUsageRz  = 0x35;
 static constexpr USHORT kUsageHat = 0x39;
+static constexpr USHORT kUsageBrake = 0xC4;
+static constexpr USHORT kUsageAccel = 0xC5;
 
 // ---------------------------------------------------------------------------
 
 RawHIDReader::RawHIDReader(const std::string& devicePath, const std::string& name)
-    : m_hid(devicePath, name)
+    : m_hid(devicePath, name), m_name(name.empty() ? devicePath : name),
+      m_protocol(createControllerProtocol("", m_hid))   // "" = by the device's VID/PID
 {
 }
+
+RawHIDReader::~RawHIDReader() = default;
 
 // ---------------------------------------------------------------------------
 
 bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
 {
+    if (m_fullModePending) {
+        m_fullModePending = false;
+        enableFullModeWithRetries(*m_protocol, m_hid, m_name);
+    }
+
     auto result = m_hid.read(timeoutMs);
     if (result == HIDDevice::ReadResult::Disconnected) return false;
     if (result == HIDDevice::ReadResult::Timeout)      return true;
 
-    decodeRawHIDReport(m_hid, out);
+    // A report the protocol drops (e.g. a corrupted one) counts as "no new data".
+    m_protocol->decode(m_hid.reportBuf().data(), m_hid.lastBytesRead(), out);
     return true;
 }
 
@@ -51,7 +63,8 @@ void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out)
                                usages, &usageCount, PREPARSED, buf, bufLen);
         buf[0] = savedId;
     }
-    if (btnSt == HIDP_STATUS_SUCCESS) {
+    out.buttonsValid = (btnSt == HIDP_STATUS_SUCCESS);
+    if (out.buttonsValid) {
         out.buttonMask = 0;
         for (ULONG i = 0; i < usageCount; ++i)
             if (usages[i] >= 1 && usages[i] <= 32)
@@ -59,29 +72,30 @@ void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out)
     }
 
     // ── Axes ─────────────────────────────────────────────────────────────────
-    auto readAxis = [&](USHORT usage, float& dest) {
-        auto pit   = hid.usagePage().find(usage);
-        USHORT page = (pit != hid.usagePage().end()) ? pit->second : HID_USAGE_PAGE_GENERIC;
+    // Page from the device's own descriptor when it declares the usage — handles devices that put
+    // an axis on a non-standard page (e.g. triggers on page 0x01 instead of 0x02) — else the
+    // usage's standard page.
+    out.axisMask = 0;
+    auto readAxis = [&](USHORT usage, USHORT defaultPage, RawAxis slot, float& dest) {
+        auto pit    = hid.usagePage().find(usage);
+        USHORT page = (pit != hid.usagePage().end()) ? pit->second : defaultPage;
         ULONG raw = 0;
-        if (hid.getUsageValue(page, usage, &raw, buf, bufLen))
+        if (hid.getUsageValue(page, usage, &raw, buf, bufLen)) {
             dest = hid.normalizeAxis(usage, raw);
+            out.axisMask |= static_cast<uint16_t>(1u << static_cast<int>(slot));
+        }
     };
 
-    readAxis(kUsageX,  out.axisX);
-    readAxis(kUsageY,  out.axisY);
-    readAxis(kUsageZ,  out.axisZ);
-    readAxis(kUsageRx, out.axisRx);
-    readAxis(kUsageRy, out.axisRy);
-    readAxis(kUsageRz, out.axisRz);
+    readAxis(kUsageX,  HID_USAGE_PAGE_GENERIC, RawAxis::X,  out.axisX);
+    readAxis(kUsageY,  HID_USAGE_PAGE_GENERIC, RawAxis::Y,  out.axisY);
+    readAxis(kUsageZ,  HID_USAGE_PAGE_GENERIC, RawAxis::Z,  out.axisZ);
+    readAxis(kUsageRx, HID_USAGE_PAGE_GENERIC, RawAxis::Rx, out.axisRx);
+    readAxis(kUsageRy, HID_USAGE_PAGE_GENERIC, RawAxis::Ry, out.axisRy);
+    readAxis(kUsageRz, HID_USAGE_PAGE_GENERIC, RawAxis::Rz, out.axisRz);
 
     // Simulation page (e.g. 8BitDo Pro 3 triggers in D-mode)
-    auto readSimAxis = [&](USHORT usage, float& dest) {
-        ULONG raw = 0;
-        if (hid.getUsageValue(HID_USAGE_PAGE_SIMULATION, usage, &raw, buf, bufLen))
-            dest = hid.normalizeAxis(usage, raw);
-    };
-    readSimAxis(0xC4, out.axisBrake);
-    readSimAxis(0xC5, out.axisAccel);
+    readAxis(kUsageBrake, HID_USAGE_PAGE_SIMULATION, RawAxis::Brake, out.axisBrake);
+    readAxis(kUsageAccel, HID_USAGE_PAGE_SIMULATION, RawAxis::Accel, out.axisAccel);
 
     // ── Hat ──────────────────────────────────────────────────────────────────
     ULONG hat = 0xFFFFFFFF;

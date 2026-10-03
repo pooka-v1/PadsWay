@@ -4,6 +4,8 @@
 #include "ControllerConfig.h"
 #include "ComponentTypes.h"
 #include "RawHIDReader.h"
+#include "ControllerProtocol.h"
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <atomic>
@@ -24,7 +26,7 @@ public:
     const char* getName()             const override { return m_name.c_str(); }
     DWORD       getLastButtonMask()   const override { return m_lastButtonMask; }
     DWORD       getLastRawHat()       const override { return m_lastRawHat.load(); }
-    void        setConfig(const ControllerConfig& cfg) override { m_config = cfg; }
+    void        setConfig(const ControllerConfig& cfg) override;
     GamepadState getPhysicalState()   const override { return m_physicalState; }
     // Generic HID decode (buttons/axes/hat/raw bytes), independent of controllers.json mapping.
     // Populated every read() alongside the mapped GamepadState above. Used by DeviceHub to serve
@@ -44,6 +46,12 @@ public:
 private:
     HIDDevice        m_hid;
     ControllerConfig m_config;
+    // Built from m_config.protocol; turns each report into m_lastRawSnapshot. Declared after m_hid
+    // on purpose: members are constructed in declaration order and it holds a reference to m_hid.
+    std::unique_ptr<ControllerProtocol> m_protocol;
+    // Level 2 (full report) is requested on the first read() after the protocol is built, from
+    // the thread that reads this pad — the only one that ever talks to it.
+    bool             m_fullModePending = true;
     std::string      m_name;
     DWORD            m_lastButtonMask = 0;
     std::atomic<DWORD> m_lastRawHat  { 0xFFFFFFFF };
@@ -105,19 +113,22 @@ private:
     PhysicalController       m_physicalController;
     bool                     m_hasPhysicalController = false;
 
-    struct AxisUsage { USHORT page; USHORT usage; };
-    static AxisUsage usageFromAxisName(const std::string& name);
+    // Every apply*/build* below reads the current report from m_lastRawSnapshot only — never the
+    // device's bytes directly (ARCHITECTURE.md, "Protocolos de mando" → principios, rule 4).
+
+    // Normalized value of a config axis source ("hid_x", "hid_brake", ...) in the current report.
+    // False if the name is unknown or this report didn't carry that axis — callers skip it.
+    bool          readAxisSource(const std::string& source, float& v) const;
     static void   parseHIDDpad(ULONG hatValue, bool& up, bool& down, bool& left, bool& right);
-    // Reads the hat switch (report-ID fallback via HIDDevice::getUsageValue), normalizes it
-    // against the descriptor's logical min/max, decodes it into 4 cardinal directions, updates
-    // m_lastRawHat, and writes m_physicalState.dpad* — common to both read() branches. Also
-    // returns the 4 directions via out-params: the legacy branch additionally ORs them into
-    // `state` afterwards; the Component-System branch doesn't (PhysicalDpadDir::process() writes
-    // `state` later instead). Shared 2026/09/07 — was byte-for-byte duplicated in read().
-    void          applyHatSwitch(PCHAR buf, ULONG bufLen, bool& up, bool& down, bool& left, bool& right);
-    void          applyButtons (PCHAR buf, ULONG bufLen,    GamepadState& state);
-    void          applyAxes    (PCHAR buf, ULONG bufLen,    GamepadState& state);
-    void          applyTouchpad(PCHAR buf, ULONG bytesRead, GamepadState& state);
+    // Decodes the snapshot's hat (already normalized against the descriptor's logical min/max)
+    // into 4 cardinal directions, updates m_lastRawHat, and writes m_physicalState.dpad* — common
+    // to both read() branches. Also returns the 4 directions via out-params: the legacy branch
+    // additionally ORs them into `state` afterwards; the Component-System branch doesn't
+    // (PhysicalDpadDir::process() writes `state` later instead).
+    void          applyHatSwitch(bool& up, bool& down, bool& left, bool& right);
+    void          applyButtons (GamepadState& state);
+    void          applyAxes    (GamepadState& state);
+    void          applyTouchpad(const std::vector<uint8_t>& report, GamepadState& state);
     // Logs one [TOUCH][sess] line for a finger's just-ended touch session — see the harness
     // comment near m_touch1SessStartX above. x0/y0/x1/y1 are normalized [0,1] touchpad coords.
     void          logTouchSession(int finger, float x0, float y0, float x1, float y1,
@@ -128,9 +139,9 @@ private:
     // that second release arrives (or the stash expires unused). x0/y0/x1/y1 normalized [0,1].
     std::string   classifyTouchRelease(int finger, float x0, float y0, float x1, float y1,
                                         bool concurrent);
-    void          applyIMU     (PCHAR buf, ULONG bytesRead, GamepadState& state);
+    void          applyIMU     (const std::vector<uint8_t>& report, GamepadState& state);
     void          applyImuActions();
-    void          buildPhysicalButtons (PCHAR buf, ULONG bufLen);
-    void          buildPhysicalAxes    (PCHAR buf, ULONG bufLen);
-    void          applyAxesResidual    (PCHAR buf, ULONG bufLen, GamepadState& state);
+    void          buildPhysicalButtons ();
+    void          buildPhysicalAxes    ();
+    void          applyAxesResidual    (GamepadState& state);
 };

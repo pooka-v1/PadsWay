@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <chrono>
 #include <memory>
 #include <unordered_map>
 #include "PadView.h"
@@ -323,6 +324,13 @@ private:
     // the start press instantly, skipping the prompt the user never got a chance to read. Set
     // alongside every m_gyroPhaseStarted = false; cleared the first frame buttonMask reads 0.
     bool                  m_gyroAwaitingRelease = false;
+    // Baseline/Flip only: true from the start press until every button has been released and
+    // kGyroStartSettleMs has passed since. Pressing a button on a controller lying flat pushes it
+    // down, and that bump (press + release) reads as thousands of raw units on the vertical accel
+    // axis — enough to mark it "not alive" and lose the whole accel block (DualSense over BT:
+    // offset 24 at 3503 peak-to-peak vs the 800 floor, with the gyro offsets quiet).
+    bool                  m_gyroSettling = false;
+    std::chrono::steady_clock::time_point m_gyroSettleUntil{};
     RawHIDState           m_gyroAxisBaseline{};    // declared-axis snapshot at Baseline start
     // Diagnostic counters for a Baseline that never advances (2026/07/11 DS4 investigation) —
     // tells apart "HID read never valid" from "every frame contaminated" without flooding the
@@ -387,6 +395,9 @@ private:
     // needed, unlike Baseline itself), so it gets a much shorter timer.
     static constexpr int   kGyroFlipMinCaptureFrames = 90; // ~1.5s @60fps — min frames before "continue" enables (Flip only)
     static constexpr float kGyroAxisContamination = 0.15f; // declared-axis drift beyond this discards the frame
+    // Quiet wait after the start press is fully released, before Baseline/Flip sample anything
+    // (see m_gyroSettling). Time-based, not frames: wizard frames are UI frames.
+    static constexpr int   kGyroStartSettleMs = 500;
     // Raw int16 peak-to-peak allowed while quiet. Three uses: Baseline's own quiet check, the
     // rest-streak break check (m_gyroRestStreak), and the hold-delta typing threshold in
     // finishGyroRound() (a real accelerometer's two rest readings differ by much more than this).
@@ -457,6 +468,13 @@ private:
     std::vector<int>  m_touchConfirmEdges;
     // Previous frame's "touching" (bit7==0) state per offset, to detect the rising edge above.
     std::vector<bool> m_touchConfirmPrevTouching;
+    // Confirm: per offset, the byte's value in the previous frame, and whether it ever changed
+    // between two consecutive "touching" frames — such a byte is dropped from the pool. The real
+    // activity byte holds one value for the whole touch (bit7=0 + touch ID); the DS4's touch
+    // packet counter (byte 34, right before it) counts on every report while a finger is down, so
+    // its bit7 crossings could fake the tap count and win the lowest-offset tie-break.
+    std::vector<uint8_t> m_touchConfirmPrevValue;
+    std::vector<bool>    m_touchConfirmChangedWhileTouching;
     int        m_touchDataOffset = -1; // Confirm's winning offset, consumed by RangeX/RangeY and saveResult()
     int        m_touchRangeMaxX  = 0;  // running max X seen in RangeX while touching
     int        m_touchRangeMaxY  = 0;  // running max Y seen in RangeY while touching

@@ -229,6 +229,10 @@ struct ControllerConfig {
     std::string mode;
     std::string connection;    // "usb" / "bt" / "" = match any
     std::string product_name;  // BT/HID product name filter — partial match, case-insensitive
+    // How to talk to this pad — see input/ControllerProtocolRegistry.h. Empty (absent in the JSON)
+    // = by hardware: the family its VID/PID belongs to, generic_hid (HidP) for every other pad.
+    // A known name forces that protocol instead.
+    std::string protocol;
 
     std::unordered_map<int, ButtonAction>           buttons;       // physical bit (1-indexed) -> action
     std::unordered_map<std::string, AxisMapping>    axes;          // HID source name -> whole-axis mapping

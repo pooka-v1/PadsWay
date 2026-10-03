@@ -25,6 +25,7 @@ enum class ComponentId : uint8_t {
     // 8BitDo extra paddles (not present on standard XInput controllers)
     BtnL4, BtnR4,     // short paddles (L4 / R4)
     BtnLP, BtnRP,     // long  paddles (L5 / R5)
+    BtnMute,          // microphone mute (DualSense)
     _Count   // always last — used to dimension the array
 };
 
