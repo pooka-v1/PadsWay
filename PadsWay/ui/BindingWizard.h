@@ -75,6 +75,9 @@ private:
         std::string productName;
         std::string connectionType; // "usb" / "bt" / ""
         std::string path;
+        // config_id of the entry findConfig() matched at scan time; empty = no entry yet, so
+        // saveResult() creates one. A re-run of the wizard overwrites this entry.
+        std::string configId;
     };
 
     struct StateMapEntry {

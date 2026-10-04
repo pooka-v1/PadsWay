@@ -778,37 +778,25 @@ void BindingWizard::renderCanvas(int highlightComp) {
 void BindingWizard::scanControllers() {
     m_controllers.clear();
 
-    // Load existing configs so we can pre-fill source_name as the display name
+    // Existing entries: which one (if any) each detected pad already has — a re-run of the
+    // wizard overwrites it — and its source_name as a fallback display name. Same loader and
+    // same findConfig() the engine uses, so the wizard and the runtime always agree on which
+    // entry a pad is.
     std::vector<ControllerConfig> existingConfigs;
-    try {
-        std::ifstream f(m_controllersPath);
-        if (f.is_open()) {
-            json root = json::parse(f);
-            if (root.contains("controllers")) {
-                for (const auto& c : root["controllers"]) {
-                    ControllerConfig cfg;
-                    cfg.vid          = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
-                    cfg.pid          = static_cast<uint16_t>(std::stoul(c.at("pid").get<std::string>(), nullptr, 16));
-                    cfg.source_name  = c.value("source_name", "");
-                    cfg.mode         = c.value("mode", "");
-                    cfg.connection   = c.value("connection", "");
-                    existingConfigs.push_back(std::move(cfg));
-                }
-            }
-        }
-    } catch (...) {}
+    try { existingConfigs = loadControllerConfigs(m_controllersPath); } catch (...) {}
 
     // HID scan — all physical controllers use HID
     for (const auto& h : HIDScanner::scan()) {
         if (h.vid == 0x5650 && h.pid == 0x0001) continue;  // skip ViGEm
         const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
-                                                       h.connectionType);
+                                                       h.connectionType, h.productName);
         DetectedController c;
         c.vid            = h.vid;
         c.pid            = h.pid;
         c.productName    = h.productName;
         c.connectionType = h.connectionType;
         c.path           = h.path;
+        if (existing) c.configId = existing->config_id;
         // Hardware name takes priority — the config source_name may belong to a different
         // model that shares VID/PID (e.g. Pro 2 config showing for a Zero 2 device).
         c.name = !h.productName.empty() ? h.productName
@@ -2293,44 +2281,17 @@ void BindingWizard::saveResult() {
     if (!root.contains("controllers") || !root["controllers"].is_array())
         root["controllers"] = json::array();
 
-    // Replace existing entry matching VID+PID (+connection/product_name as tie-breakers), or
-    // append. Mirrors the same scoring approach as ConfigLoader::findConfig() (the runtime
-    // device→config picker), for the same reason: VID+PID alone isn't always a unique key.
-    // 8BitDo Pro 2 (X-mode) and 8BitDo Zero 2 (X-mode) share VID 045E/PID 02E0 — only
-    // product_name tells them apart (see controllers.json, both entries) — so product_name
-    // has to stay part of this match, same as findConfig() already relies on for runtime
-    // device recognition.
-    //
-    // source_name is deliberately NOT part of it: it's just a display label (device-reported
-    // or user-typed), not a device identity. Requiring it to match too caused real duplicate
-    // entries — the DS4's hardware-reported name ("Wireless Controller") doesn't match the
-    // hand-curated source_name ("Dualshock 4") from before the wizard existed, so every
-    // recalibration kept creating a new entry instead of overwriting it
-    // (BUG-WIZARD-DUPLICATE-ENTRY, confirmed for real 2026/07/10 and again 2026/07/11). The
-    // merge below still updates source_name to whatever the wizard captured, same as any other
-    // wizard-managed field.
-    //
-    // Rule per discriminator (connection, product_name): if BOTH sides declare it and it
-    // differs → this entry can't be a match, skip entirely. If only one side declares it (or
-    // neither) → not a blocker, but also doesn't count toward the score. Among all surviving
-    // candidates, the one with the highest score (most discriminators that actually matched)
-    // wins — this is what lets the Pro2/Zero2 collision resolve by elimination: the Zero2
-    // entry's product_name check fails outright against a real Pro2 device (so it's skipped),
-    // leaving the product_name-less Pro2 entry as the only surviving candidate.
-    std::string newConn        = ctrl.connectionType;
-    std::string newProductName = ctrl.productName;
+    // Replace the entry this pad already had (its config_id, resolved by findConfig() at scan
+    // time — see scanControllers()), or append a new one with a fresh config_id. source_name is
+    // never the key: it's a display label, and the merge below just updates it like any other
+    // wizard-managed field. The id itself is made once, here, and a re-run keeps it — renaming
+    // the pad doesn't change it.
     json* bestMatch = nullptr;
-    int   bestScore = -1;
+    std::vector<std::string> existingIds;
     for (auto& e : root["controllers"]) {
-        if (e.value("vid","") != std::string(vidStr) || e.value("pid","") != std::string(pidStr))
-            continue;
-        std::string eConn    = e.value("connection","");
-        std::string eProduct = e.value("product_name","");
-        if (!eConn.empty()    && !newConn.empty()        && eConn    != newConn)        continue;
-        if (!eProduct.empty() && !newProductName.empty() && eProduct != newProductName) continue;
-        int score = (!eConn.empty()    && eConn    == newConn        ? 2 : 0)
-                  + (!eProduct.empty() && eProduct == newProductName ? 2 : 0);
-        if (score > bestScore) { bestScore = score; bestMatch = &e; }
+        const std::string id = e.value("config_id", "");
+        existingIds.push_back(id);
+        if (!ctrl.configId.empty() && id == ctrl.configId) bestMatch = &e;
     }
     if (bestMatch) {
         // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype") by
@@ -2338,6 +2299,7 @@ void BindingWizard::saveResult() {
         for (auto& [k, v] : entry.items())
             (*bestMatch)[k] = v;
     } else {
+        entry["config_id"] = makeConfigId(m_nameBuf, existingIds);
         root["controllers"].push_back(entry);
     }
 
