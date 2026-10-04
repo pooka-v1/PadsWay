@@ -315,9 +315,8 @@ void MappingSourceSelector::armGyroAccelSweep(const PadView& phys, MappingSelect
         // carries the RAW pre-calibration reading — shape it through the active device's own
         // per-axis deadzone/max first (see the identical reasoning that used to live here for
         // the old design).
-        DeviceCandidate dev = engine.getActiveDevice();
         const ControllerConfig* activeCfg =
-            findConfig(configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+            findConfigById(configs, engine.getActiveDevice().configId);
         float accelX = physNow.accelX, accelY = physNow.accelY, gyroY = physNow.gyroY;
         if (activeCfg) {
             const auto& imu = activeCfg->imu;

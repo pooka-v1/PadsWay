@@ -30,9 +30,9 @@ struct RangeEdit {
 // ---------------------------------------------------------------------------
 class MappingModel {
 public:
-    // Identity of the controller whose data is currently loaded.
-    uint16_t vid = 0;
-    uint16_t pid = 0;
+    // Identity of the controller whose data is currently loaded: its config_id. Not VID/PID —
+    // those repeat across entries (Pro 2 and Zero 2 in X-mode are both 045E:02E0).
+    std::string configId;
 
     // Button remapping: physShort → virtShort (Xbox).
     std::unordered_map<std::string, std::string>    buttonEdits;
@@ -91,14 +91,14 @@ public:
     // classifyTwoFingerGesture()). Per-profile overridable, like touchZoneActionEdits.
     std::unordered_map<std::string, ButtonAction> touchGestureActionEdits;
 
-    // Populate edits from the matching config entry (vid/pid must be set first).
+    // Populate edits from the matching config entry (configId must be set first).
     void reload(const std::vector<ControllerConfig>& configs);
 
     // Populate edits directly from a pre-resolved config (no file I/O).
     void reloadFromConfig(const ControllerConfig& cfg);
 
     // Populate edits from base config with profile overrides applied on top.
-    // Sets vid/pid from base.
+    // Sets configId from base.
     void loadProfile(const ControllerConfig& base, const GameProfile& profile);
 
     // Serialize all edits to controllers.json.
@@ -112,6 +112,6 @@ public:
     bool saveProfile(const std::string& path, const std::string& profileName,
                      const ControllerConfig& base);
 
-    // Clear all edit maps (does not reset vid/pid).
+    // Clear all edit maps (does not reset configId).
     void clear();
 };

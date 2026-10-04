@@ -209,6 +209,15 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
     for (const auto& c : root.at("controllers")) {
         ControllerConfig cfg;
+        // Required, no fallback: a missing id must fail loudly here instead of every later
+        // lookup silently missing the entry (no old-file conversion — see ARCHITECTURE.md
+        // "Tarea 6").
+        if (!c.contains("config_id") || c["config_id"].get<std::string>().empty())
+            throw std::runtime_error("Controller entry without config_id in " + path + ": " +
+                                     c.value("source_name", std::string("<no source_name>")));
+        cfg.config_id    = c["config_id"].get<std::string>();
+        if (findConfigById(result, cfg.config_id))
+            throw std::runtime_error("Duplicate config_id in " + path + ": " + cfg.config_id);
         cfg.vid          = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
         cfg.pid          = static_cast<uint16_t>(std::stoul(c.at("pid").get<std::string>(), nullptr, 16));
         cfg.source_name  = c.at("source_name").get<std::string>();
@@ -387,7 +396,6 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
                                    const std::string& connection,
-                                   const std::string& sourceName,
                                    const std::string& productName) {
     const ControllerConfig* best      = nullptr;
     int                     bestScore = -1;
@@ -421,12 +429,6 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
             score += 2;
         }
 
-        // source_name: only used when caller provides it (e.g. wizard re-pair)
-        if (!sourceName.empty() && !c.source_name.empty()) {
-            if (c.source_name != sourceName) continue;
-            score += 1;
-        }
-
         if (score > bestScore) {
             bestScore = score;
             best      = &c;
@@ -435,7 +437,37 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
     return best;
 }
 
-void saveCalibration(const std::string& path, const std::string& sourceName,
+const ControllerConfig* findConfigById(const std::vector<ControllerConfig>& configs,
+                                       const std::string& configId) {
+    if (configId.empty()) return nullptr;
+    for (const auto& c : configs)
+        if (c.config_id == configId) return &c;
+    return nullptr;
+}
+
+std::string makeConfigId(const std::string& name, const std::vector<std::string>& existingIds) {
+    // Byte-wise on purpose: any non-ASCII byte (UTF-8 accents, 'ñ'...) is "not a letter/digit"
+    // and turns into the separator, so the id is always plain ASCII whatever the name.
+    std::string base;
+    for (unsigned char ch : name) {
+        if (ch < 0x80 && std::isalnum(ch))
+            base += static_cast<char>(std::tolower(ch));
+        else if (!base.empty() && base.back() != '-')
+            base += '-';
+    }
+    while (!base.empty() && base.back() == '-') base.pop_back();
+    if (base.empty()) base = "controller";
+
+    auto taken = [&](const std::string& id) {
+        return std::find(existingIds.begin(), existingIds.end(), id) != existingIds.end();
+    };
+    std::string id = base;
+    for (int suffix = 2; taken(id); ++suffix)
+        id = base + "-" + std::to_string(suffix);
+    return id;
+}
+
+void saveCalibration(const std::string& path, const std::string& configId,
                      const StickCalibration& leftStick, const StickCalibration& rightStick,
                      const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
                      const ImuConfig& imu, const TouchpadConfig& touchpad,
@@ -449,7 +481,7 @@ void saveCalibration(const std::string& path, const std::string& sourceName,
         throw std::runtime_error("No 'controllers' array in " + path);
 
     for (auto& ctrl : root["controllers"]) {
-        if (ctrl.value("source_name", "") != sourceName) continue;
+        if (ctrl.value("config_id", "") != configId) continue;
 
         auto& sc = ctrl["stick_calibration"];
         sc["left"]["deadzone"]  = leftStick.deadzone;
@@ -513,7 +545,7 @@ void saveCalibration(const std::string& path, const std::string& sourceName,
         f << root.dump(4);
         return;
     }
-    throw std::runtime_error("source_name not found in " + path + ": " + sourceName);
+    throw std::runtime_error("config_id not found in " + path + ": " + configId);
 }
 
 std::unordered_map<std::string, std::string> loadMacroLibrary(const std::string& path) {
@@ -1113,6 +1145,7 @@ static PhysicalDpadDir resolveDpadDir(DpadDir dir,
 
 static PhysicalController parsePhysicalController(const json& c) {
     PhysicalController ctrl;
+    ctrl.configId = c.value("config_id", "");
     ctrl.vid  = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
     ctrl.pid  = static_cast<uint16_t>(std::stoul(c.at("pid").get<std::string>(), nullptr, 16));
     ctrl.name = c.value("source_name", "");

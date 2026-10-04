@@ -65,6 +65,7 @@
           "virtual": "l3"
         }
       },
+      "config_id": "8bitdo-pro-3-x-mode",
       "dpad": "hid_hat",
       "layout_id": "8BitDo-Pro3",
       "mode": "hid",
@@ -185,6 +186,7 @@
           "virtual": "r1"
         }
       },
+      "config_id": "8bitdo-pro-2-d-mode",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,
@@ -317,6 +319,7 @@
           "virtual": "l3"
         }
       },
+      "config_id": "8bitdo-pro-2-x-mode",
       "dpad": "hid_hat",
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
@@ -391,6 +394,7 @@
           "virtual": "select"
         }
       },
+      "config_id": "logitech-f310-d-mode",
       "dpad": "hid_hat",
       "layout_id": "Logitech-F310-Dmode",
       "mode": "hid",
@@ -463,6 +467,7 @@
           "virtual": "l3"
         }
       },
+      "config_id": "logitech-f310-x-mode",
       "dpad": "hid_hat",
       "layout_id": "Logitech-F310-Xmode",
       "mode": "hid",
@@ -529,6 +534,7 @@
           "virtual": "start"
         }
       },
+      "config_id": "8bitdo-zero-2-x-mode",
       "layout_id": "8BitDo-Zero2",
       "mode": "hid",
       "pid": "02E0",
@@ -595,6 +601,7 @@
           "virtual": "r1"
         }
       },
+      "config_id": "8bitdo-zero-2-d-mode",
       "layout_id": "8BitDo-Zero2",
       "mode": "hid",
       "pid": "3230",
@@ -661,6 +668,7 @@
           "virtual": "r1"
         }
       },
+      "config_id": "8bitdo-zero-2-d-mode-2",
       "connection": "usb",
       "layout_id": "8BitDo-Zero2",
       "mode": "hid",
@@ -771,6 +779,7 @@
           "virtual": "select"
         }
       },
+      "config_id": "dualshock-4-v2",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,
@@ -1034,6 +1043,7 @@
           "virtual": "r1"
         }
       },
+      "config_id": "8bitdo-pro-3-d-mode",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,
@@ -1180,6 +1190,7 @@
           "virtual": "select"
         }
       },
+      "config_id": "dualsense",
       "dpad": "hid_hat",
       "imu": {
         "accel_scale": 3.0517578125e-05,

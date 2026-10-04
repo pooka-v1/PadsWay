@@ -34,6 +34,9 @@ struct DeviceCandidate {
     WORD        pid            = 0;
     std::string name;
     std::string connectionType;  // "usb" / "bt" / ""
+    // config_id of the controllers.json entry findConfig() matched when the device was scanned.
+    // Everything after detection (engine, Mapeador, calibration) finds the entry by this id.
+    std::string configId;
 };
 
 enum class EnginePhase {

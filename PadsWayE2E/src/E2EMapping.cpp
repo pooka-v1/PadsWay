@@ -23,13 +23,15 @@ void reloadEngineAndSettle() {
     settle();
 }
 
+// The config_id the engine resolved for the fake pad — the key MappingEditor uses for every lookup.
+std::string activeConfigId() { return harness().engine().getActiveDevice().configId; }
+
 // The controllers.json entry the Perfiles editor diffs a profile against: MappingEditor looks it up
-// for the active device with the same findConfig call. Held in a static so the pointer stays valid.
+// for the active device with the same findConfigById call. Held in a static so the pointer stays valid.
 const ControllerConfig* profileBase() {
     static std::vector<ControllerConfig> configs;
     configs = loadControllerConfigs(controllersPath());
-    const DeviceCandidate dev = harness().engine().getActiveDevice();
-    return findConfig(configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+    return findConfigById(configs, activeConfigId());
 }
 
 } // namespace
@@ -40,8 +42,7 @@ std::string testProfilePath() {
 
 MappingModel openEditor(SaveMode mode) {
     MappingModel model;
-    model.vid = E2ESandbox::kFakePadVid;
-    model.pid = E2ESandbox::kFakePadPid;
+    model.configId = activeConfigId();
     if (mode == SaveMode::Normal) {
         model.reload(loadControllerConfigs(controllersPath()));
         return model;

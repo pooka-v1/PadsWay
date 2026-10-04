@@ -2,6 +2,7 @@
   "_doc": "Template vacío de controllers.json. Cada entrada en 'controllers' es un mando físico.",
   "controllers": [
     {
+      "config_id": "nombre-del-mando",
       "vid": "XXXX",
       "pid": "YYYY",
       "source_name": "Nombre del mando",

@@ -183,8 +183,7 @@ CalibrationPanel::AxisInvertRef CalibrationPanel::findAxisInvert(const Controlle
 
 void CalibrationPanel::reload() {
     DeviceCandidate dev = m_engine->getActiveDevice();
-    const ControllerConfig* cfg =
-        findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+    const ControllerConfig* cfg = findConfigById(m_configs, dev.configId);
 
     m_hasActiveConfig = (cfg != nullptr);
     if (cfg) {
@@ -212,7 +211,7 @@ void CalibrationPanel::save() {
                                           &m_rightXInvertRef, &m_rightYInvertRef })
             if (!ref->hidKey.empty()) axisInverts.emplace_back(ref->hidKey, ref->invert);
 
-        saveCalibration(Paths::userData("data/controllers.json"), m_activeConfig.source_name,
+        saveCalibration(Paths::userData("data/controllers.json"), m_activeConfig.config_id,
                         m_editLeftStick, m_editRightStick, m_editTriggerL, m_editTriggerR,
                         m_editImu, m_editTouch, axisInverts);
         m_activeConfig.leftStickCalib  = m_editLeftStick;

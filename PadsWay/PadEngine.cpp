@@ -267,13 +267,14 @@ void PadEngine::monitorFunc() {
         std::vector<DeviceCandidate> candidates;
         for (auto& h : hidEntries) {
             if (vVid && h.vid == vVid && h.pid == vPid) continue;
-            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType, "", h.productName);
+            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType, h.productName);
             if (!cfg || cfg->mode != "hid") continue;
             DeviceCandidate c;
             c.hidPath        = h.path;
             c.vid            = h.vid;
             c.pid            = h.pid;
             c.connectionType = h.connectionType;
+            c.configId       = cfg->config_id;
             c.name           = h.productName.empty()
                 ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
                 : h.productName;
@@ -451,7 +452,7 @@ void PadEngine::threadFunc() {
                 for (auto& h : hidEntries) {
                     const uint16_t vVid = m_virtualVid.load(), vPid = m_virtualPid.load();
                     if (vVid && h.vid == vVid && h.pid == vPid) continue;
-                    const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType, "", h.productName);
+                    const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType, h.productName);
                     if (!c || c->mode != "hid") {
                         spdlog::debug("[Scan] No config: VID={:04X} PID={:04X} conn='{}' name='{}'",
                                       h.vid, h.pid, h.connectionType, h.productName);
@@ -462,6 +463,7 @@ void PadEngine::threadFunc() {
                     dc.vid            = h.vid;
                     dc.pid            = h.pid;
                     dc.connectionType = h.connectionType;
+                    dc.configId       = c->config_id;
                     dc.name           = h.productName.empty()
                         ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
                         : h.productName;
@@ -515,18 +517,18 @@ void PadEngine::threadFunc() {
         // ── Configure ────────────────────────────────────────────────────────
         { std::lock_guard<std::mutex> lock(m_mutex); m_activeDevice = selected; }
 
-        const ControllerConfig* cfgBase = findConfig(configs, selected.vid, selected.pid,
-                                                     selected.connectionType, "", selected.name);
+        const ControllerConfig* cfgBase = findConfigById(configs, selected.configId);
         if (!cfgBase) {
-            spdlog::error("No config for VID={:04X} PID={:04X} ({}) — add to controllers.json.",
-                selected.vid, selected.pid, selected.name);
+            spdlog::error("No config '{}' for VID={:04X} PID={:04X} ({}) — add to controllers.json.",
+                selected.configId, selected.vid, selected.pid, selected.name);
             setStatus("No config for this device — rescanning");
             preSelected = {};
             m_phase.store(EnginePhase::Scanning);
             Sleep(2000);
             continue;  // back to scan
         }
-        spdlog::info("Config loaded: {} (HID: {})", cfgBase->source_name, selected.name);
+        spdlog::info("Config loaded: {} [{}] (HID: {})", cfgBase->source_name, cfgBase->config_id,
+                     selected.name);
         setDevice(selected.name);
         { std::lock_guard<std::mutex> lock(m_mutex); m_activeLayoutId = cfgBase->layout_id; }
 
@@ -562,13 +564,13 @@ void PadEngine::threadFunc() {
         {
             auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
                 [&](const PhysicalController& pc) {
-                    return pc.vid == selected.vid && pc.pid == selected.pid;
+                    return pc.configId == selected.configId;
                 });
             if (it != physCtrls.end()) {
                 PhysicalController pc = *it;
                 rebuildPhysicalControllerFromConfig(pc, effectiveCfg);
                 input->setPhysicalController(pc);
-                spdlog::info("PhysicalController injected for {:04X}:{:04X}", selected.vid, selected.pid);
+                spdlog::info("PhysicalController injected for '{}'", selected.configId);
             }
         }
 
@@ -835,7 +837,7 @@ void PadEngine::threadFunc() {
             {
                 auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
                     [&](const PhysicalController& pc) {
-                        return pc.vid == selected.vid && pc.pid == selected.pid;
+                        return pc.configId == selected.configId;
                     });
                 if (it != physCtrls.end()) {
                     PhysicalController pc = *it;
@@ -876,7 +878,7 @@ void PadEngine::threadFunc() {
         if (m_configsDirty.exchange(false)) {
             { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
             // cfgBase pointed into the old configs — re-find it in the refreshed copy.
-            cfgBase = findConfig(configs, selected.vid, selected.pid, selected.connectionType, "", selected.name);
+            cfgBase = findConfigById(configs, selected.configId);
             if (cfgBase) {
                 effectiveCfg = *cfgBase;
                 if (!currentProfilePath.empty()) {
@@ -893,7 +895,7 @@ void PadEngine::threadFunc() {
                     physCtrls = loadPhysicalControllers(Paths::userData("data/controllers.json"));
                     auto it = std::find_if(physCtrls.begin(), physCtrls.end(),
                         [&](const PhysicalController& pc) {
-                            return pc.vid == selected.vid && pc.pid == selected.pid;
+                            return pc.configId == selected.configId;
                         });
                     if (it != physCtrls.end()) {
                         PhysicalController pc = *it;
