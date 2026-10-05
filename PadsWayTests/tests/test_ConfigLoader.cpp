@@ -1,6 +1,7 @@
 #include "config/ConfigLoader.h"
 #include "input/ControllerConfig.h"
 #include "ui/PadLayout.h"
+#include "nlohmann/json.hpp"
 #include <fstream>
 #include <cstdio>
 #include <catch2/catch_amalgamated.hpp>
@@ -1064,6 +1065,27 @@ TEST_CASE("saveCalibration round-trips touch max", "[ConfigLoader]") {
     // max keys into the existing "touchpad" object.
     REQUIRE(configs[0].touchpad.dataOffset == 35);
     REQUIRE(configs[0].touchpad.maxX       == 1919);
+}
+
+TEST_CASE("saveCalibration does not create an imu block on a no-IMU controller", "[ConfigLoader]") {
+    // Like an X-mode pad: no "imu" section. Saving its stick calibration must not leave a stub
+    // "imu" object of defaults behind.
+    const std::string path = "test_tmp_savecalib_noimu.json";
+    { std::ofstream f(path); f << R"({
+        "controllers": [{
+            "config_id": "test-controller", "vid": "0x1234", "pid": "0x5678",
+            "source_name": "TestController", "mode": "gamepad", "buttons": {}, "axes": {}
+        }]
+    })"; }
+
+    saveCalibration(path, "test-controller", {0.3f, 1.0f}, {}, {}, {}, ImuConfig{}, TouchpadConfig{}, {});
+
+    nlohmann::json saved;
+    { std::ifstream in(path); saved = nlohmann::json::parse(in); }
+    std::remove(path.c_str());
+    const auto& ctrl = saved["controllers"][0];
+    REQUIRE_FALSE(ctrl.contains("imu"));
+    REQUIRE(ctrl["stick_calibration"]["left"]["deadzone"].get<float>() == Catch::Approx(0.3f));
 }
 
 TEST_CASE("saveCalibration writes per-axis invert flags", "[ConfigLoader]") {

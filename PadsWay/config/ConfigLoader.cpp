@@ -497,28 +497,30 @@ void saveCalibration(const std::string& path, const std::string& configId,
 
         // Merge into the existing "imu" object — offset/scale fields are the wizard's, left
         // untouched. Invert fields ARE written here now: CalibrationPanel lets the user flip a
-        // wrongly-detected axis without re-running the wizard. Missing "imu" (no-IMU controller)
-        // just creates a minimal object; callers are expected not to reach here for those (see
-        // CalibrationPanel's imu.enabled guard).
-        auto& im = ctrl["imu"];
-        im["gyro_x_deadzone"]  = imu.gyroXDeadzone;
-        im["gyro_y_deadzone"]  = imu.gyroYDeadzone;
-        im["gyro_z_deadzone"]  = imu.gyroZDeadzone;
-        im["gyro_x_max"]       = imu.gyroXMax;
-        im["gyro_y_max"]       = imu.gyroYMax;
-        im["gyro_z_max"]       = imu.gyroZMax;
-        im["gyro_x_invert"]    = imu.gyroXInvert;
-        im["gyro_y_invert"]    = imu.gyroYInvert;
-        im["gyro_z_invert"]    = imu.gyroZInvert;
-        im["accel_x_deadzone"] = imu.accelXDeadzone;
-        im["accel_y_deadzone"] = imu.accelYDeadzone;
-        im["accel_z_deadzone"] = imu.accelZDeadzone;
-        im["accel_x_max"]      = imu.accelXMax;
-        im["accel_y_max"]      = imu.accelYMax;
-        im["accel_z_max"]      = imu.accelZMax;
-        im["accel_x_invert"]   = imu.accelXInvert;
-        im["accel_y_invert"]   = imu.accelYInvert;
-        im["accel_z_invert"]   = imu.accelZInvert;
+        // wrongly-detected axis without re-running the wizard. Only into a device that already
+        // has an "imu" section (the wizard creates it when it detects a gyro): operator[] would
+        // otherwise create a stub block of defaults on every no-IMU controller saved here.
+        if (ctrl.contains("imu")) {
+            auto& im = ctrl["imu"];
+            im["gyro_x_deadzone"]  = imu.gyroXDeadzone;
+            im["gyro_y_deadzone"]  = imu.gyroYDeadzone;
+            im["gyro_z_deadzone"]  = imu.gyroZDeadzone;
+            im["gyro_x_max"]       = imu.gyroXMax;
+            im["gyro_y_max"]       = imu.gyroYMax;
+            im["gyro_z_max"]       = imu.gyroZMax;
+            im["gyro_x_invert"]    = imu.gyroXInvert;
+            im["gyro_y_invert"]    = imu.gyroYInvert;
+            im["gyro_z_invert"]    = imu.gyroZInvert;
+            im["accel_x_deadzone"] = imu.accelXDeadzone;
+            im["accel_y_deadzone"] = imu.accelYDeadzone;
+            im["accel_z_deadzone"] = imu.accelZDeadzone;
+            im["accel_x_max"]      = imu.accelXMax;
+            im["accel_y_max"]      = imu.accelYMax;
+            im["accel_z_max"]      = imu.accelZMax;
+            im["accel_x_invert"]   = imu.accelXInvert;
+            im["accel_y_invert"]   = imu.accelYInvert;
+            im["accel_z_invert"]   = imu.accelZInvert;
+        }
 
         // Only into a device that already has a "touchpad" section — a no-touch controller
         // never gets one created just from opening Calibracion (mirrors the axes guard below).
@@ -542,7 +544,7 @@ void saveCalibration(const std::string& path, const std::string& configId,
         std::ofstream f(path);
         if (!f.is_open())
             throw std::runtime_error("Cannot write " + path);
-        f << root.dump(4);
+        f << root.dump(2);  // same indent as MappingModel/BindingWizard, the other writers of this file
         return;
     }
     throw std::runtime_error("config_id not found in " + path + ": " + configId);
