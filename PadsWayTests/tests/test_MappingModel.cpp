@@ -26,21 +26,20 @@ TEST_CASE("MappingModel::clear resets all maps", "[MappingModel]") {
     REQUIRE(model.trigRRangeEdits.empty());
     REQUIRE(model.stickSlotEdits.empty());
 
-    // vid and pid are not cleared
-    REQUIRE(model.vid == 0);
-    REQUIRE(model.pid == 0);
+    // configId is not cleared
+    model.configId = "test-pad";
+    model.clear();
+    REQUIRE(model.configId == "test-pad");
 }
 
 TEST_CASE("MappingModel::reload loads VirtualButton correctly", "[MappingModel]") {
     MappingModel model;
     ControllerConfig cfg;
     cfg.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "b", "a"};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.size() == 1);
@@ -51,12 +50,10 @@ TEST_CASE("MappingModel::reload skips identity remaps", "[MappingModel]") {
     MappingModel model;
     ControllerConfig cfg;
     cfg.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "a", "a"};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.empty());
@@ -69,12 +66,10 @@ TEST_CASE("MappingModel::reload loads Keyboard action correctly", "[MappingModel
     action.physical = "a";
     action.keys = {"alt", "tab"};
     cfg.buttons[1] = action;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.actionEdits.size() == 1);
@@ -89,12 +84,10 @@ TEST_CASE("MappingModel::reload loads Macro action correctly", "[MappingModel]")
     action.physical = "a";
     action.execution = "A,500,A";
     cfg.buttons[1] = action;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.actionEdits.size() == 1);
@@ -107,12 +100,10 @@ TEST_CASE("MappingModel::reload ignores Bot and TriggerPassthrough", "[MappingMo
     ControllerConfig cfg;
     cfg.buttons[1] = ButtonAction{ButtonActionType::Bot};
     cfg.buttons[2] = ButtonAction{ButtonActionType::TriggerPassthrough};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.empty());
@@ -123,12 +114,10 @@ TEST_CASE("MappingModel::reload loads dpadRemap correctly", "[MappingModel]") {
     MappingModel model;
     ControllerConfig cfg;
     cfg.dpadRemap["up"] = "dpad_up";
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.size() == 1);
@@ -141,12 +130,10 @@ TEST_CASE("MappingModel::reload loads dpadActions correctly", "[MappingModel]") 
     ButtonAction action{ButtonActionType::Keyboard};
     action.keys = {"alt", "tab"};
     cfg.dpadActions["up"] = action;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.actionEdits.size() == 1);
@@ -158,12 +145,10 @@ TEST_CASE("MappingModel::reload loads stickSlots correctly", "[MappingModel]") {
     MappingModel model;
     ControllerConfig cfg;
     cfg.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "left_x_pos", "a"};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.size() == 1);
@@ -177,12 +162,10 @@ TEST_CASE("MappingModel::reload loads triggerLAction correctly", "[MappingModel]
     action.name = "l2";
     cfg.triggerLAction = action;
     cfg.triggerLHasAction = true;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.trigActionEdits.size() == 1);
@@ -197,12 +180,10 @@ TEST_CASE("MappingModel::reload loads triggerRAction correctly", "[MappingModel]
     action.name = "r2";
     cfg.triggerRAction = action;
     cfg.triggerRHasAction = true;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.trigActionEdits.size() == 1);
@@ -219,12 +200,10 @@ TEST_CASE("MappingModel::reload loads triggerLRanges correctly", "[MappingModel]
     range.action = action;
     range.hasAction = true;
     cfg.triggerLRanges.push_back(range);
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.trigLRangeEdits.size() == 1);
@@ -243,12 +222,10 @@ TEST_CASE("MappingModel::reload loads triggerRRanges correctly", "[MappingModel]
     range.action = action;
     range.hasAction = true;
     cfg.triggerRRanges.push_back(range);
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.trigRRangeEdits.size() == 1);
@@ -264,12 +241,10 @@ TEST_CASE("MappingModel::reload loads axis_actions correctly", "[MappingModel]")
     HalfAxisAction action{HalfAxisActionType::VirtualButton};
     action.target = "left_x_pos";
     cfg.axis_actions["left_x_pos"] = action;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.axisActionEdits.size() == 1);
@@ -277,15 +252,14 @@ TEST_CASE("MappingModel::reload loads axis_actions correctly", "[MappingModel]")
     REQUIRE(model.axisActionEdits.at("left_x_pos").target == "left_x_pos");
 }
 
-TEST_CASE("MappingModel::reload ignores non-matching vid/pid", "[MappingModel]") {
+TEST_CASE("MappingModel::reload ignores a non-matching configId", "[MappingModel]") {
     MappingModel model;
     ControllerConfig cfg;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
+    cfg.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "b", "a"};
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x8765;
-    model.pid = 0x4321;
+    model.configId = "other-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.empty());
@@ -296,8 +270,7 @@ TEST_CASE("MappingModel::reload handles empty config", "[MappingModel]") {
     MappingModel model;
     std::vector<ControllerConfig> configs;
 
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.empty());
@@ -307,8 +280,7 @@ TEST_CASE("MappingModel::reload handles empty config", "[MappingModel]") {
 TEST_CASE("MappingModel::reload handles multiple configs", "[MappingModel]") {
     MappingModel model;
     ControllerConfig cfg;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
     cfg.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "b", "a"};
     ButtonAction kbAction{ButtonActionType::Keyboard};
     kbAction.physical = "c";
@@ -316,8 +288,7 @@ TEST_CASE("MappingModel::reload handles multiple configs", "[MappingModel]") {
     cfg.buttons[2] = kbAction;
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.size() == 1);
@@ -327,28 +298,26 @@ TEST_CASE("MappingModel::reload handles multiple configs", "[MappingModel]") {
     REQUIRE(model.actionEdits.at("c").keys == kbAction.keys);
 }
 
-TEST_CASE("MappingModel::reload handles overlapping configs", "[MappingModel]") {
-    // reload() stops at the first matching config (break) — the second is ignored.
+TEST_CASE("MappingModel::reload picks the entry by configId when VID/PID repeat", "[MappingModel]") {
+    // Pro 2 and Zero 2 in X-mode share 045E:02E0. Matching by VID/PID took the first entry; by
+    // id, the second one is reachable too.
     MappingModel model;
     ControllerConfig cfg1, cfg2;
-    cfg1.vid = 0x1234;
-    cfg1.pid = 0x5678;
+    cfg1.config_id = "pro-2-x-mode";  cfg1.vid = 0x045E; cfg1.pid = 0x02E0;
     cfg1.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "b", "a"};
-    cfg2.vid = 0x1234;
-    cfg2.pid = 0x5678;
+    cfg2.config_id = "zero-2-x-mode"; cfg2.vid = 0x045E; cfg2.pid = 0x02E0;
     ButtonAction kbAction{ButtonActionType::Keyboard};
     kbAction.physical = "a";
     kbAction.keys = {"alt", "tab"};
     cfg2.buttons[1] = kbAction;
 
     std::vector<ControllerConfig> configs = {cfg1, cfg2};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "zero-2-x-mode";
     model.reload(configs);
 
-    REQUIRE(model.buttonEdits.size() == 1);
-    REQUIRE(model.buttonEdits.at("a") == "b");
-    REQUIRE(model.actionEdits.empty());
+    REQUIRE(model.buttonEdits.empty());
+    REQUIRE(model.actionEdits.size() == 1);
+    REQUIRE(model.actionEdits.at("a").type == ButtonActionType::Keyboard);
 }
 
 TEST_CASE("MappingModel::reload handles Macro action not in buttonEdits", "[MappingModel]") {
@@ -358,12 +327,10 @@ TEST_CASE("MappingModel::reload handles Macro action not in buttonEdits", "[Mapp
     action.physical = "a";
     action.execution = "A,500,A";
     cfg.buttons[1] = action;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.actionEdits.size() == 1);
@@ -376,12 +343,10 @@ TEST_CASE("MappingModel::reload trigger stickSlot source l2 goes to trigActionEd
     MappingModel model;
     ControllerConfig cfg;
     cfg.stickSlots["right_x_pos"] = {"l2"};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.trigActionEdits.size() == 1);
@@ -395,12 +360,10 @@ TEST_CASE("MappingModel::reload trigger stickSlot source r2 goes to trigActionEd
     MappingModel model;
     ControllerConfig cfg;
     cfg.stickSlots["left_y_neg"] = {"r2"};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.trigActionEdits.size() == 1);
@@ -414,12 +377,10 @@ TEST_CASE("MappingModel::reload dpad stickSlot source goes to buttonEdits", "[Ma
     MappingModel model;
     ControllerConfig cfg;
     cfg.stickSlots["right_x_pos"] = {"dpad_up"};
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "test-pad";
 
     std::vector<ControllerConfig> configs = {cfg};
-    model.vid = 0x1234;
-    model.pid = 0x5678;
+    model.configId = "test-pad";
     model.reload(configs);
 
     REQUIRE(model.buttonEdits.size() == 1);
@@ -434,8 +395,7 @@ TEST_CASE("MappingModel::reload dpad stickSlot source goes to buttonEdits", "[Ma
 
 static ControllerConfig makeProfileBase() {
     ControllerConfig base;
-    base.vid = 0x1234;
-    base.pid = 0x5678;
+    base.config_id = "test-pad";
     base.buttons[1]  = ButtonAction{ButtonActionType::VirtualButton, "a", "a"};
     ButtonAction kb;
     kb.type = ButtonActionType::Keyboard;

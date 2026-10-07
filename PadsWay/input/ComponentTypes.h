@@ -271,6 +271,7 @@ constexpr ModifierMask kModNone = 0x00;
 static constexpr size_t kComponentCount = static_cast<size_t>(ComponentId::_Count);
 
 struct PhysicalController {
+    std::string configId;   // ControllerConfig::config_id of the entry this was built from
     std::string name;
     uint16_t    vid = 0;
     uint16_t    pid = 0;

@@ -58,9 +58,7 @@ void MappingEditor::activateProfile(const std::vector<std::string>& profilePaths
     m_profToast    = false;
     memset(m_profNameBuf, 0, sizeof(m_profNameBuf));
 
-    DeviceCandidate dev = m_engine->getActiveDevice();
-    m_model.vid = dev.vid;
-    m_model.pid = dev.pid;
+    m_model.configId = m_engine->getActiveDevice().configId;
     m_sel.clear();
     reload();
 }
@@ -68,9 +66,8 @@ void MappingEditor::activateProfile(const std::vector<std::string>& profilePaths
 void MappingEditor::reload() {
     if (m_mode == Mode::kProfile) {
         if (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size()) {
-            DeviceCandidate dev = m_engine->getActiveDevice();
             const ControllerConfig* base =
-                findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+                findConfigById(m_configs, m_engine->getActiveDevice().configId);
             if (base) {
                 GameProfile profile = loadGameProfile(m_profilePaths[m_profIdx]);
                 m_model.loadProfile(*base, profile);
@@ -78,9 +75,8 @@ void MappingEditor::reload() {
             }
         } else {
             // New profile: load base config as starting point
-            DeviceCandidate dev = m_engine->getActiveDevice();
             const ControllerConfig* base =
-                findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+                findConfigById(m_configs, m_engine->getActiveDevice().configId);
             if (base) m_model.reloadFromConfig(*base);
             memset(m_profNameBuf, 0, sizeof(m_profNameBuf));
         }
@@ -114,10 +110,9 @@ void MappingEditor::save() {
                      m_profIdx, m_profilePaths.size());
         if (m_profIdx >= 0 && m_profIdx < (int)m_profilePaths.size()) {
             DeviceCandidate dev = m_engine->getActiveDevice();
-            const ControllerConfig* base =
-                findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
-            spdlog::trace("[Profile] active device VID={:04X} PID={:04X}, base config {}",
-                         dev.vid, dev.pid, base ? "FOUND" : "NOT FOUND");
+            const ControllerConfig* base = findConfigById(m_configs, dev.configId);
+            spdlog::trace("[Profile] active device '{}', base config {}",
+                         dev.configId, base ? "FOUND" : "NOT FOUND");
             if (base) {
                 try {
                     bool ok = m_model.saveProfile(m_profilePaths[m_profIdx],
@@ -309,11 +304,10 @@ static const std::vector<ActionType> kAxisActionTypes = {
 void MappingEditor::render(PadView& phys, PadView& virt) {
     // ── Pre-populate edits cuando cambia el mando activo (normal mode only) ──
     if (m_mode == Mode::kNormal) {
-        DeviceCandidate dev = m_engine->getActiveDevice();
-        if (dev.vid != m_model.vid || dev.pid != m_model.pid) {
-            m_model.vid    = dev.vid;
-            m_model.pid    = dev.pid;
-            m_sel.physComp = -1;
+        const std::string activeConfigId = m_engine->getActiveDevice().configId;
+        if (activeConfigId != m_model.configId) {
+            m_model.configId = activeConfigId;
+            m_sel.physComp   = -1;
             reload();
         }
     }
@@ -489,9 +483,8 @@ void MappingEditor::render(PadView& phys, PadView& virt) {
     // what actually fires in game (same reasoning as the accel/gyro shaping further down).
     float touch1X = physNow.touch1X, touch1Y = physNow.touch1Y;
     {
-        DeviceCandidate dev = m_engine->getActiveDevice();
         const ControllerConfig* activeTouchCfg =
-            findConfig(m_configs, dev.vid, dev.pid, dev.connectionType, "", dev.name);
+            findConfigById(m_configs, m_engine->getActiveDevice().configId);
         if (activeTouchCfg) {
             touch1X = applyTouchAxisCalib(physNow.touch1X, activeTouchCfg->touchpad.xMax);
             touch1Y = applyTouchAxisCalib(physNow.touch1Y, activeTouchCfg->touchpad.yMax);
@@ -2651,9 +2644,8 @@ void MappingEditor::onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mous
     if (virtType == "stick" && !xId.empty()) {
         auto [vxId, vyId] = stickIdsFromStateX(virtComps[virtHit].stateX);
         if (!vxId.empty()) {
-            for (const auto& cfg : m_configs) {
-                if (cfg.vid != m_model.vid || cfg.pid != m_model.pid) continue;
-                for (const auto& [src, mapping] : cfg.axes) {
+            if (const ControllerConfig* cfg = findConfigById(m_configs, m_model.configId)) {
+                for (const auto& [src, mapping] : cfg->axes) {
                     std::string sid = mapping.stickId.empty() ? mapping.target : mapping.stickId;
                     if (sid == xId || sid == yId) {
                         AxisMapping edit = mapping;
@@ -2662,7 +2654,6 @@ void MappingEditor::onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mous
                         m_model.axisEdits[sid] = edit;
                     }
                 }
-                break;
             }
             m_sel.physComp = -1; m_sel.stickDir.clear();
         }
@@ -2670,13 +2661,11 @@ void MappingEditor::onVirtHitPhysStick(PadView& phys, PadView& virt, ImVec2 mous
         auto buildDpadEdit = [&](const std::string& id, const std::string& tgt) {
             AxisMapping edit;
             edit.stickId = id; edit.target = tgt;
-            for (const auto& cfg : m_configs) {
-                if (cfg.vid != m_model.vid || cfg.pid != m_model.pid) continue;
-                for (const auto& [src, mapping] : cfg.axes) {
+            if (const ControllerConfig* cfg = findConfigById(m_configs, m_model.configId)) {
+                for (const auto& [src, mapping] : cfg->axes) {
                     std::string sid = mapping.stickId.empty() ? mapping.target : mapping.stickId;
                     if (sid == id) { edit.invert = mapping.invert; break; }
                 }
-                break;
             }
             m_model.axisEdits[id] = edit;
         };

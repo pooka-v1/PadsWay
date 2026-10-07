@@ -223,6 +223,11 @@ struct TriggerCalibration {
 };
 
 struct ControllerConfig {
+    // Stable identity of this entry, required in controllers.json. VID/PID only answer "which pad
+    // is this?" once, at detection; every later read/write of the entry (Mapeador, calibration,
+    // engine reloads) goes through config_id. A slug of source_name made once by the wizard —
+    // renaming the pad doesn't change it. See ARCHITECTURE.md "Tarea 6".
+    std::string config_id;
     uint16_t    vid = 0;
     uint16_t    pid = 0;
     std::string source_name;

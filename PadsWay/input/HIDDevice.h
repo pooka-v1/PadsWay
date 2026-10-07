@@ -74,8 +74,18 @@ private:
     BYTE              m_buttonReportId   = 0xFF;
     ULONG             m_lastBytesRead    = 0;
 
+    // The overlapped read is kept pending across read() calls (never cancelled on timeout): with a
+    // pad behind xinputhid (X-mode, 045E:02E0), reports arriving while no read was pending were
+    // observed to get lost, and an on-change-only pad then loses presses/releases. The OS writes into m_readOv/m_pendingBuf
+    // while it's pending, so both outlive read(); m_reportBuf only gets a copy of completed reports.
+    OVERLAPPED        m_readOv           = {};
+    std::vector<BYTE> m_pendingBuf;
+    bool              m_readPending      = false;
+
     std::unordered_map<USHORT, ValueRange> m_valueCaps;
     std::unordered_map<USHORT, USHORT>     m_usagePage;
 
+    // Issues the next overlapped ReadFile into m_pendingBuf. False = device gone.
+    bool startRead();
     void closeHandles();
 };

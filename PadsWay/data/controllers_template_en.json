@@ -2,6 +2,7 @@
   "_doc": "Empty controllers.json template. Each entry in 'controllers' is one physical gamepad.",
   "controllers": [
     {
+      "config_id": "controller-name",
       "vid": "XXXX",
       "pid": "YYYY",
       "source_name": "Controller name",

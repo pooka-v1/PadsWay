@@ -330,17 +330,13 @@ void MappingModel::reloadFromConfig(const ControllerConfig& cfg) {
 
 // ---------------------------------------------------------------------------
 void MappingModel::reload(const std::vector<ControllerConfig>& configs) {
-    for (const auto& cfg : configs) {
-        if (cfg.vid != vid || cfg.pid != pid) continue;
-        reloadFromConfig(cfg);
-        break;
-    }
+    if (const ControllerConfig* cfg = findConfigById(configs, configId))
+        reloadFromConfig(*cfg);
 }
 
 // ---------------------------------------------------------------------------
 void MappingModel::loadProfile(const ControllerConfig& base, const GameProfile& profile) {
-    vid = base.vid;
-    pid = base.pid;
+    configId = base.config_id;
     reloadFromConfig(applyProfile(base, profile));
     contextBotsEdits = profile.context_bots;
 }
@@ -535,13 +531,8 @@ void MappingModel::save(const std::string& path) {
     }
     if (!root.contains("controllers") || !root["controllers"].is_array()) return;
 
-    char vidStr[8], pidStr[8];
-    snprintf(vidStr, sizeof(vidStr), "%04X", vid);
-    snprintf(pidStr, sizeof(pidStr), "%04X", pid);
-
     for (auto& ctrl : root["controllers"]) {
-        if (ctrl.value("vid", "") != std::string(vidStr) ||
-            ctrl.value("pid", "") != std::string(pidStr)) continue;
+        if (configId.empty() || ctrl.value("config_id", "") != configId) continue;
         if (!ctrl.contains("buttons")) continue;
 
         // --- Buttons ---

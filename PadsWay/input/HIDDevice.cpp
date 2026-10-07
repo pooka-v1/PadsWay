@@ -54,6 +54,7 @@ HIDDevice::HIDDevice(const std::string& path, const std::string& name, Access ac
     m_inputReportLen   = caps.InputReportByteLength;
     m_featureReportLen = caps.FeatureReportByteLength;
     m_reportBuf.resize(m_inputReportLen, 0);
+    m_pendingBuf.resize(m_inputReportLen, 0);
 
     HIDD_ATTRIBUTES attr = {};
     attr.Size = sizeof(attr);
@@ -130,6 +131,15 @@ HIDDevice::~HIDDevice()
 
 void HIDDevice::closeHandles()
 {
+    // A pending read still targets m_readOv/m_pendingBuf: cancel it and wait for the OS to let go
+    // of them before the event and the buffers can be released.
+    if (m_readPending && m_device != INVALID_HANDLE_VALUE) {
+        CancelIo(m_device);
+        DWORD ignored = 0;
+        GetOverlappedResult(m_device, &m_readOv, &ignored, TRUE);
+    }
+    m_readPending = false;
+
     if (m_preparsed) {
         HidD_FreePreparsedData(PREPARSED);
         m_preparsed = nullptr;
@@ -152,33 +162,47 @@ HIDDevice::ReadResult HIDDevice::read(int timeoutMs)
 {
     if (!m_connected) return ReadResult::Disconnected;
 
-    ResetEvent(m_event);
-    OVERLAPPED ov = {};
-    ov.hEvent = m_event;
-
-    DWORD bytesRead = 0;
-    BOOL  readOk    = ReadFile(m_device, m_reportBuf.data(), m_inputReportLen, &bytesRead, &ov);
-
-    if (!readOk) {
-        DWORD err = GetLastError();
-        if (err != ERROR_IO_PENDING) {
-            closeHandles();
-            return ReadResult::Disconnected;
-        }
-        DWORD wait = WaitForSingleObject(m_event, static_cast<DWORD>(timeoutMs));
-        if (wait != WAIT_OBJECT_0) {
-            CancelIo(m_device);
-            WaitForSingleObject(m_event, INFINITE);
-            return ReadResult::Timeout;
-        }
-        if (!GetOverlappedResult(m_device, &ov, &bytesRead, FALSE)) {
-            closeHandles();
-            return ReadResult::Disconnected;
-        }
+    // Normally a read is already pending — issued right after the previous report was taken, or
+    // left running by a previous timeout. Only the first call (or a failed re-issue) starts one.
+    if (!m_readPending && !startRead()) {
+        closeHandles();
+        return ReadResult::Disconnected;
     }
 
+    // Timeout: the read is NOT cancelled — it stays pending, so a report arriving while the
+    // caller is busy (processing, Sleep) is still caught and picked up by the next call.
+    if (WaitForSingleObject(m_event, static_cast<DWORD>(timeoutMs)) != WAIT_OBJECT_0)
+        return ReadResult::Timeout;
+
+    m_readPending = false;
+    DWORD bytesRead = 0;
+    if (!GetOverlappedResult(m_device, &m_readOv, &bytesRead, FALSE)) {
+        closeHandles();
+        return ReadResult::Disconnected;
+    }
+
+    std::copy(m_pendingBuf.begin(), m_pendingBuf.begin() + bytesRead, m_reportBuf.begin());
     m_lastBytesRead = static_cast<ULONG>(bytesRead);
+
+    // Re-arm before returning, so there is no window without a pending read. If the device is
+    // gone this fails; m_readPending stays false and the next call reports Disconnected.
+    startRead();
     return ReadResult::Ok;
+}
+
+bool HIDDevice::startRead()
+{
+    ResetEvent(m_event);
+    m_readOv        = {};
+    m_readOv.hEvent = m_event;
+    // On an overlapped handle the event is signalled even when ReadFile completes synchronously,
+    // so both outcomes are handled the same way: as a pending read that read() waits on.
+    if (ReadFile(m_device, m_pendingBuf.data(), m_inputReportLen, nullptr, &m_readOv)
+        || GetLastError() == ERROR_IO_PENDING) {
+        m_readPending = true;
+        return true;
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------------------

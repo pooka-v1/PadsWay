@@ -7,19 +7,30 @@
 #include <unordered_map>
 
 // Loads all controller configs from a JSON file.
+// Throws std::runtime_error if an entry has no "config_id" or two entries share one.
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path);
 
+// "Which pad is this?" — answered once, when a device is detected; from then on the device is
+// tracked by the returned config's config_id (see findConfigById).
 // Returns a pointer to the best-matching config, or nullptr if not found.
 // Matches on VID+PID (required). Optional discriminators add to a score;
 // entries that declare a discriminator but don't match are skipped entirely.
 //   connection  (+2): "usb"/"bt" — transport type
 //   product_name(+2): partial case-insensitive match against the device's HID name
-//   sourceName  (+1): exact match, used only by the wizard for re-pair
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
                                    const std::string& connection   = "",
-                                   const std::string& sourceName   = "",
                                    const std::string& productName  = "");
+
+// "Which entry do I read/write?" — exact config_id lookup. nullptr if not found or id is empty.
+const ControllerConfig* findConfigById(const std::vector<ControllerConfig>& configs,
+                                       const std::string& configId);
+
+// Builds a new config_id from a display name: lowercase ASCII letters/digits, any other run of
+// characters becomes one '-', no leading/trailing '-' ("8BitDo Zero 2 (D-mode)" ->
+// "8bitdo-zero-2-d-mode"). "controller" if nothing is left. If the result is already in
+// existingIds, appends "-2", "-3"... until it's free.
+std::string makeConfigId(const std::string& name, const std::vector<std::string>& existingIds);
 
 // Persists one controller entry's stick, trigger and gyro/accel calibration (deadzone/max, see
 // ARCHITECTURE.md "Calibracion de entrada") plus per-axis invert flags, preserving every other
@@ -28,15 +39,13 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
 // just the wizard. Stick axis invert doesn't live on StickCalibration (it's on the whole-axis
 // `axes` map, keyed by HID source name, not by logical stick axis), so it's passed separately as
 // (HID source name, invert) pairs and merged into ctrl["axes"][key]["invert"]; entries whose HID
-// key doesn't exist in this file are skipped. Matches the entry by source_name (exact, unlike
-// vid+pid which duplicate across compat-mode fallbacks — see findConfig's productName/connection
-// discriminators).
-// Throws std::runtime_error if the file can't be written or sourceName isn't found.
+// key doesn't exist in this file are skipped. Matches the entry by config_id.
+// Throws std::runtime_error if the file can't be written or configId isn't found.
 // touchpad: only its xDeadzone/xMax/yDeadzone/yMax fields are written (rest of the struct is the
 // caller's already-loaded snapshot, round-tripped untouched, same reasoning as imu above) — and
 // only into a controller that already has a "touchpad" JSON section, so a device with no
 // touchpad never gets one created just from opening Calibracion.
-void saveCalibration(const std::string& path, const std::string& sourceName,
+void saveCalibration(const std::string& path, const std::string& configId,
                      const StickCalibration& leftStick, const StickCalibration& rightStick,
                      const TriggerCalibration& triggerL, const TriggerCalibration& triggerR,
                      const ImuConfig& imu, const TouchpadConfig& touchpad,
