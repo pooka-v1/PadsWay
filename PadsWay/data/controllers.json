@@ -279,7 +279,7 @@
       },
       "buttons": {
         "1": {
-          "physical": "a",
+          "physical": "b",
           "virtual": "a"
         },
         "10": {
@@ -287,15 +287,15 @@
           "virtual": "r3"
         },
         "2": {
-          "physical": "b",
+          "physical": "a",
           "virtual": "b"
         },
         "3": {
-          "physical": "x",
+          "physical": "y",
           "virtual": "x"
         },
         "4": {
-          "physical": "y",
+          "physical": "x",
           "virtual": "y"
         },
         "5": {
@@ -324,6 +324,7 @@
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
       "pid": "02E0",
+      "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (X-mode)",
       "vid": "045E"
     },
@@ -1256,6 +1257,80 @@
         }
       },
       "vid": "054C"
+    },
+    {
+      "axes": {
+        "hid_rx": {
+          "invert": false,
+          "target": "right_x"
+        },
+        "hid_ry": {
+          "invert": true,
+          "target": "right_y"
+        },
+        "hid_x": {
+          "invert": false,
+          "target": "left_x"
+        },
+        "hid_y": {
+          "invert": true,
+          "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "trigger_combined"
+        }
+      },
+      "buttons": {
+        "1": {
+          "physical": "b",
+          "virtual": "a"
+        },
+        "10": {
+          "physical": "r3",
+          "virtual": "r3"
+        },
+        "2": {
+          "physical": "a",
+          "virtual": "b"
+        },
+        "3": {
+          "physical": "y",
+          "virtual": "x"
+        },
+        "4": {
+          "physical": "x",
+          "virtual": "y"
+        },
+        "5": {
+          "physical": "l1",
+          "virtual": "l1"
+        },
+        "6": {
+          "physical": "r1",
+          "virtual": "r1"
+        },
+        "7": {
+          "physical": "select",
+          "virtual": "select"
+        },
+        "8": {
+          "physical": "start",
+          "virtual": "start"
+        },
+        "9": {
+          "physical": "l3",
+          "virtual": "l3"
+        }
+      },
+      "config_id": "8bitdo-pro-2-x-mode-usb",
+      "dpad": "hid_hat",
+      "layout_id": "8BitDo-Pro2",
+      "mode": "hid",
+      "pid": "028E",
+      "product_name": "Controller (8BitDo Pro 2)",
+      "source_name": "8BitDo Pro 2 x-mode usb",
+      "vid": "045E"
     }
   ]
 }
