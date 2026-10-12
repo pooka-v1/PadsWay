@@ -4,6 +4,7 @@
 #include "StickSlotsHelper.h"
 #include "TouchGestures.h"
 #include "ControllerProtocolRegistry.h"
+#include "XInputFeed.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -94,6 +95,10 @@ HIDInputSource::HIDInputSource(const std::string& devicePath, const ControllerCo
     : m_hid(devicePath, config.source_name), m_config(config),
       m_protocol(createControllerProtocol(config.protocol, m_hid)), m_name(config.source_name)
 {
+    if (m_hid.isConnected()) {
+        const std::wstring xusbPath = findXusbInterface(devicePath);
+        if (!xusbPath.empty()) m_xinputFeed = std::make_unique<XInputFeed>(xusbPath, m_name);
+    }
 }
 
 void HIDInputSource::setConfig(const ControllerConfig& cfg) {
@@ -121,26 +126,38 @@ bool HIDInputSource::read(GamepadState& state) {
         enableFullModeWithRetries(*m_protocol, m_hid, m_name);
     }
 
-    auto result = m_hid.read(20);
-    if (result == HIDDevice::ReadResult::Disconnected) return false;
-    if (result == HIDDevice::ReadResult::Timeout) {
-        state.touchDeltaX = 0.0f;
-        state.touchDeltaY = 0.0f;
-        if (++m_readCount % 240 == 0)
-            spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X} (no report)",
-                   m_name,
-                   state.leftX, state.leftY, state.rightX, state.rightY,
-                   state.triggerL, state.triggerR, m_lastButtonMask);
-        return true;
-    }
+    if (m_xinputFeed) {
+        // Behind xinputhid the HID reports stop whenever another window has the focus, so the
+        // state comes from XInput. The HID read still runs, briefly: it paces this loop (XInput
+        // never blocks) and is what notices the unplug. Its report, if any, is not used.
+        if (m_hid.read(kXInputPollMs) == HIDDevice::ReadResult::Disconnected) return false;
+        if (!m_xinputFeed->poll(m_lastRawSnapshot)) {
+            state.touchDeltaX = 0.0f;   // XUSB interface not readable (yet) = no new report
+            state.touchDeltaY = 0.0f;
+            return true;
+        }
+    } else {
+        auto result = m_hid.read(20);
+        if (result == HIDDevice::ReadResult::Disconnected) return false;
+        if (result == HIDDevice::ReadResult::Timeout) {
+            state.touchDeltaX = 0.0f;
+            state.touchDeltaY = 0.0f;
+            if (++m_readCount % 240 == 0)
+                spdlog::trace("[HID][{}] lx={:.2f} ly={:.2f} rx={:.2f} ry={:.2f} tL={:.2f} tR={:.2f} btns={:08X} (no report)",
+                       m_name,
+                       state.leftX, state.leftY, state.rightX, state.rightY,
+                       state.triggerL, state.triggerR, m_lastButtonMask);
+            return true;
+        }
 
-    // Protocol decode (buttons/axes/hat/raw bytes) into the canonical snapshot, independent of the
-    // mapping — see getLastRawSnapshot(). The single place that reads the device's bytes:
-    // everything below maps from this snapshot.
-    if (!m_protocol->decode(m_hid.reportBuf().data(), m_hid.lastBytesRead(), m_lastRawSnapshot)) {
-        state.touchDeltaX = 0.0f;   // a report the protocol doesn't understand = no new report
-        state.touchDeltaY = 0.0f;
-        return true;
+        // Protocol decode (buttons/axes/hat/raw bytes) into the canonical snapshot, independent of
+        // the mapping — see getLastRawSnapshot(). The single place that reads the device's bytes:
+        // everything below maps from this snapshot.
+        if (!m_protocol->decode(m_hid.reportBuf().data(), m_hid.lastBytesRead(), m_lastRawSnapshot)) {
+            state.touchDeltaX = 0.0f;   // a report the protocol doesn't understand = no new report
+            state.touchDeltaY = 0.0f;
+            return true;
+        }
     }
     const std::vector<uint8_t>& report = m_lastRawSnapshot.raw;
 

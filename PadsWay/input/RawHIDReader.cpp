@@ -1,6 +1,8 @@
 #include "RawHIDReader.h"
 #include "ControllerProtocolRegistry.h"
+#include "XInputFeed.h"
 #include <hidsdi.h>
+#include <algorithm>
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(hid.preparsed()))
 
@@ -20,6 +22,10 @@ RawHIDReader::RawHIDReader(const std::string& devicePath, const std::string& nam
     : m_hid(devicePath, name), m_name(name.empty() ? devicePath : name),
       m_protocol(createControllerProtocol("", m_hid))   // "" = by the device's VID/PID
 {
+    if (m_hid.isConnected()) {
+        const std::wstring xusbPath = findXusbInterface(devicePath);
+        if (!xusbPath.empty()) m_xinputFeed = std::make_unique<XInputFeed>(xusbPath, m_name);
+    }
 }
 
 RawHIDReader::~RawHIDReader() = default;
@@ -31,6 +37,15 @@ bool RawHIDReader::read(RawHIDState& out, int timeoutMs)
     if (m_fullModePending) {
         m_fullModePending = false;
         enableFullModeWithRetries(*m_protocol, m_hid, m_name);
+    }
+
+    if (m_xinputFeed) {
+        // Same as HIDInputSource::read: the state comes from XInput, the HID read only paces and
+        // notices the unplug. (std::min) in parentheses: windows.h's min macro is live here.
+        const int hidTimeoutMs = (std::min)(timeoutMs, kXInputPollMs);
+        if (m_hid.read(hidTimeoutMs) == HIDDevice::ReadResult::Disconnected) return false;
+        m_xinputFeed->poll(out);   // not readable (yet) = previous state unchanged, as on a timeout
+        return true;
     }
 
     auto result = m_hid.read(timeoutMs);

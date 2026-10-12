@@ -10,7 +10,11 @@
 #include <unordered_map>
 #include <atomic>
 
+class XInputFeed;   // XInputFeed.h — only the .cpp needs the full type
+
 // Reads a HID joystick/gamepad device using the HidP API.
+// Exception: a pad behind xinputhid (X-mode over Bluetooth) gets its state from XInput instead —
+// same RawHIDState, same mapping (see XInputFeed.h).
 // Axis mapping uses HID usage names in controllers.json:
 //   Generic Desktop (page 0x01): "hid_x", "hid_y", "hid_z", "hid_rx", "hid_ry", "hid_rz"
 //   Simulation Controls (page 0x02): "hid_brake", "hid_accel"
@@ -49,6 +53,8 @@ private:
     // Built from m_config.protocol; turns each report into m_lastRawSnapshot. Declared after m_hid
     // on purpose: members are constructed in declaration order and it holds a reference to m_hid.
     std::unique_ptr<ControllerProtocol> m_protocol;
+    // Set only when the pad sits behind xinputhid: then it, not m_protocol, fills m_lastRawSnapshot.
+    std::unique_ptr<XInputFeed>         m_xinputFeed;
     // Level 2 (full report) is requested on the first read() after the protocol is built, from
     // the thread that reads this pad — the only one that ever talks to it.
     bool             m_fullModePending = true;
