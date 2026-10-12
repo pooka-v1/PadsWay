@@ -2,6 +2,7 @@
 #include "BindingWizard.h"
 #include "../config/Strings.h"
 #include "../config/ConfigLoader.h"
+#include "../config/ControllerEntryWriter.h"
 #include "../input/ControllerConfig.h"
 #include "../Log.h"
 #include "../imgui/imgui.h"
@@ -95,6 +96,7 @@ void BindingWizard::start(const PadLayout& layout) {
     m_gyroPhase    = GyroPhase::Baseline;
     m_hasGyroStep  = false;
     m_gyroSamples.clear();
+    m_gyroCounterBytes.reset();
     m_gyroPhaseFrames = 0;
     m_gyroResult   = ImuCalibrationResult{};
 
@@ -1004,6 +1006,7 @@ void BindingWizard::beginStep() {
     if (m_steps[m_currentStep].mapping.type == "gyro") {
         m_gyroPhase = GyroPhase::Baseline;
         m_gyroSamples.clear();
+        m_gyroCounterBytes.reset();
         m_gyroPhaseFrames = 0;
         m_gyroPhaseStarted = false;
         m_gyroAwaitingRelease = true;
@@ -1054,6 +1057,9 @@ void BindingWizard::commitAxis(const std::string& source, bool invert) {
         step.compIndex < (int)m_layout.components.size() &&
         m_layout.components[step.compIndex].type == "analog_dpad")
         r.isAnalogDpad = true;
+    for (int i = 0; i < 8; ++i) {
+        if (source == kHIDAxisNames[i]) { r.restValue = kHIDAxisValues(m_axisBaseline, i); break; }
+    }
     m_boundAxes.push_back(r);
 
     if (step.compIndex >= 0)
@@ -1312,6 +1318,7 @@ void BindingWizard::resetGyroRoundState(bool clearVotes) {
         m_gyroPhaseFrames = 0;
         int idx = static_cast<int>(m_gyroPhase);
         for (auto& offsetStats : m_gyroSamples) offsetStats[idx] = GyroOffsetStats{};
+        if (m_gyroPhase == GyroPhase::Baseline) m_gyroCounterBytes.reset();
     }
 }
 
@@ -1342,6 +1349,7 @@ void BindingWizard::goBack() {
         // Re-entering a completed gyro step: start the whole capture over from scratch.
         m_gyroPhase = GyroPhase::Baseline;
         m_gyroSamples.clear();
+        m_gyroCounterBytes.reset();
         m_gyroPhaseFrames = 0;
         m_gyroPhaseStarted = false;
         m_gyroAwaitingRelease = true;
@@ -1400,9 +1408,11 @@ bool BindingWizard::renderPhaseAdvanceControl(bool canAdvance, bool acceptAnyBut
 
 bool BindingWizard::captureButton(int& outIndex) {
     if (!m_hidReader || !m_hidReader->isOpen()) return false;
-    RawHIDState s{};
-    m_hidReader->read(s);
-    DWORD mask = s.buttonMask;
+    // Into the persistent state, like captureAxis(): it stays the latest known input across step
+    // types, so snapshotBaseline() never starts from what an earlier axis step last saw. A pad that
+    // reports only on change (X-mode over USB) times out here while nothing moves.
+    m_hidReader->read(m_axisLastRead);
+    DWORD mask = m_axisLastRead.buttonMask;
 
     DWORD newBits = mask & ~m_prevButtonMask;
     m_prevButtonMask = mask;
@@ -1418,11 +1428,19 @@ bool BindingWizard::captureButton(int& outIndex) {
 bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool invertIfPositive) {
     if (m_stepCooldown > 0) {
         --m_stepCooldown;
+        // Keep reading while waiting: the HID read stays pending between calls (HIDDevice::read),
+        // so after a pause the first report handed back is the one from when reading stopped —
+        // here, the previous trigger still pressed at its commit. Snapshotting that stale report
+        // made releasing the trigger look like the next step's input (DS4 L2 bound again as R2).
+        if (m_hidReader && m_hidReader->isOpen()) m_hidReader->read(m_axisLastRead);
         if (m_stepCooldown == 0) snapshotBaseline(); // re-snapshot once movement settles
         return false;
     }
     // Skip axes already committed in previous steps to avoid bleed-over.
-    // Exception: allow reuse when the current step is the paired trigger (trigger_combined).
+    // Exception: allow reuse when the current step is the paired trigger (trigger_combined) — only
+    // if that axis rested centered. A separate trigger rests at an end: releasing it late (still
+    // held when this step's baseline was taken) swings it by a full press and would be read as
+    // this trigger, saving trigger_combined and leaving R2 held at rest (DS4 over BT).
     const BindStep& curStep = m_steps[m_currentStep];
     const bool curIsTrigger = (curStep.mapping.type == "trigger");
     const std::string& curTarget = curStep.mapping.axis_target;
@@ -1432,7 +1450,8 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
             if (curIsTrigger &&
                 (a.target == "trigger_l" || a.target == "trigger_r") &&
                 (curTarget  == "trigger_l" || curTarget  == "trigger_r") &&
-                a.target != curTarget)
+                a.target != curTarget &&
+                std::abs(a.restValue) < kCombinedTriggerRestMax)
                 continue; // same axis, opposite trigger → trigger_combined, not a conflict
             return true;
         }
@@ -1488,6 +1507,7 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
 bool BindingWizard::captureDpad(std::string& outDpadType) {
     if (m_stepCooldown > 0) {
         --m_stepCooldown;
+        if (m_hidReader && m_hidReader->isOpen()) m_hidReader->read(m_axisLastRead); // see captureAxis()
         if (m_stepCooldown == 0) snapshotBaseline();
         return false;
     }
@@ -1528,6 +1548,7 @@ bool BindingWizard::sampleGyroFrame(std::vector<float>* outRaw) {
 
     int n = static_cast<int>(s.raw.size()) - 1;
     if (static_cast<int>(m_gyroSamples.size()) != n) m_gyroSamples.assign(n, {});
+    if (m_gyroPhase == GyroPhase::Baseline) m_gyroCounterBytes.addReport(s.raw);
 
     int phaseIdx = static_cast<int>(m_gyroPhase);
     std::vector<float> v(n);
@@ -1575,6 +1596,10 @@ void BindingWizard::computeGyroCandidatePool() {
         spdlog::trace("[GyroCal] baseline p2p (frames={}, floor={:.0f}):{}",
                       m_gyroSamples[0][static_cast<int>(GyroPhase::Baseline)].count,
                       kGyroBaselineNoiseFloor, amps);
+        std::string counterBytes;
+        for (int b = 0; b <= n; ++b)
+            if (m_gyroCounterBytes.isCounter(b)) counterBytes += " " + std::to_string(b);
+        spdlog::trace("[GyroCal] baseline counter bytes:{}", counterBytes.empty() ? " none" : counterBytes);
     }
 
     // Longest run of alive offsets spaced 2 bytes apart. See the historical comment that used to
@@ -1724,7 +1749,9 @@ std::vector<bool> BindingWizard::computeAliveOffsets() const {
         const GyroOffsetStats& base = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
         if (base.count == 0) continue;
         float amp = base.maxV - base.minV;
-        alive[o] = amp > 0.0f && amp < kGyroBaselineNoiseFloor;
+        // Offset o is the int16 of bytes o and o+1: one counter byte in it is enough to kill it.
+        bool hasCounterByte = m_gyroCounterBytes.isCounter(o) || m_gyroCounterBytes.isCounter(o + 1);
+        alive[o] = amp > 0.0f && amp < kGyroBaselineNoiseFloor && !hasCounterByte;
     }
     return alive;
 }
@@ -2159,11 +2186,12 @@ void BindingWizard::snapshotBaseline() {
     m_axisConfirmBest  = -1;
     m_axisConfirmSum   = 0.0f;
     if (m_hidReader && m_hidReader->isOpen()) {
-        RawHIDState s{};
-        m_hidReader->read(s);
-        m_axisBaseline  = s;
-        m_axisLastRead  = s; // sync persistent read state with new baseline
-        m_prevButtonMask = s.buttonMask;
+        // Into the persistent state, not a fresh one: a read that times out (or a report the
+        // protocol drops) leaves it as it was, where a fresh RawHIDState would hand back every
+        // axis at 0 — and a trigger resting at -1 would then read as a 1.0 swing.
+        m_hidReader->read(m_axisLastRead);
+        m_axisBaseline   = m_axisLastRead;
+        m_prevButtonMask = m_axisLastRead.buttonMask;
     }
 }
 
@@ -2246,8 +2274,8 @@ void BindingWizard::saveResult() {
     if (m_hasDpad) entry["dpad"] = m_dpadType;
 
     // IMU — only written when the layout has a gyro component AND classification succeeded.
-    // On failure the key is simply omitted, so the merge below preserves whatever "imu" block
-    // (if any) was already in controllers.json for this controller.
+    // On failure the key is simply omitted: the saved entry has no "imu" block (all or nothing,
+    // see putWizardEntry), but saving isn't blocked.
     if (m_hasGyroStep && m_gyroResult.ok) {
         json imu;
         imu["enabled"]        = true;
@@ -2270,6 +2298,17 @@ void BindingWizard::saveResult() {
         entry["imu"] = imu;
     }
 
+    // Touch surface discovery — same rule as "imu": written only when the step succeeded.
+    // Mapeador settings (surface_mode, zones...) aren't kept: a re-run starts the pad from scratch.
+    if (m_hasTouchSurfaceStep && m_touchSurfaceResult.ok) {
+        json touchpad;
+        touchpad["enabled"]     = true;
+        touchpad["data_offset"] = m_touchSurfaceResult.dataOffset;
+        touchpad["max_x"]       = m_touchSurfaceResult.maxX;
+        touchpad["max_y"]       = m_touchSurfaceResult.maxY;
+        entry["touchpad"] = touchpad;
+    }
+
     // Load existing controllers.json, replace or append
     json root;
     {
@@ -2278,45 +2317,12 @@ void BindingWizard::saveResult() {
             try { root = json::parse(f); } catch (...) {}
         }
     }
-    if (!root.contains("controllers") || !root["controllers"].is_array())
-        root["controllers"] = json::array();
 
-    // Replace the entry this pad already had (its config_id, resolved by findConfig() at scan
-    // time — see scanControllers()), or append a new one with a fresh config_id. source_name is
-    // never the key: it's a display label, and the merge below just updates it like any other
-    // wizard-managed field. The id itself is made once, here, and a re-run keeps it — renaming
-    // the pad doesn't change it.
-    json* bestMatch = nullptr;
-    std::vector<std::string> existingIds;
-    for (auto& e : root["controllers"]) {
-        const std::string id = e.value("config_id", "");
-        existingIds.push_back(id);
-        if (!ctrl.configId.empty() && id == ctrl.configId) bestMatch = &e;
-    }
-    if (bestMatch) {
-        // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype") by
-        // starting from the old entry and overwriting only wizard-managed keys.
-        for (auto& [k, v] : entry.items())
-            (*bestMatch)[k] = v;
-    } else {
-        entry["config_id"] = makeConfigId(m_nameBuf, existingIds);
-        root["controllers"].push_back(entry);
-    }
-
-    // Touch surface discovery — deliberately NOT folded into `entry` above. Unlike "imu" (which
-    // the merge loop just overwrote wholesale), "touchpad" also carries surface_mode/
-    // analog_stick_target/zone_template_id/zones set by the Mapeador outside the wizard — a
-    // wholesale overwrite here would silently wipe them. Only touch the 3 keys this step actually
-    // discovered, on whichever json object this entry ended up being (existing match or the one
-    // just appended).
-    if (m_hasTouchSurfaceStep && m_touchSurfaceResult.ok) {
-        json& target = bestMatch ? *bestMatch : root["controllers"].back();
-        auto& tp = target["touchpad"];
-        tp["enabled"]     = true;
-        tp["data_offset"] = m_touchSurfaceResult.dataOffset;
-        tp["max_x"]       = m_touchSurfaceResult.maxX;
-        tp["max_y"]       = m_touchSurfaceResult.maxY;
-    }
+    // Replace the entry this pad already had, whole (its config_id, resolved by findConfig() at
+    // scan time — see scanControllers()), or append a new one with a fresh config_id. source_name
+    // is never the key: it's a display label. The id is made once and a re-run keeps it —
+    // renaming the pad doesn't change it.
+    putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
 
     // Write back
     std::ofstream f(m_controllersPath);

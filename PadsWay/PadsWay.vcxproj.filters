@@ -154,6 +154,9 @@
     <ClInclude Include="config\ConfigLoader.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
+    <ClInclude Include="config\ControllerEntryWriter.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
     <ClInclude Include="input\ControllerConfig.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
@@ -230,6 +233,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="ui\BindingWizard.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="ui\CounterByteDetector.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="config\Strings.h">

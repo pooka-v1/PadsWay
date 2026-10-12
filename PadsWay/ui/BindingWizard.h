@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include "PadView.h"
 #include "PadLayout.h"
+#include "CounterByteDetector.h"
 #include "../input/HIDScanner.h"
 #include "../input/RawHIDReader.h"
 #include "../imgui/imgui.h"
@@ -109,6 +110,9 @@ private:
         std::string target;             // "left_x" / "trigger_l"
         bool        invert;
         bool        isAnalogDpad = false; // axis belongs to an analog_dpad component
+        // Source axis value at the step's baseline, before the press. A combined trigger axis
+        // rests centered (L2 one way, R2 the other); a separate trigger rests at an end (-1).
+        float       restValue = 0.0f;
     };
 
     // Running min/max/sum for one candidate raw-report byte offset during one gyro phase.
@@ -139,8 +143,7 @@ private:
     };
 
     // Result of the touch surface discovery sub-machine. dataOffset=-1 = discovery never
-    // completed (skipped, or Lift/Confirm failed) — saveResult() leaves the existing "touchpad"
-    // JSON block untouched in that case.
+    // completed (skipped, or Lift/Confirm failed) — saveResult() then writes no "touchpad" block.
     struct TouchSurfaceResult {
         bool ok         = false;
         int  dataOffset = -1;
@@ -218,7 +221,8 @@ private:
     // assignment) over the per-axis winners recorded in m_gyroAxisGyroOffset/m_gyroAxisAccelOffset.
     // Called once, right after Yaw's axis winner is confirmed.
     ImuCalibrationResult classifyGyro() const;
-    // Offsets that stayed quiet during Baseline (real sensor channels, not CRC/padding bytes).
+    // Offsets that stayed quiet during Baseline (real sensor channels, not CRC/padding bytes),
+    // and with neither of their two bytes stepping like a counter (m_gyroCounterBytes).
     std::vector<bool> computeAliveOffsets() const;
     // Statistical confidence (0..1) for the current axis: min of the gyro-vote lead and (when
     // this axis also votes accel) the accel-vote lead, each as a fraction of kGyroRoundVoteLead.
@@ -315,6 +319,10 @@ private:
     // final cross-axis amplitude scoring (Roll/Pitch/Yaw slots).
     // Resized to the report's raw length the first time a gyro step starts.
     std::vector<std::array<GyroOffsetStats, kGyroPhaseCount>> m_gyroSamples;
+    // Baseline only, fed by sampleGyroFrame() with the same frames as m_gyroSamples' Baseline slot
+    // and reset with it: bytes that keep stepping one way while the pad is still (a sensor
+    // timestamp) — dead for computeAliveOffsets() even when their int16 stays under the noise floor.
+    CounterByteDetector   m_gyroCounterBytes;
     int                   m_gyroPhaseFrames = 0;  // frames captured in the current phase
     // True once the user has pressed any button on the controller to start the current phase —
     // sampleGyroFrame() is not called before this, so the user can get into position with both
@@ -552,4 +560,7 @@ private:
     static constexpr DWORD kWinmmThreshold = 12000;  // out of 65535
     static constexpr int   kAxisCooldown   = 45;     // ~750ms at 60fps
     static constexpr int   kAxisConfirm    = 6;      // frames axis must dominate before commit (~100ms)
+    // A trigger axis whose rest value was further than this from center is a separate trigger:
+    // the opposite trigger's step can't reuse it as trigger_combined (see captureAxis()).
+    static constexpr float kCombinedTriggerRestMax = 0.5f;
 };

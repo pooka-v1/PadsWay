@@ -1,4 +1,5 @@
 #include "config/ConfigLoader.h"
+#include "config/ControllerEntryWriter.h"
 #include "input/ControllerConfig.h"
 #include "ui/PadLayout.h"
 #include "nlohmann/json.hpp"
@@ -1439,4 +1440,49 @@ TEST_CASE("savePadLayouts round-trips canvas, geometry, bindings and colors", "[
 
 TEST_CASE("savePadLayouts throws when the target directory does not exist", "[ConfigLoader]") {
     CHECK_THROWS(savePadLayouts("__no_such_dir_abc__/pad_layouts.json", {}));
+}
+
+// ── putWizardEntry — the wizard saves "all or nothing" ─────────────────────────
+
+TEST_CASE("putWizardEntry replaces the whole entry and keeps only its config_id", "[ConfigLoader]") {
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [
+        { "config_id": "other", "vid": "1111" },
+        { "config_id": "pad", "vid": "2DC8", "source_name": "Old name",
+          "buttons": { "1": { "physical": "a", "virtual": "b" } },
+          "imu": { "enabled": true },
+          "stick_calibration": { "left": { "deadzone": 0.1, "max": 1.0 } },
+          "trigger_actions": { "l2": { "virtual": "l1" } },
+          "touchpad": { "enabled": true, "surface_mode": "zones" } }
+    ] })");
+    nlohmann::json entry = { { "vid", "2DC8" }, { "source_name", "New name" },
+                             { "buttons", { { "1", { { "physical", "a" }, { "virtual", "a" } } } } } };
+
+    CHECK(putWizardEntry(root, entry, "pad", "New name") == "pad");
+
+    const auto& controllers = root["controllers"];
+    REQUIRE(controllers.size() == 2);
+    CHECK(controllers[0] == nlohmann::json({ { "config_id", "other" }, { "vid", "1111" } }));
+    nlohmann::json expected = entry;
+    expected["config_id"] = "pad";
+    CHECK(controllers[1] == expected);   // no imu/stick_calibration/trigger_actions/touchpad left
+}
+
+TEST_CASE("putWizardEntry appends a new entry with a fresh config_id", "[ConfigLoader]") {
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [ { "config_id": "my-pad" } ] })");
+
+    SECTION("pad without an entry yet (empty id)") {
+        CHECK(putWizardEntry(root, { { "vid", "1234" } }, "", "My Pad") == "my-pad-2");
+    }
+    SECTION("id no longer in the file") {
+        CHECK(putWizardEntry(root, { { "vid", "1234" } }, "gone", "My Pad") == "my-pad-2");
+    }
+    REQUIRE(root["controllers"].size() == 2);
+    CHECK(root["controllers"][1] == nlohmann::json({ { "vid", "1234" }, { "config_id", "my-pad-2" } }));
+}
+
+TEST_CASE("putWizardEntry creates the controllers array when the file had none", "[ConfigLoader]") {
+    nlohmann::json root;   // missing or unparsable file
+    CHECK(putWizardEntry(root, { { "vid", "1234" } }, "", "Pad") == "pad");
+    REQUIRE(root["controllers"].is_array());
+    CHECK(root["controllers"].size() == 1);
 }

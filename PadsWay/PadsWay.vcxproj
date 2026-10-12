@@ -190,6 +190,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="config\ConfigLoader.h" />
+    <ClInclude Include="config\ControllerEntryWriter.h" />
     <ClInclude Include="config\Strings.h" />
     <ClInclude Include="input\ControllerConfig.h" />
     <ClInclude Include="GamepadState.h" />
@@ -228,6 +229,7 @@
     <ClInclude Include="imgui\imgui_impl_win32.h" />
     <ClInclude Include="imgui\imgui_impl_dx11.h" />
     <ClInclude Include="ui\BindingWizard.h" />
+    <ClInclude Include="ui\CounterByteDetector.h" />
     <ClInclude Include="ui\PadView.h" />
     <ClInclude Include="ui\LayoutEditor.h" />
     <ClInclude Include="ui\MacroManagerPanel.h" />
