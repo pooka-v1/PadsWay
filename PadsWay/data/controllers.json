@@ -256,6 +256,14 @@
     },
     {
       "axes": {
+        "hid_accel": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_brake": {
+          "invert": false,
+          "target": "trigger_l"
+        },
         "hid_rx": {
           "invert": false,
           "target": "right_x"
@@ -271,10 +279,6 @@
         "hid_y": {
           "invert": true,
           "target": "left_y"
-        },
-        "hid_z": {
-          "invert": false,
-          "target": "trigger_combined"
         }
       },
       "buttons": {
@@ -285,10 +289,6 @@
         "10": {
           "physical": "r3",
           "virtual": "r3"
-        },
-        "11": {
-          "physical": "home",
-          "virtual": "home"
         },
         "2": {
           "physical": "a",
@@ -330,6 +330,26 @@
       "pid": "02E0",
       "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (X-mode)",
+      "stick_calibration": {
+        "left": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "right": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
+      "trigger_calibration": {
+        "l2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        },
+        "r2": {
+          "deadzone": 0.0,
+          "max": 1.0
+        }
+      },
       "vid": "045E"
     },
     {
@@ -508,19 +528,19 @@
       "buttons": {
         "1": {
           "physical": "b",
-          "virtual": "b"
+          "virtual": "a"
         },
         "2": {
           "physical": "a",
-          "virtual": "a"
+          "virtual": "b"
         },
         "3": {
           "physical": "y",
-          "virtual": "y"
+          "virtual": "x"
         },
         "4": {
           "physical": "x",
-          "virtual": "x"
+          "virtual": "y"
         },
         "5": {
           "physical": "l1",
