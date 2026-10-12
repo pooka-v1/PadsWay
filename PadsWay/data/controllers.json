@@ -256,6 +256,14 @@
     },
     {
       "axes": {
+        "hid_accel": {
+          "invert": false,
+          "target": "trigger_r"
+        },
+        "hid_brake": {
+          "invert": false,
+          "target": "trigger_l"
+        },
         "hid_rx": {
           "invert": false,
           "target": "right_x"
@@ -271,10 +279,6 @@
         "hid_y": {
           "invert": true,
           "target": "left_y"
-        },
-        "hid_z": {
-          "invert": false,
-          "target": "trigger_combined"
         }
       },
       "buttons": {
