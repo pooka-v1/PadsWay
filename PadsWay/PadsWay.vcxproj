@@ -190,6 +190,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="config\ConfigLoader.h" />
+    <ClInclude Include="config\ControllerEntryWriter.h" />
     <ClInclude Include="config\Strings.h" />
     <ClInclude Include="input\ControllerConfig.h" />
     <ClInclude Include="GamepadState.h" />

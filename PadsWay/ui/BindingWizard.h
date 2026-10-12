@@ -139,8 +139,7 @@ private:
     };
 
     // Result of the touch surface discovery sub-machine. dataOffset=-1 = discovery never
-    // completed (skipped, or Lift/Confirm failed) — saveResult() leaves the existing "touchpad"
-    // JSON block untouched in that case.
+    // completed (skipped, or Lift/Confirm failed) — saveResult() then writes no "touchpad" block.
     struct TouchSurfaceResult {
         bool ok         = false;
         int  dataOffset = -1;

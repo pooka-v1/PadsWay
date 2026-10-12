@@ -2,6 +2,7 @@
 #include "BindingWizard.h"
 #include "../config/Strings.h"
 #include "../config/ConfigLoader.h"
+#include "../config/ControllerEntryWriter.h"
 #include "../input/ControllerConfig.h"
 #include "../Log.h"
 #include "../imgui/imgui.h"
@@ -2246,8 +2247,8 @@ void BindingWizard::saveResult() {
     if (m_hasDpad) entry["dpad"] = m_dpadType;
 
     // IMU — only written when the layout has a gyro component AND classification succeeded.
-    // On failure the key is simply omitted, so the merge below preserves whatever "imu" block
-    // (if any) was already in controllers.json for this controller.
+    // On failure the key is simply omitted: the saved entry has no "imu" block (all or nothing,
+    // see putWizardEntry), but saving isn't blocked.
     if (m_hasGyroStep && m_gyroResult.ok) {
         json imu;
         imu["enabled"]        = true;
@@ -2270,6 +2271,17 @@ void BindingWizard::saveResult() {
         entry["imu"] = imu;
     }
 
+    // Touch surface discovery — same rule as "imu": written only when the step succeeded.
+    // Mapeador settings (surface_mode, zones...) aren't kept: a re-run starts the pad from scratch.
+    if (m_hasTouchSurfaceStep && m_touchSurfaceResult.ok) {
+        json touchpad;
+        touchpad["enabled"]     = true;
+        touchpad["data_offset"] = m_touchSurfaceResult.dataOffset;
+        touchpad["max_x"]       = m_touchSurfaceResult.maxX;
+        touchpad["max_y"]       = m_touchSurfaceResult.maxY;
+        entry["touchpad"] = touchpad;
+    }
+
     // Load existing controllers.json, replace or append
     json root;
     {
@@ -2278,45 +2290,12 @@ void BindingWizard::saveResult() {
             try { root = json::parse(f); } catch (...) {}
         }
     }
-    if (!root.contains("controllers") || !root["controllers"].is_array())
-        root["controllers"] = json::array();
 
-    // Replace the entry this pad already had (its config_id, resolved by findConfig() at scan
-    // time — see scanControllers()), or append a new one with a fresh config_id. source_name is
-    // never the key: it's a display label, and the merge below just updates it like any other
-    // wizard-managed field. The id itself is made once, here, and a re-run keeps it — renaming
-    // the pad doesn't change it.
-    json* bestMatch = nullptr;
-    std::vector<std::string> existingIds;
-    for (auto& e : root["controllers"]) {
-        const std::string id = e.value("config_id", "");
-        existingIds.push_back(id);
-        if (!ctrl.configId.empty() && id == ctrl.configId) bestMatch = &e;
-    }
-    if (bestMatch) {
-        // Preserve fields the wizard doesn't manage (e.g. "touchpad", "_hid_prototype") by
-        // starting from the old entry and overwriting only wizard-managed keys.
-        for (auto& [k, v] : entry.items())
-            (*bestMatch)[k] = v;
-    } else {
-        entry["config_id"] = makeConfigId(m_nameBuf, existingIds);
-        root["controllers"].push_back(entry);
-    }
-
-    // Touch surface discovery — deliberately NOT folded into `entry` above. Unlike "imu" (which
-    // the merge loop just overwrote wholesale), "touchpad" also carries surface_mode/
-    // analog_stick_target/zone_template_id/zones set by the Mapeador outside the wizard — a
-    // wholesale overwrite here would silently wipe them. Only touch the 3 keys this step actually
-    // discovered, on whichever json object this entry ended up being (existing match or the one
-    // just appended).
-    if (m_hasTouchSurfaceStep && m_touchSurfaceResult.ok) {
-        json& target = bestMatch ? *bestMatch : root["controllers"].back();
-        auto& tp = target["touchpad"];
-        tp["enabled"]     = true;
-        tp["data_offset"] = m_touchSurfaceResult.dataOffset;
-        tp["max_x"]       = m_touchSurfaceResult.maxX;
-        tp["max_y"]       = m_touchSurfaceResult.maxY;
-    }
+    // Replace the entry this pad already had, whole (its config_id, resolved by findConfig() at
+    // scan time — see scanControllers()), or append a new one with a fresh config_id. source_name
+    // is never the key: it's a display label. The id is made once and a re-run keeps it —
+    // renaming the pad doesn't change it.
+    putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
 
     // Write back
     std::ofstream f(m_controllersPath);
