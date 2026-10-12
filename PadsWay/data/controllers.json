@@ -286,6 +286,10 @@
           "physical": "r3",
           "virtual": "r3"
         },
+        "11": {
+          "physical": "home",
+          "virtual": "home"
+        },
         "2": {
           "physical": "a",
           "virtual": "b"

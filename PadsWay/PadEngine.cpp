@@ -424,6 +424,51 @@ void PadEngine::threadFunc() {
     // preSelected: set when a hot-switch is requested; skips the scan loop on next iteration.
     DeviceCandidate preSelected;
 
+    // Connected pads that have a config, as selectable candidates.
+    auto scanCandidates = [&]() {
+        std::vector<DeviceCandidate> candidates;
+        for (auto& h : HIDScanner::scan()) {
+            const uint16_t vVid = m_virtualVid.load(), vPid = m_virtualPid.load();
+            if (vVid && h.vid == vVid && h.pid == vPid) continue;
+            const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType, h.productName);
+            if (!c || c->mode != "hid") {
+                spdlog::debug("[Scan] No config: VID={:04X} PID={:04X} conn='{}' name='{}'",
+                              h.vid, h.pid, h.connectionType, h.productName);
+                continue;
+            }
+            DeviceCandidate dc;
+            dc.hidPath        = h.path;
+            dc.vid            = h.vid;
+            dc.pid            = h.pid;
+            dc.connectionType = h.connectionType;
+            dc.configId       = c->config_id;
+            dc.name           = h.productName.empty()
+                ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
+                : h.productName;
+            candidates.push_back(dc);
+        }
+        return candidates;
+    };
+
+    // The pad that was unplugged while in use (hidPath empty = none). Reconnecting takes that pad
+    // back and no other: auto-selecting "the only candidate" would silently swap in another model
+    // (two pads behind xinputhid are both 045E:02E0, so VID/PID can't tell them apart either).
+    DeviceCandidate lostPad;
+    // The lost pad among candidates: same HID path, or failing that (a USB pad replugged into
+    // another port gets a new path) the only candidate with its config. Null if it isn't back.
+    auto findLostPad = [&](const std::vector<DeviceCandidate>& candidates) -> const DeviceCandidate* {
+        if (lostPad.hidPath.empty()) return nullptr;
+        for (const auto& dc : candidates)
+            if (_stricmp(dc.hidPath.c_str(), lostPad.hidPath.c_str()) == 0) return &dc;
+        const DeviceCandidate* sameConfig = nullptr;
+        for (const auto& dc : candidates) {
+            if (dc.configId != lostPad.configId) continue;
+            if (sameConfig) return nullptr;   // two pads of that model: can't tell which one it was
+            sameConfig = &dc;
+        }
+        return sameConfig;
+    };
+
     // =========================================================================
     // Outer loop — re-entered on each device switch
     // =========================================================================
@@ -446,41 +491,29 @@ void PadEngine::threadFunc() {
                 // Pick up any config updates written by the BindingWizard
                 { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
                 applyPendingOutputSwitch();   // honour an output switch even with no device connected
-                auto hidEntries = HIDScanner::scan();
+                std::vector<DeviceCandidate> allCandidates = scanCandidates();
 
-                std::vector<DeviceCandidate> allCandidates;
-                for (auto& h : hidEntries) {
-                    const uint16_t vVid = m_virtualVid.load(), vPid = m_virtualPid.load();
-                    if (vVid && h.vid == vVid && h.pid == vPid) continue;
-                    const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType, h.productName);
-                    if (!c || c->mode != "hid") {
-                        spdlog::debug("[Scan] No config: VID={:04X} PID={:04X} conn='{}' name='{}'",
-                                      h.vid, h.pid, h.connectionType, h.productName);
-                        continue;
-                    }
-                    DeviceCandidate dc;
-                    dc.hidPath        = h.path;
-                    dc.vid            = h.vid;
-                    dc.pid            = h.pid;
-                    dc.connectionType = h.connectionType;
-                    dc.configId       = c->config_id;
-                    dc.name           = h.productName.empty()
-                        ? ("HID " + std::to_string(h.vid) + ":" + std::to_string(h.pid))
-                        : h.productName;
-                    allCandidates.push_back(dc);
-                }
-
-                spdlog::trace("[Scan] HID: {} Candidates: {}", hidEntries.size(), allCandidates.size());
+                spdlog::trace("[Scan] Candidates: {}", allCandidates.size());
                 for (auto& dc : allCandidates)
                     spdlog::trace("[Candidate] VID:{:04X} PID:{:04X} '{}'", dc.vid, dc.pid, dc.name);
 
+                if (const DeviceCandidate* back = findLostPad(allCandidates)) {
+                    selected = *back;
+                    lostPad  = {};
+                    spdlog::info("[Reconnect] Found again: {} [VID={:04X} PID={:04X}]",
+                        selected.name, selected.vid, selected.pid);
+                    setStatus(std::string("Reconnected: ") + selected.name);
+                    break;
+                }
+
                 if (allCandidates.empty()) {
-                    setStatus("No device found — connect controller");
+                    setStatus(lostPad.hidPath.empty() ? "No device found — connect controller"
+                                                      : "Waiting for " + lostPad.name + " to reconnect");
                     Sleep(500);
                     continue;
                 }
 
-                if (allCandidates.size() == 1) {
+                if (allCandidates.size() == 1 && lostPad.hidPath.empty()) {
                     selected = allCandidates[0];
                     spdlog::info("Auto-selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
@@ -489,14 +522,35 @@ void PadEngine::threadFunc() {
                     { std::lock_guard<std::mutex> lock(m_mutex); m_candidates = allCandidates; }
                     m_selectedIndex.store(-1);
                     m_phase.store(EnginePhase::WaitingSelection);
-                    setStatus("Multiple controllers detected — select one in the Engine tab");
+                    setStatus(lostPad.hidPath.empty()
+                        ? "Multiple controllers detected — select one in the Engine tab"
+                        : "Waiting for " + lostPad.name + " — or select another in the Engine tab");
 
+                    // While a lost pad is awaited, look for it now and then: if it comes back,
+                    // take it without waiting for the user to pick.
+                    ULONGLONG nextLostCheckMs = GetTickCount64() + 1000;
                     while (m_running && m_selectedIndex.load() < 0) {
                         applyPendingOutputSwitch();
+                        if (!lostPad.hidPath.empty() && GetTickCount64() >= nextLostCheckMs) {
+                            nextLostCheckMs = GetTickCount64() + 1000;
+                            const std::vector<DeviceCandidate> now = scanCandidates();   // back points into it
+                            if (const DeviceCandidate* back = findLostPad(now)) {
+                                selected = *back;
+                                break;
+                            }
+                        }
                         Sleep(50);
                     }
 
                     if (!m_running) return;
+
+                    if (selected.vid != 0) {   // the lost pad came back while waiting
+                        lostPad = {};
+                        spdlog::info("[Reconnect] Found again: {} [VID={:04X} PID={:04X}]",
+                            selected.name, selected.vid, selected.pid);
+                        setStatus(std::string("Reconnected: ") + selected.name);
+                        break;
+                    }
 
                     int idx = m_selectedIndex.load();
                     if (idx < 0 || idx >= (int)allCandidates.size()) {
@@ -505,6 +559,7 @@ void PadEngine::threadFunc() {
                         continue;
                     }
                     selected = allCandidates[idx];
+                    lostPad  = {};   // the user chose: stop waiting for the lost one
                     spdlog::info("User selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
                 }
@@ -586,7 +641,7 @@ void PadEngine::threadFunc() {
 
         // Release the previous device from HidHide, then hide the new one
         m_hidHide.unhideDevice();
-        m_hidHide.hideDevice(selected.vid, selected.pid);
+        m_hidHide.hideDevice(selected.hidPath);
 
         // ── Macros (re-initialised per device / profile) ─────────────────────
         // Button/dpad/touch-zone/touch-gesture/axis/gyro/accel each need the same shape of state
@@ -1406,6 +1461,7 @@ void PadEngine::threadFunc() {
         if (lostDevice) {
             // Device disconnected unexpectedly — rescan to find it again (path may have changed).
             lostDevice = false;
+            lostPad    = selected;   // the scan takes this pad back, and no other in its place
             spdlog::info("[Reconnect] Scanning for device...");
             setStatus("Device disconnected — scanning...");
             // preSelected stays empty → outer loop rescans normally

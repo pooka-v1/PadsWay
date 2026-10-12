@@ -61,13 +61,15 @@ struct RawHIDState {
 void decodeRawHIDReport(const HIDDevice& hid, RawHIDState& out);
 
 class ControllerProtocol;   // ControllerProtocol.h includes this header (RawHIDState)
+class XInputFeed;           // XInputFeed.h includes this header too
 
 // Lightweight HID reader for the binding wizard.
 // Opens a device by path (from HIDScanner) and reads raw button/axis data
 // without any controller config or GamepadState mapping.
 // Goes through the pad's controller protocol, picked by its VID/PID (there is no config yet —
 // the wizard exists to create it), so it sees exactly what the engine will read: a DS4 over BT
-// is activated and decoded in the USB layout, same as in HIDInputSource.
+// is activated and decoded in the USB layout, same as in HIDInputSource. A pad behind xinputhid is
+// read through XInput, also as HIDInputSource does (see XInputFeed.h).
 // Uses HIDDevice for I/O; handles are closed cleanly on disconnect.
 class RawHIDReader {
 public:
@@ -87,5 +89,6 @@ private:
     std::string                         m_name;
     // Built after m_hid (declaration order): it may hold a reference to it.
     std::unique_ptr<ControllerProtocol> m_protocol;
+    std::unique_ptr<XInputFeed>         m_xinputFeed;   // set only for a pad behind xinputhid
     bool                                m_fullModePending = true;
 };
