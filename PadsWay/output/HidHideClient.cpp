@@ -2,7 +2,6 @@
 #include "../Log.h"
 
 #include <setupapi.h>
-#include <hidsdi.h>
 #include <algorithm>
 
 static std::string toUtf8(const std::wstring& ws) {
@@ -52,7 +51,6 @@ static bool isOwnExe(const std::wstring& path, const std::wstring& runningExeLea
 }
 
 #pragma comment(lib, "setupapi.lib")
-#pragma comment(lib, "hid.lib")
 
 // ---------------------------------------------------------------------------
 // MULTI_SZ helpers
@@ -219,68 +217,38 @@ void HidHideClient::setFilterActive(bool active) {
 // Blacklist (device hiding)
 // ---------------------------------------------------------------------------
 
-std::wstring HidHideClient::findInstancePath(uint16_t vid, uint16_t pid) {
-    GUID hidGuid;
-    HidD_GetHidGuid(&hidGuid);
+// Device instance path (what the blacklist holds) of the device behind one HID interface path.
+// By path, not by VID/PID: two pads can share a VID/PID (every pad behind xinputhid is 045E:02E0,
+// whatever its model), and the first match would hide the wrong one.
+static std::wstring instancePathFromInterface(const std::string& hidDevicePath) {
+    const std::wstring path(hidDevicePath.begin(), hidDevicePath.end());   // interface paths are ASCII
 
-    HDEVINFO devInfo = SetupDiGetClassDevsW(
-        &hidGuid, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    HDEVINFO devInfo = SetupDiCreateDeviceInfoList(nullptr, nullptr);
     if (devInfo == INVALID_HANDLE_VALUE)
         return {};
 
+    std::wstring result;
     SP_DEVICE_INTERFACE_DATA ifaceData = {};
     ifaceData.cbSize = sizeof(ifaceData);
-
-    std::wstring result;
-
-    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(devInfo, nullptr, &hidGuid, i, &ifaceData); ++i) {
-        DWORD requiredSize = 0;
-        SetupDiGetDeviceInterfaceDetailW(devInfo, &ifaceData, nullptr, 0, &requiredSize, nullptr);
-        if (!requiredSize) continue;
-
-        std::vector<BYTE> detailBuf(requiredSize);
-        auto* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(detailBuf.data());
-        detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
-
-        SP_DEVINFO_DATA devInfoData = {};
-        devInfoData.cbSize = sizeof(devInfoData);
-
-        if (!SetupDiGetDeviceInterfaceDetailW(
-                devInfo, &ifaceData, detail, requiredSize, nullptr, &devInfoData))
-            continue;
-
-        // Open briefly to check VID/PID
-        HANDLE h = CreateFileW(detail->DevicePath,
-            GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-            nullptr, OPEN_EXISTING, 0, nullptr);
-        if (h == INVALID_HANDLE_VALUE) continue;
-
-        HIDD_ATTRIBUTES attribs = {};
-        attribs.Size = sizeof(attribs);
-        bool match = HidD_GetAttributes(h, &attribs)
-                  && attribs.VendorID  == vid
-                  && attribs.ProductID == pid;
-        CloseHandle(h);
-
-        if (!match) continue;
-
-        wchar_t instanceId[MAX_PATH] = {};
-        if (SetupDiGetDeviceInstanceIdW(devInfo, &devInfoData, instanceId, MAX_PATH, nullptr)) {
-            result = instanceId;
-            break;
-        }
-    }
+    SP_DEVINFO_DATA devInfoData = {};
+    devInfoData.cbSize = sizeof(devInfoData);
+    wchar_t instanceId[MAX_PATH] = {};
+    // Opening the interface adds its device to the (empty) set, as element 0.
+    if (SetupDiOpenDeviceInterfaceW(devInfo, path.c_str(), 0, &ifaceData)
+            && SetupDiEnumDeviceInfo(devInfo, 0, &devInfoData)
+            && SetupDiGetDeviceInstanceIdW(devInfo, &devInfoData, instanceId, MAX_PATH, nullptr))
+        result = instanceId;
 
     SetupDiDestroyDeviceInfoList(devInfo);
     return result;
 }
 
-void HidHideClient::hideDevice(uint16_t vid, uint16_t pid) {
+void HidHideClient::hideDevice(const std::string& hidDevicePath) {
     if (!isAvailable()) return;
 
-    m_hiddenInstancePath = findInstancePath(vid, pid);
+    m_hiddenInstancePath = instancePathFromInterface(hidDevicePath);
     if (m_hiddenInstancePath.empty()) {
-        spdlog::warn("[HidHide] Instance path not found for VID:{:04X} PID:{:04X}", vid, pid);
+        spdlog::warn("[HidHide] Instance path not found for {}", hidDevicePath);
         return;
     }
 

@@ -23,10 +23,10 @@ public:
     // Idempotent — safe to call if already listed.
     void addSelfToWhitelist();
 
-    // Hide a physical device (add to blacklist) by VID+PID.
+    // Hide a physical device (add to blacklist) by the HID interface path PadsWay opened.
     // Looks up the device instance path via SetupDI.
     // Remembers what was hidden so unhideDevice() can undo it.
-    void hideDevice(uint16_t vid, uint16_t pid);
+    void hideDevice(const std::string& hidDevicePath);
 
     // Remove the device hidden by hideDevice() from the blacklist.
     // Called automatically by the destructor.
@@ -44,7 +44,6 @@ private:
 
     std::vector<std::wstring> getList(DWORD ioctl);
     void                      setList(DWORD ioctl, const std::vector<std::wstring>& list);
-    std::wstring              findInstancePath(uint16_t vid, uint16_t pid);
     bool                      isFilterActive();
     void                      setFilterActive(bool active);
 

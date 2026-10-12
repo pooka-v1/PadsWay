@@ -586,7 +586,7 @@ void PadEngine::threadFunc() {
 
         // Release the previous device from HidHide, then hide the new one
         m_hidHide.unhideDevice();
-        m_hidHide.hideDevice(selected.vid, selected.pid);
+        m_hidHide.hideDevice(selected.hidPath);
 
         // ── Macros (re-initialised per device / profile) ─────────────────────
         // Button/dpad/touch-zone/touch-gesture/axis/gyro/accel each need the same shape of state
