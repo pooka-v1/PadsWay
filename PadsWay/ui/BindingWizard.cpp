@@ -1057,6 +1057,9 @@ void BindingWizard::commitAxis(const std::string& source, bool invert) {
         step.compIndex < (int)m_layout.components.size() &&
         m_layout.components[step.compIndex].type == "analog_dpad")
         r.isAnalogDpad = true;
+    for (int i = 0; i < 8; ++i) {
+        if (source == kHIDAxisNames[i]) { r.restValue = kHIDAxisValues(m_axisBaseline, i); break; }
+    }
     m_boundAxes.push_back(r);
 
     if (step.compIndex >= 0)
@@ -1405,9 +1408,11 @@ bool BindingWizard::renderPhaseAdvanceControl(bool canAdvance, bool acceptAnyBut
 
 bool BindingWizard::captureButton(int& outIndex) {
     if (!m_hidReader || !m_hidReader->isOpen()) return false;
-    RawHIDState s{};
-    m_hidReader->read(s);
-    DWORD mask = s.buttonMask;
+    // Into the persistent state, like captureAxis(): it stays the latest known input across step
+    // types, so snapshotBaseline() never starts from what an earlier axis step last saw. A pad that
+    // reports only on change (X-mode over USB) times out here while nothing moves.
+    m_hidReader->read(m_axisLastRead);
+    DWORD mask = m_axisLastRead.buttonMask;
 
     DWORD newBits = mask & ~m_prevButtonMask;
     m_prevButtonMask = mask;
@@ -1423,11 +1428,19 @@ bool BindingWizard::captureButton(int& outIndex) {
 bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool invertIfPositive) {
     if (m_stepCooldown > 0) {
         --m_stepCooldown;
+        // Keep reading while waiting: the HID read stays pending between calls (HIDDevice::read),
+        // so after a pause the first report handed back is the one from when reading stopped —
+        // here, the previous trigger still pressed at its commit. Snapshotting that stale report
+        // made releasing the trigger look like the next step's input (DS4 L2 bound again as R2).
+        if (m_hidReader && m_hidReader->isOpen()) m_hidReader->read(m_axisLastRead);
         if (m_stepCooldown == 0) snapshotBaseline(); // re-snapshot once movement settles
         return false;
     }
     // Skip axes already committed in previous steps to avoid bleed-over.
-    // Exception: allow reuse when the current step is the paired trigger (trigger_combined).
+    // Exception: allow reuse when the current step is the paired trigger (trigger_combined) — only
+    // if that axis rested centered. A separate trigger rests at an end: releasing it late (still
+    // held when this step's baseline was taken) swings it by a full press and would be read as
+    // this trigger, saving trigger_combined and leaving R2 held at rest (DS4 over BT).
     const BindStep& curStep = m_steps[m_currentStep];
     const bool curIsTrigger = (curStep.mapping.type == "trigger");
     const std::string& curTarget = curStep.mapping.axis_target;
@@ -1437,7 +1450,8 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
             if (curIsTrigger &&
                 (a.target == "trigger_l" || a.target == "trigger_r") &&
                 (curTarget  == "trigger_l" || curTarget  == "trigger_r") &&
-                a.target != curTarget)
+                a.target != curTarget &&
+                std::abs(a.restValue) < kCombinedTriggerRestMax)
                 continue; // same axis, opposite trigger → trigger_combined, not a conflict
             return true;
         }
@@ -1493,6 +1507,7 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
 bool BindingWizard::captureDpad(std::string& outDpadType) {
     if (m_stepCooldown > 0) {
         --m_stepCooldown;
+        if (m_hidReader && m_hidReader->isOpen()) m_hidReader->read(m_axisLastRead); // see captureAxis()
         if (m_stepCooldown == 0) snapshotBaseline();
         return false;
     }
@@ -2171,11 +2186,12 @@ void BindingWizard::snapshotBaseline() {
     m_axisConfirmBest  = -1;
     m_axisConfirmSum   = 0.0f;
     if (m_hidReader && m_hidReader->isOpen()) {
-        RawHIDState s{};
-        m_hidReader->read(s);
-        m_axisBaseline  = s;
-        m_axisLastRead  = s; // sync persistent read state with new baseline
-        m_prevButtonMask = s.buttonMask;
+        // Into the persistent state, not a fresh one: a read that times out (or a report the
+        // protocol drops) leaves it as it was, where a fresh RawHIDState would hand back every
+        // axis at 0 — and a trigger resting at -1 would then read as a 1.0 swing.
+        m_hidReader->read(m_axisLastRead);
+        m_axisBaseline   = m_axisLastRead;
+        m_prevButtonMask = m_axisLastRead.buttonMask;
     }
 }
 

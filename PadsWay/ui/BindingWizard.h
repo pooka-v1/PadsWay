@@ -110,6 +110,9 @@ private:
         std::string target;             // "left_x" / "trigger_l"
         bool        invert;
         bool        isAnalogDpad = false; // axis belongs to an analog_dpad component
+        // Source axis value at the step's baseline, before the press. A combined trigger axis
+        // rests centered (L2 one way, R2 the other); a separate trigger rests at an end (-1).
+        float       restValue = 0.0f;
     };
 
     // Running min/max/sum for one candidate raw-report byte offset during one gyro phase.
@@ -557,4 +560,7 @@ private:
     static constexpr DWORD kWinmmThreshold = 12000;  // out of 65535
     static constexpr int   kAxisCooldown   = 45;     // ~750ms at 60fps
     static constexpr int   kAxisConfirm    = 6;      // frames axis must dominate before commit (~100ms)
+    // A trigger axis whose rest value was further than this from center is a separate trigger:
+    // the opposite trigger's step can't reuse it as trigger_combined (see captureAxis()).
+    static constexpr float kCombinedTriggerRestMax = 0.5f;
 };
