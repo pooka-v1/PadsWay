@@ -235,6 +235,9 @@
     <ClInclude Include="ui\BindingWizard.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
+    <ClInclude Include="ui\CounterByteDetector.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
     <ClInclude Include="config\Strings.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>

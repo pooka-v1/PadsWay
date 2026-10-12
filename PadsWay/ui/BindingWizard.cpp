@@ -96,6 +96,7 @@ void BindingWizard::start(const PadLayout& layout) {
     m_gyroPhase    = GyroPhase::Baseline;
     m_hasGyroStep  = false;
     m_gyroSamples.clear();
+    m_gyroCounterBytes.reset();
     m_gyroPhaseFrames = 0;
     m_gyroResult   = ImuCalibrationResult{};
 
@@ -1005,6 +1006,7 @@ void BindingWizard::beginStep() {
     if (m_steps[m_currentStep].mapping.type == "gyro") {
         m_gyroPhase = GyroPhase::Baseline;
         m_gyroSamples.clear();
+        m_gyroCounterBytes.reset();
         m_gyroPhaseFrames = 0;
         m_gyroPhaseStarted = false;
         m_gyroAwaitingRelease = true;
@@ -1313,6 +1315,7 @@ void BindingWizard::resetGyroRoundState(bool clearVotes) {
         m_gyroPhaseFrames = 0;
         int idx = static_cast<int>(m_gyroPhase);
         for (auto& offsetStats : m_gyroSamples) offsetStats[idx] = GyroOffsetStats{};
+        if (m_gyroPhase == GyroPhase::Baseline) m_gyroCounterBytes.reset();
     }
 }
 
@@ -1343,6 +1346,7 @@ void BindingWizard::goBack() {
         // Re-entering a completed gyro step: start the whole capture over from scratch.
         m_gyroPhase = GyroPhase::Baseline;
         m_gyroSamples.clear();
+        m_gyroCounterBytes.reset();
         m_gyroPhaseFrames = 0;
         m_gyroPhaseStarted = false;
         m_gyroAwaitingRelease = true;
@@ -1529,6 +1533,7 @@ bool BindingWizard::sampleGyroFrame(std::vector<float>* outRaw) {
 
     int n = static_cast<int>(s.raw.size()) - 1;
     if (static_cast<int>(m_gyroSamples.size()) != n) m_gyroSamples.assign(n, {});
+    if (m_gyroPhase == GyroPhase::Baseline) m_gyroCounterBytes.addReport(s.raw);
 
     int phaseIdx = static_cast<int>(m_gyroPhase);
     std::vector<float> v(n);
@@ -1576,6 +1581,10 @@ void BindingWizard::computeGyroCandidatePool() {
         spdlog::trace("[GyroCal] baseline p2p (frames={}, floor={:.0f}):{}",
                       m_gyroSamples[0][static_cast<int>(GyroPhase::Baseline)].count,
                       kGyroBaselineNoiseFloor, amps);
+        std::string counterBytes;
+        for (int b = 0; b <= n; ++b)
+            if (m_gyroCounterBytes.isCounter(b)) counterBytes += " " + std::to_string(b);
+        spdlog::trace("[GyroCal] baseline counter bytes:{}", counterBytes.empty() ? " none" : counterBytes);
     }
 
     // Longest run of alive offsets spaced 2 bytes apart. See the historical comment that used to
@@ -1725,7 +1734,9 @@ std::vector<bool> BindingWizard::computeAliveOffsets() const {
         const GyroOffsetStats& base = m_gyroSamples[o][static_cast<int>(GyroPhase::Baseline)];
         if (base.count == 0) continue;
         float amp = base.maxV - base.minV;
-        alive[o] = amp > 0.0f && amp < kGyroBaselineNoiseFloor;
+        // Offset o is the int16 of bytes o and o+1: one counter byte in it is enough to kill it.
+        bool hasCounterByte = m_gyroCounterBytes.isCounter(o) || m_gyroCounterBytes.isCounter(o + 1);
+        alive[o] = amp > 0.0f && amp < kGyroBaselineNoiseFloor && !hasCounterByte;
     }
     return alive;
 }

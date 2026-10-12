@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include "PadView.h"
 #include "PadLayout.h"
+#include "CounterByteDetector.h"
 #include "../input/HIDScanner.h"
 #include "../input/RawHIDReader.h"
 #include "../imgui/imgui.h"
@@ -217,7 +218,8 @@ private:
     // assignment) over the per-axis winners recorded in m_gyroAxisGyroOffset/m_gyroAxisAccelOffset.
     // Called once, right after Yaw's axis winner is confirmed.
     ImuCalibrationResult classifyGyro() const;
-    // Offsets that stayed quiet during Baseline (real sensor channels, not CRC/padding bytes).
+    // Offsets that stayed quiet during Baseline (real sensor channels, not CRC/padding bytes),
+    // and with neither of their two bytes stepping like a counter (m_gyroCounterBytes).
     std::vector<bool> computeAliveOffsets() const;
     // Statistical confidence (0..1) for the current axis: min of the gyro-vote lead and (when
     // this axis also votes accel) the accel-vote lead, each as a fraction of kGyroRoundVoteLead.
@@ -314,6 +316,10 @@ private:
     // final cross-axis amplitude scoring (Roll/Pitch/Yaw slots).
     // Resized to the report's raw length the first time a gyro step starts.
     std::vector<std::array<GyroOffsetStats, kGyroPhaseCount>> m_gyroSamples;
+    // Baseline only, fed by sampleGyroFrame() with the same frames as m_gyroSamples' Baseline slot
+    // and reset with it: bytes that keep stepping one way while the pad is still (a sensor
+    // timestamp) — dead for computeAliveOffsets() even when their int16 stays under the noise floor.
+    CounterByteDetector   m_gyroCounterBytes;
     int                   m_gyroPhaseFrames = 0;  // frames captured in the current phase
     // True once the user has pressed any button on the controller to start the current phase —
     // sampleGyroFrame() is not called before this, so the user can get into position with both
