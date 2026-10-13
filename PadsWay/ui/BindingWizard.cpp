@@ -2209,8 +2209,9 @@ void BindingWizard::saveResult() {
     char vidStr[8], pidStr[8];
     snprintf(vidStr, sizeof(vidStr), "%04X", ctrl.vid);
     snprintf(pidStr, sizeof(pidStr), "%04X", ctrl.pid);
-    entry["vid"]         = vidStr;
-    entry["pid"]         = pidStr;
+    // Only the id the pad came in by; a re-run on an existing entry keeps that entry's ids instead
+    // (putWizardEntry).
+    entry["ids"]         = json::array({ { { "vid", vidStr }, { "pid", pidStr } } });
     entry["source_name"] = m_nameBuf;
     entry["mode"]        = mode;
     entry["layout_id"]   = m_layout.id;

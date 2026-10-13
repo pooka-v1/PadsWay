@@ -3,8 +3,10 @@
   "controllers": [
     {
       "config_id": "controller-name",
-      "vid": "XXXX",
-      "pid": "YYYY",
+      "_ids_doc": "Every VID/PID of the pad in this mode (one per connection if it changes). Optional 'product_name' on the entry (common HID name); on an id only if its HID name differs.",
+      "ids": [
+        { "vid": "XXXX", "pid": "YYYY" }
+      ],
       "source_name": "Controller name",
       "mode": "hid",
       "layout_id": "8BitDo-Pro3",

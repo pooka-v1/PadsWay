@@ -67,11 +67,15 @@
       },
       "config_id": "8bitdo-pro-3-x-mode",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "310B",
+          "vid": "2DC8"
+        }
+      ],
       "layout_id": "8BitDo-Pro3",
       "mode": "hid",
-      "pid": "310B",
-      "source_name": "8BitDo Pro 3 (X-mode)",
-      "vid": "2DC8"
+      "source_name": "8BitDo Pro 3 (X-mode)"
     },
     {
       "axes": {
@@ -107,17 +111,6 @@
         "left_x_pos": {
           "virtual": "left_x_pos"
         },
-        "left_y_neg": {
-          "ranges": [
-            {
-              "action": {
-                "virtual": "left_y_neg"
-              },
-              "from": 0.10000000149011612,
-              "to": 1.0
-            }
-          ]
-        },
         "left_y_pos": {
           "virtual": "left_y_pos"
         },
@@ -137,7 +130,7 @@
       "buttons": {
         "1": {
           "physical": "a",
-          "virtual": "b"
+          "virtual": "a"
         },
         "11": {
           "physical": "select",
@@ -161,18 +154,18 @@
         },
         "2": {
           "physical": "b",
-          "virtual": "a"
+          "virtual": "b"
         },
         "3": {
           "physical": "rp"
         },
         "4": {
           "physical": "x",
-          "virtual": "y"
+          "virtual": "x"
         },
         "5": {
           "physical": "y",
-          "virtual": "x"
+          "virtual": "y"
         },
         "6": {
           "physical": "lp"
@@ -188,6 +181,12 @@
       },
       "config_id": "8bitdo-pro-2-d-mode",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "6006",
+          "vid": "2DC8"
+        }
+      ],
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -219,7 +218,6 @@
       },
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
-      "pid": "6006",
       "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (D-mode)",
       "stick_calibration": {
@@ -251,19 +249,10 @@
           "deadzone": 0.0,
           "max": 1.0
         }
-      },
-      "vid": "2DC8"
+      }
     },
     {
       "axes": {
-        "hid_accel": {
-          "invert": false,
-          "target": "trigger_r"
-        },
-        "hid_brake": {
-          "invert": false,
-          "target": "trigger_l"
-        },
         "hid_rx": {
           "invert": false,
           "target": "right_x"
@@ -279,12 +268,16 @@
         "hid_y": {
           "invert": true,
           "target": "left_y"
+        },
+        "hid_z": {
+          "invert": false,
+          "target": "trigger_combined"
         }
       },
       "buttons": {
         "1": {
           "physical": "b",
-          "virtual": "a"
+          "virtual": "b"
         },
         "10": {
           "physical": "r3",
@@ -292,15 +285,15 @@
         },
         "2": {
           "physical": "a",
-          "virtual": "b"
+          "virtual": "a"
         },
         "3": {
           "physical": "y",
-          "virtual": "x"
+          "virtual": "y"
         },
         "4": {
           "physical": "x",
-          "virtual": "y"
+          "virtual": "x"
         },
         "5": {
           "physical": "l1",
@@ -325,9 +318,18 @@
       },
       "config_id": "8bitdo-pro-2-x-mode",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "02E0",
+          "vid": "045E"
+        },
+        {
+          "pid": "028E",
+          "vid": "045E"
+        }
+      ],
       "layout_id": "8BitDo-Pro2",
       "mode": "hid",
-      "pid": "02E0",
       "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (X-mode)",
       "stick_calibration": {
@@ -349,8 +351,7 @@
           "deadzone": 0.0,
           "max": 1.0
         }
-      },
-      "vid": "045E"
+      }
     },
     {
       "axes": {
@@ -421,11 +422,15 @@
       },
       "config_id": "logitech-f310-d-mode",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "C216",
+          "vid": "046D"
+        }
+      ],
       "layout_id": "Logitech-F310-Dmode",
       "mode": "hid",
-      "pid": "C216",
-      "source_name": "Logitech F310 (D-mode)",
-      "vid": "046D"
+      "source_name": "Logitech F310 (D-mode)"
     },
     {
       "axes": {
@@ -494,11 +499,15 @@
       },
       "config_id": "logitech-f310-x-mode",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "C21D",
+          "vid": "046D"
+        }
+      ],
       "layout_id": "Logitech-F310-Xmode",
       "mode": "hid",
-      "pid": "C21D",
-      "source_name": "Logitech F310 (x-mode)",
-      "vid": "046D"
+      "source_name": "Logitech F310 (x-mode)"
     },
     {
       "axes": {
@@ -528,19 +537,19 @@
       "buttons": {
         "1": {
           "physical": "b",
-          "virtual": "a"
+          "virtual": "b"
         },
         "2": {
           "physical": "a",
-          "virtual": "b"
+          "virtual": "a"
         },
         "3": {
           "physical": "y",
-          "virtual": "x"
+          "virtual": "y"
         },
         "4": {
           "physical": "x",
-          "virtual": "y"
+          "virtual": "x"
         },
         "5": {
           "physical": "l1",
@@ -560,12 +569,16 @@
         }
       },
       "config_id": "8bitdo-zero-2-x-mode",
+      "ids": [
+        {
+          "pid": "02E0",
+          "vid": "045E"
+        }
+      ],
       "layout_id": "8BitDo-Zero2",
       "mode": "hid",
-      "pid": "02E0",
       "product_name": "8BitDo Zero 2 gamepad",
-      "source_name": "8BitDo Zero 2 (X-mode)",
-      "vid": "045E"
+      "source_name": "8BitDo Zero 2 (X-mode)"
     },
     {
       "axes": {
@@ -627,80 +640,20 @@
         }
       },
       "config_id": "8bitdo-zero-2-d-mode",
+      "ids": [
+        {
+          "pid": "3230",
+          "vid": "2DC8"
+        },
+        {
+          "pid": "9018",
+          "vid": "2DC8"
+        }
+      ],
       "layout_id": "8BitDo-Zero2",
       "mode": "hid",
-      "pid": "3230",
       "product_name": "8BitDo Zero 2 gamepad",
-      "source_name": "8BitDo Zero 2 (D-mode)",
-      "vid": "2DC8"
-    },
-    {
-      "axes": {
-        "hid_x": {
-          "invert": false,
-          "target": "left_x"
-        },
-        "hid_y": {
-          "invert": true,
-          "target": "left_y"
-        }
-      },
-      "axis_actions": {
-        "left_x_neg": {
-          "virtual": "dpad_left"
-        },
-        "left_x_pos": {
-          "virtual": "dpad_right"
-        },
-        "left_y_neg": {
-          "virtual": "dpad_down"
-        },
-        "left_y_pos": {
-          "virtual": "dpad_up"
-        }
-      },
-      "buttons": {
-        "1": {
-          "physical": "a",
-          "virtual": "a"
-        },
-        "11": {
-          "physical": "select",
-          "virtual": "select"
-        },
-        "12": {
-          "physical": "start",
-          "virtual": "start"
-        },
-        "2": {
-          "physical": "b",
-          "virtual": "b"
-        },
-        "4": {
-          "physical": "x",
-          "virtual": "x"
-        },
-        "5": {
-          "physical": "y",
-          "virtual": "y"
-        },
-        "7": {
-          "physical": "l1",
-          "virtual": "l1"
-        },
-        "8": {
-          "physical": "r1",
-          "virtual": "r1"
-        }
-      },
-      "config_id": "8bitdo-zero-2-d-mode-2",
-      "connection": "usb",
-      "layout_id": "8BitDo-Zero2",
-      "mode": "hid",
-      "pid": "9018",
-      "product_name": "8BitDo Zero 2 gamepad",
-      "source_name": "8BitDo Zero 2 (D-mode)",
-      "vid": "2DC8"
+      "source_name": "8BitDo Zero 2 (D-mode)"
     },
     {
       "axes": {
@@ -806,6 +759,12 @@
       },
       "config_id": "dualshock-4-v2",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "09CC",
+          "vid": "054C"
+        }
+      ],
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -837,7 +796,6 @@
       },
       "layout_id": "dualshock4",
       "mode": "hid",
-      "pid": "09CC",
       "product_name": "Wireless Controller",
       "source_name": "DualShock 4 v2",
       "stick_calibration": {
@@ -954,8 +912,7 @@
           "deadzone": 0.0,
           "max": 1.0
         }
-      },
-      "vid": "054C"
+      }
     },
     {
       "axes": {
@@ -1070,6 +1027,12 @@
       },
       "config_id": "8bitdo-pro-3-d-mode",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "6009",
+          "vid": "2DC8"
+        }
+      ],
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -1101,7 +1064,6 @@
       },
       "layout_id": "8BitDo-Pro3",
       "mode": "hid",
-      "pid": "6009",
       "product_name": "8BitDo Pro 3",
       "source_name": "8BitDo Pro 3 (D-mode)",
       "stick_calibration": {
@@ -1133,8 +1095,7 @@
           "deadzone": 0.0,
           "max": 1.0
         }
-      },
-      "vid": "2DC8"
+      }
     },
     {
       "axes": {
@@ -1217,6 +1178,12 @@
       },
       "config_id": "dualsense",
       "dpad": "hid_hat",
+      "ids": [
+        {
+          "pid": "0CE6",
+          "vid": "054C"
+        }
+      ],
       "imu": {
         "accel_scale": 3.0517578125e-05,
         "accel_x_deadzone": 0.0,
@@ -1248,7 +1215,6 @@
       },
       "layout_id": "Dual Sense",
       "mode": "hid",
-      "pid": "0CE6",
       "product_name": "DualSense Wireless Controller",
       "source_name": "DualSense",
       "stick_calibration": {
@@ -1279,82 +1245,7 @@
           "deadzone": 0.0,
           "max": 1.0
         }
-      },
-      "vid": "054C"
-    },
-    {
-      "axes": {
-        "hid_rx": {
-          "invert": false,
-          "target": "right_x"
-        },
-        "hid_ry": {
-          "invert": true,
-          "target": "right_y"
-        },
-        "hid_x": {
-          "invert": false,
-          "target": "left_x"
-        },
-        "hid_y": {
-          "invert": true,
-          "target": "left_y"
-        },
-        "hid_z": {
-          "invert": false,
-          "target": "trigger_combined"
-        }
-      },
-      "buttons": {
-        "1": {
-          "physical": "b",
-          "virtual": "a"
-        },
-        "10": {
-          "physical": "r3",
-          "virtual": "r3"
-        },
-        "2": {
-          "physical": "a",
-          "virtual": "b"
-        },
-        "3": {
-          "physical": "y",
-          "virtual": "x"
-        },
-        "4": {
-          "physical": "x",
-          "virtual": "y"
-        },
-        "5": {
-          "physical": "l1",
-          "virtual": "l1"
-        },
-        "6": {
-          "physical": "r1",
-          "virtual": "r1"
-        },
-        "7": {
-          "physical": "select",
-          "virtual": "select"
-        },
-        "8": {
-          "physical": "start",
-          "virtual": "start"
-        },
-        "9": {
-          "physical": "l3",
-          "virtual": "l3"
-        }
-      },
-      "config_id": "8bitdo-pro-2-x-mode-usb",
-      "dpad": "hid_hat",
-      "layout_id": "8BitDo-Pro2",
-      "mode": "hid",
-      "pid": "028E",
-      "product_name": "Controller (8BitDo Pro 2)",
-      "source_name": "8BitDo Pro 2 x-mode usb",
-      "vid": "045E"
+      }
     }
   ]
 }

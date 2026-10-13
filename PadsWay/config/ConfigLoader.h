@@ -7,16 +7,19 @@
 #include <unordered_map>
 
 // Loads all controller configs from a JSON file.
-// Throws std::runtime_error if an entry has no "config_id" or two entries share one.
+// Throws std::runtime_error if an entry has no "config_id", two entries share one, or an entry has
+// no "ids" (or an empty list).
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path);
 
 // "Which pad is this?" — answered once, when a device is detected; from then on the device is
 // tracked by the returned config's config_id (see findConfigById).
 // Returns a pointer to the best-matching config, or nullptr if not found.
-// Matches on VID+PID (required). Optional discriminators add to a score;
-// entries that declare a discriminator but don't match are skipped entirely.
+// An entry matches through any of its ids (VID+PID, all alike) and scores as its best one.
+// Optional discriminators add to the score; entries that declare one but don't match are skipped.
 //   connection  (+2): "usb"/"bt" — transport type
-//   product_name(+2): partial case-insensitive match against the device's HID name
+//   product_name(+2): partial case-insensitive match against the device's HID name — the id's own
+//                     product_name if it has one, else the entry's common one
+// Ties keep the first entry in file order.
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
                                    const std::string& connection   = "",

@@ -28,8 +28,7 @@ TEST_CASE("loadControllerConfigs parses one controller", "[ConfigLoader]") {
       f << R"({
         "controllers": [{
           "config_id": "test-controller",
-          "vid": "0x1234",
-          "pid": "0x5678",
+          "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
           "source_name": "TestController",
           "mode": "gamepad",
           "connection": "",
@@ -48,8 +47,9 @@ TEST_CASE("loadControllerConfigs parses one controller", "[ConfigLoader]") {
     REQUIRE(result.size() == 1);
     const auto& cfg = result[0];
     REQUIRE(cfg.config_id == "test-controller");
-    REQUIRE(cfg.vid == 0x1234);
-    REQUIRE(cfg.pid == 0x5678);
+    REQUIRE(cfg.ids.size() == 1);
+    REQUIRE(cfg.ids[0].vid == 0x1234);
+    REQUIRE(cfg.ids[0].pid == 0x5678);
     REQUIRE(cfg.source_name == "TestController");
     REQUIRE(cfg.mode == "gamepad");
     REQUIRE(cfg.buttons.size() == 1);
@@ -63,10 +63,10 @@ TEST_CASE("loadControllerConfigs: protocol defaults to empty (by hardware) and r
     { std::ofstream f(path);
       f << R"({
         "controllers": [
-          { "config_id": "no-protocol", "vid": "054C", "pid": "09CC", "source_name": "NoProtocol",
-            "mode": "hid", "buttons": {}, "axes": {} },
-          { "config_id": "with-protocol", "vid": "054C", "pid": "0CE6", "source_name": "WithProtocol",
-            "mode": "hid", "buttons": {}, "axes": {}, "protocol": "some_family" }
+          { "config_id": "no-protocol", "ids": [ { "vid": "054C", "pid": "09CC" } ],
+            "source_name": "NoProtocol", "mode": "hid", "buttons": {}, "axes": {} },
+          { "config_id": "with-protocol", "ids": [ { "vid": "054C", "pid": "0CE6" } ],
+            "source_name": "WithProtocol", "mode": "hid", "buttons": {}, "axes": {}, "protocol": "some_family" }
         ]
       })"; }
     auto result = loadControllerConfigs(path);
@@ -83,8 +83,28 @@ TEST_CASE("loadControllerConfigs throws on an entry without config_id", "[Config
     const std::string path = "test_tmp_controllers_no_id.json";
     { std::ofstream f(path);
       f << R"({ "controllers": [
-          { "vid": "1234", "pid": "5678", "source_name": "NoId", "mode": "hid", "buttons": {}, "axes": {} }
+          { "ids": [ { "vid": "1234", "pid": "5678" } ], "source_name": "NoId", "mode": "hid",
+            "buttons": {}, "axes": {} }
       ]})"; }
+    CHECK_THROWS_AS(loadControllerConfigs(path), std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("loadControllerConfigs throws on an entry without ids or with an empty list", "[ConfigLoader]") {
+    // Required like config_id: an entry with no ids can never be matched to a pad.
+    const std::string path = "test_tmp_controllers_no_ids.json";
+    SECTION("no ids") {
+        std::ofstream f(path);
+        f << R"({ "controllers": [
+            { "config_id": "no-ids", "source_name": "A", "mode": "hid", "buttons": {}, "axes": {} }
+        ]})";
+    }
+    SECTION("empty ids") {
+        std::ofstream f(path);
+        f << R"({ "controllers": [
+            { "config_id": "empty-ids", "ids": [], "source_name": "A", "mode": "hid", "buttons": {}, "axes": {} }
+        ]})";
+    }
     CHECK_THROWS_AS(loadControllerConfigs(path), std::runtime_error);
     std::remove(path.c_str());
 }
@@ -93,10 +113,10 @@ TEST_CASE("loadControllerConfigs throws on a duplicated config_id", "[ConfigLoad
     const std::string path = "test_tmp_controllers_dup_id.json";
     { std::ofstream f(path);
       f << R"({ "controllers": [
-          { "config_id": "same", "vid": "1234", "pid": "5678", "source_name": "A", "mode": "hid",
-            "buttons": {}, "axes": {} },
-          { "config_id": "same", "vid": "1234", "pid": "9999", "source_name": "B", "mode": "hid",
-            "buttons": {}, "axes": {} }
+          { "config_id": "same", "ids": [ { "vid": "1234", "pid": "5678" } ], "source_name": "A",
+            "mode": "hid", "buttons": {}, "axes": {} },
+          { "config_id": "same", "ids": [ { "vid": "1234", "pid": "9999" } ], "source_name": "B",
+            "mode": "hid", "buttons": {}, "axes": {} }
       ]})"; }
     CHECK_THROWS_AS(loadControllerConfigs(path), std::runtime_error);
     std::remove(path.c_str());
@@ -105,8 +125,8 @@ TEST_CASE("loadControllerConfigs throws on a duplicated config_id", "[ConfigLoad
 TEST_CASE("findConfigById finds the exact entry, even when VID/PID repeat", "[ConfigLoader]") {
     // Pro 2 and Zero 2 in X-mode share 045E:02E0 — only the id tells the entries apart.
     std::vector<ControllerConfig> configs(2);
-    configs[0].config_id = "8bitdo-pro-2-x-mode";  configs[0].vid = 0x045E; configs[0].pid = 0x02E0;
-    configs[1].config_id = "8bitdo-zero-2-x-mode"; configs[1].vid = 0x045E; configs[1].pid = 0x02E0;
+    configs[0].config_id = "8bitdo-pro-2-x-mode";  configs[0].ids = { { 0x045E, 0x02E0 } };
+    configs[1].config_id = "8bitdo-zero-2-x-mode"; configs[1].ids = { { 0x045E, 0x02E0 } };
     CHECK(findConfigById(configs, "8bitdo-zero-2-x-mode") == &configs[1]);
     CHECK(findConfigById(configs, "8bitdo-pro-2-x-mode")  == &configs[0]);
     CHECK(findConfigById(configs, "no-such-id") == nullptr);
@@ -139,20 +159,19 @@ TEST_CASE("findConfig returns nullptr for empty configs", "[ConfigLoader]") {
 TEST_CASE("findConfig matches exact VID/PID with no discriminators", "[ConfigLoader]") {
     std::vector<ControllerConfig> configs;
     ControllerConfig cfg;
-    cfg.vid = 0x1234;
-    cfg.pid = 0x5678;
+    cfg.config_id = "pad";
+    cfg.ids = { { 0x1234, 0x5678 } };
     configs.push_back(cfg);
     const auto* result = findConfig(configs, 0x1234, 0x5678);
     REQUIRE(result != nullptr);
-    REQUIRE(result->vid == 0x1234);
-    REQUIRE(result->pid == 0x5678);
+    REQUIRE(result->config_id == "pad");
 }
 
 TEST_CASE("findConfig prefers connection match over generic", "[ConfigLoader]") {
     std::vector<ControllerConfig> configs;
     ControllerConfig usbCfg, btCfg;
-    usbCfg.vid = 0x1234; usbCfg.pid = 0x5678; usbCfg.connection = "usb";
-    btCfg.vid = 0x1234; btCfg.pid = 0x5678; btCfg.connection = "";
+    usbCfg.ids = { { 0x1234, 0x5678 } }; usbCfg.connection = "usb";
+    btCfg.ids = { { 0x1234, 0x5678 } }; btCfg.connection = "";
     configs.push_back(usbCfg);
     configs.push_back(btCfg);
     const auto* result = findConfig(configs, 0x1234, 0x5678, "usb");
@@ -163,7 +182,7 @@ TEST_CASE("findConfig prefers connection match over generic", "[ConfigLoader]") 
 TEST_CASE("findConfig skips entries with non-matching discriminators", "[ConfigLoader]") {
     std::vector<ControllerConfig> configs;
     ControllerConfig cfg;
-    cfg.vid = 0x1234; cfg.pid = 0x5678; cfg.connection = "usb";
+    cfg.ids = { { 0x1234, 0x5678 } }; cfg.connection = "usb";
     configs.push_back(cfg);
     const auto* result = findConfig(configs, 0x1234, 0x5678, "bt");
     REQUIRE(result == nullptr);
@@ -172,7 +191,7 @@ TEST_CASE("findConfig skips entries with non-matching discriminators", "[ConfigL
 TEST_CASE("findConfig returns nullptr for no matching VID/PID", "[ConfigLoader]") {
     std::vector<ControllerConfig> configs;
     ControllerConfig cfg;
-    cfg.vid = 0x1234; cfg.pid = 0x5678;
+    cfg.ids = { { 0x1234, 0x5678 } };
     configs.push_back(cfg);
     const auto* result = findConfig(configs, 0x9ABC, 0xDEF0);
     REQUIRE(result == nullptr);
@@ -195,7 +214,7 @@ TEST_CASE("loadMacroLibrary reads name-to-execution pairs", "[ConfigLoader]") {
 
 TEST_CASE("applyProfile applies button overrides", "[ConfigLoader]") {
     ControllerConfig base;
-    base.vid = 0x1234; base.pid = 0x5678;
+    base.ids = { { 0x1234, 0x5678 } };
     ButtonAction baseAct;
     baseAct.type = ButtonActionType::VirtualButton;
     baseAct.name = "a"; baseAct.physical = "a";
@@ -213,7 +232,7 @@ TEST_CASE("applyProfile applies button overrides", "[ConfigLoader]") {
 
 TEST_CASE("applyProfile ignores overrides for virtual button not in controller", "[ConfigLoader]") {
     ControllerConfig base;
-    base.vid = 0x1234; base.pid = 0x5678;
+    base.ids = { { 0x1234, 0x5678 } };
     ButtonAction baseAct;
     baseAct.type = ButtonActionType::VirtualButton;
     baseAct.name = "a"; baseAct.physical = "a";
@@ -231,7 +250,7 @@ TEST_CASE("applyProfile ignores overrides for virtual button not in controller",
 
 TEST_CASE("applyProfile applies override via physShort fallback (extra buttons)", "[ConfigLoader]") {
     ControllerConfig base;
-    base.vid = 0x1234; base.pid = 0x5678;
+    base.ids = { { 0x1234, 0x5678 } };
     ButtonAction baseAct;
     baseAct.type = ButtonActionType::Macro;
     baseAct.name = "fly_macro"; baseAct.physical = "lp";
@@ -268,8 +287,7 @@ TEST_CASE("loadPhysicalControllers parses one controller", "[ConfigLoader]") {
       f << R"({
         "controllers": [{
           "config_id": "test-controller",
-          "vid": "0x1234",
-          "pid": "0x5678",
+          "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
           "source_name": "TestController",
           "buttons": {
             "1": {"physical": "a", "virtual": "a"}
@@ -286,8 +304,6 @@ TEST_CASE("loadPhysicalControllers parses one controller", "[ConfigLoader]") {
     REQUIRE(result.size() == 1);
     const auto& ctrl = result[0];
     REQUIRE(ctrl.configId == "test-controller");
-    REQUIRE(ctrl.vid == 0x1234);
-    REQUIRE(ctrl.pid == 0x5678);
     REQUIRE(ctrl.name == "TestController");
     REQUIRE(ctrl.baseLayer[static_cast<size_t>(ComponentId::BtnA)].has_value());
 }
@@ -350,9 +366,9 @@ TEST_CASE("findLayout finds existing id", "[ConfigLoader]") {
 TEST_CASE("findConfig prefers a product_name match over the generic entry", "[ConfigLoader]") {
     // Partial and case-insensitive: the entry's product_name only has to appear in the HID name.
     std::vector<ControllerConfig> configs(2);
-    configs[0].config_id = "named";   configs[0].vid = 0x1234; configs[0].pid = 0x5678;
+    configs[0].config_id = "named";   configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].product_name = "zero 2";
-    configs[1].config_id = "generic"; configs[1].vid = 0x1234; configs[1].pid = 0x5678;
+    configs[1].config_id = "generic"; configs[1].ids = { { 0x1234, 0x5678 } };
     const auto* result = findConfig(configs, 0x1234, 0x5678, "", "8BitDo Zero 2 gamepad");
     REQUIRE(result != nullptr);
     CHECK(result->config_id == "named");
@@ -360,9 +376,9 @@ TEST_CASE("findConfig prefers a product_name match over the generic entry", "[Co
 
 TEST_CASE("findConfig falls back to the generic entry when product_name doesn't match", "[ConfigLoader]") {
     std::vector<ControllerConfig> configs(2);
-    configs[0].config_id = "named";   configs[0].vid = 0x1234; configs[0].pid = 0x5678;
+    configs[0].config_id = "named";   configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].product_name = "Zero 2";
-    configs[1].config_id = "generic"; configs[1].vid = 0x1234; configs[1].pid = 0x5678;
+    configs[1].config_id = "generic"; configs[1].ids = { { 0x1234, 0x5678 } };
     const auto* result = findConfig(configs, 0x1234, 0x5678, "", "8BitDo Pro 2");
     REQUIRE(result != nullptr);
     CHECK(result->config_id == "generic");
@@ -371,7 +387,7 @@ TEST_CASE("findConfig falls back to the generic entry when product_name doesn't 
 TEST_CASE("findConfig skips an entry whose product_name doesn't match when there's no generic one",
           "[ConfigLoader]") {
     std::vector<ControllerConfig> configs(1);
-    configs[0].config_id = "named"; configs[0].vid = 0x1234; configs[0].pid = 0x5678;
+    configs[0].config_id = "named"; configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].product_name = "Zero 2";
     CHECK(findConfig(configs, 0x1234, 0x5678, "", "8BitDo Pro 2") == nullptr);
     CHECK(findConfig(configs, 0x1234, 0x5678, "", "") == nullptr);   // no HID name at all
@@ -379,13 +395,71 @@ TEST_CASE("findConfig skips an entry whose product_name doesn't match when there
 
 TEST_CASE("findConfig connection+product_name both matching beats connection only", "[ConfigLoader]") {
     std::vector<ControllerConfig> configs(2);
-    configs[0].config_id = "conn-only"; configs[0].vid = 0x1234; configs[0].pid = 0x5678;
+    configs[0].config_id = "conn-only"; configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].connection = "usb";
-    configs[1].config_id = "conn-and-name"; configs[1].vid = 0x1234; configs[1].pid = 0x5678;
+    configs[1].config_id = "conn-and-name"; configs[1].ids = { { 0x1234, 0x5678 } };
     configs[1].connection = "usb"; configs[1].product_name = "DualSense";
     const auto* result = findConfig(configs, 0x1234, 0x5678, "usb", "DualSense Wireless Controller");
     REQUIRE(result != nullptr);
     CHECK(result->config_id == "conn-and-name");
+}
+
+// ── ids — one entry, several hardware ids (ARCHITECTURE.md "Tarea 6") ─────────
+
+TEST_CASE("findConfig matches an entry through any of its ids", "[ConfigLoader]") {
+    // Zero 2 D-mode: 3230 by BT, 9018 by USB — same entry either way.
+    std::vector<ControllerConfig> configs(1);
+    configs[0].config_id = "zero-2-d";
+    configs[0].ids = { { 0x2DC8, 0x9018 }, { 0x2DC8, 0x3230 } };
+    CHECK(findConfig(configs, 0x2DC8, 0x3230) == &configs[0]);
+    CHECK(findConfig(configs, 0x2DC8, 0x9018) == &configs[0]);
+    CHECK(findConfig(configs, 0x2DC8, 0x1234) == nullptr);
+}
+
+TEST_CASE("findConfig: the common product_name applies to every id; an id's own one replaces it",
+          "[ConfigLoader]") {
+    // 045E:02E0 is shared by Pro 2 and Zero 2 in X-mode: the common name tells them apart. The
+    // Pro 2's second id carries its own name, which replaces the common one for that id only.
+    std::vector<ControllerConfig> configs(2);
+    configs[0].config_id = "pro-2-x"; configs[0].product_name = "8BitDo Pro 2";
+    configs[0].ids = { { 0x045E, 0x02E0 }, { 0x045E, 0x028E, "Pro2 USB" } };
+    configs[1].config_id = "zero-2-x"; configs[1].product_name = "Zero 2";
+    configs[1].ids = { { 0x045E, 0x02E0 } };
+
+    const auto* pro2  = findConfig(configs, 0x045E, 0x02E0, "", "8BitDo Pro 2");
+    const auto* zero2 = findConfig(configs, 0x045E, 0x02E0, "", "8BitDo Zero 2 gamepad");
+    const auto* usb   = findConfig(configs, 0x045E, 0x028E, "", "Pro2 USB pad");
+    REQUIRE(pro2  != nullptr);
+    REQUIRE(zero2 != nullptr);
+    REQUIRE(usb   != nullptr);
+    CHECK(pro2->config_id  == "pro-2-x");
+    CHECK(zero2->config_id == "zero-2-x");
+    CHECK(usb->config_id   == "pro-2-x");
+    CHECK(findConfig(configs, 0x045E, 0x02E0, "", "Some Xbox pad") == nullptr);
+    // The id's own name replaces the common one, it isn't added to it.
+    CHECK(findConfig(configs, 0x045E, 0x028E, "", "8BitDo Pro 2") == nullptr);
+}
+
+TEST_CASE("loadControllerConfigs reads ids, each with an optional product_name", "[ConfigLoader]") {
+    const std::string path = "test_tmp_controllers_ids.json";
+    { std::ofstream f(path);
+      f << R"({ "controllers": [
+          { "config_id": "zero-2", "source_name": "A", "mode": "hid", "product_name": "Zero 2",
+            "ids": [ { "vid": "2DC8", "pid": "9018" },
+                     { "vid": "2DC8", "pid": "3230", "product_name": "Zero 2 BT" } ],
+            "buttons": {}, "axes": {} }
+      ]})"; }
+    auto result = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(result.size() == 1);
+    CHECK(result[0].product_name == "Zero 2");
+    REQUIRE(result[0].ids.size() == 2);
+    CHECK(result[0].ids[0].vid == 0x2DC8);
+    CHECK(result[0].ids[0].pid == 0x9018);
+    CHECK(result[0].ids[0].product_name.empty());
+    CHECK(result[0].ids[1].vid == 0x2DC8);
+    CHECK(result[0].ids[1].pid == 0x3230);
+    CHECK(result[0].ids[1].product_name == "Zero 2 BT");
 }
 
 TEST_CASE("loadGameProfile returns empty profile for nonexistent file", "[ConfigLoader]") {
@@ -990,8 +1064,7 @@ static void writeBaseControllerFile(const std::string& path) {
     f << R"({
         "controllers": [{
             "config_id": "test-controller",
-            "vid": "0x1234",
-            "pid": "0x5678",
+            "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
             "source_name": "TestController",
             "mode": "gamepad",
             "buttons": {},
@@ -1037,8 +1110,7 @@ TEST_CASE("saveCalibration round-trips touch max", "[ConfigLoader]") {
     { std::ofstream f(path); f << R"({
         "controllers": [{
             "config_id": "test-controller",
-            "vid": "0x1234",
-            "pid": "0x5678",
+            "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
             "source_name": "TestController",
             "mode": "gamepad",
             "buttons": {},
@@ -1074,7 +1146,7 @@ TEST_CASE("saveCalibration does not create an imu block on a no-IMU controller",
     const std::string path = "test_tmp_savecalib_noimu.json";
     { std::ofstream f(path); f << R"({
         "controllers": [{
-            "config_id": "test-controller", "vid": "0x1234", "pid": "0x5678",
+            "config_id": "test-controller", "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
             "source_name": "TestController", "mode": "gamepad", "buttons": {}, "axes": {}
         }]
     })"; }
@@ -1127,10 +1199,10 @@ TEST_CASE("saveCalibration writes only the entry with that config_id", "[ConfigL
     const std::string path = "test_tmp_savecalib_multi.json";
     { std::ofstream f(path); f << R"({
         "controllers": [
-            { "config_id": "twin", "vid": "0x1234", "pid": "0x5678", "source_name": "Twin",
+            { "config_id": "twin", "ids": [ { "vid": "0x1234", "pid": "0x5678" } ], "source_name": "Twin",
               "mode": "gamepad", "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
               "dpad_actions": {}, "stick_slots": {} },
-            { "config_id": "twin-2", "vid": "0x1234", "pid": "0x5678", "source_name": "Twin",
+            { "config_id": "twin-2", "ids": [ { "vid": "0x1234", "pid": "0x5678" } ], "source_name": "Twin",
               "mode": "gamepad", "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
               "dpad_actions": {}, "stick_slots": {} }
         ]
@@ -1444,27 +1516,57 @@ TEST_CASE("savePadLayouts throws when the target directory does not exist", "[Co
 
 // ── putWizardEntry — the wizard saves "all or nothing" ─────────────────────────
 
-TEST_CASE("putWizardEntry replaces the whole entry and keeps only its config_id", "[ConfigLoader]") {
+TEST_CASE("putWizardEntry replaces the whole entry and keeps only its identity", "[ConfigLoader]") {
     nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [
-        { "config_id": "other", "vid": "1111" },
-        { "config_id": "pad", "vid": "2DC8", "source_name": "Old name",
+        { "config_id": "other", "ids": [ { "vid": "1111", "pid": "2222" } ] },
+        { "config_id": "pad", "ids": [ { "vid": "2DC8", "pid": "6009" } ], "source_name": "Old name",
           "buttons": { "1": { "physical": "a", "virtual": "b" } },
           "imu": { "enabled": true },
           "stick_calibration": { "left": { "deadzone": 0.1, "max": 1.0 } },
           "trigger_actions": { "l2": { "virtual": "l1" } },
           "touchpad": { "enabled": true, "surface_mode": "zones" } }
     ] })");
-    nlohmann::json entry = { { "vid", "2DC8" }, { "source_name", "New name" },
+    const nlohmann::json otherBefore = root["controllers"][0];
+    nlohmann::json entry = { { "ids", nlohmann::json::parse(R"([ { "vid": "2DC8", "pid": "6009" } ])") },
+                             { "source_name", "New name" },
                              { "buttons", { { "1", { { "physical", "a" }, { "virtual", "a" } } } } } };
 
     CHECK(putWizardEntry(root, entry, "pad", "New name") == "pad");
 
     const auto& controllers = root["controllers"];
     REQUIRE(controllers.size() == 2);
-    CHECK(controllers[0] == nlohmann::json({ { "config_id", "other" }, { "vid", "1111" } }));
+    CHECK(controllers[0] == otherBefore);
     nlohmann::json expected = entry;
     expected["config_id"] = "pad";
     CHECK(controllers[1] == expected);   // no imu/stick_calibration/trigger_actions/touchpad left
+}
+
+TEST_CASE("putWizardEntry keeps every id of the entry, not only the one the pad came in by",
+          "[ConfigLoader]") {
+    // Zero 2 D-mode answers to 3230 (BT) and 9018 (USB); the wizard re-runs with the pad on USB and
+    // only knows 9018. The entry's ids and common product_name stay as they were.
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [
+        { "config_id": "zero-2", "product_name": "Zero 2",
+          "ids": [ { "vid": "2DC8", "pid": "3230" }, { "vid": "2DC8", "pid": "9018" } ],
+          "buttons": { "1": { "physical": "a", "virtual": "b" } } }
+    ] })");
+    const nlohmann::json idsBefore = root["controllers"][0]["ids"];
+    nlohmann::json entry = { { "ids", nlohmann::json::parse(R"([ { "vid": "2DC8", "pid": "9018" } ])") },
+                             { "product_name", "8BitDo Zero 2 gamepad" }, { "source_name", "Zero 2" },
+                             { "buttons", { { "1", { { "physical", "a" }, { "virtual", "a" } } } } } };
+
+    CHECK(putWizardEntry(root, entry, "zero-2", "Zero 2") == "zero-2");
+
+    const auto& saved = root["controllers"][0];
+    CHECK(saved["ids"] == idsBefore);
+    CHECK(saved["product_name"] == "Zero 2");
+    CHECK(saved["buttons"] == entry["buttons"]);   // the mapping is the wizard's
+
+    SECTION("an identity key the old entry didn't have is not taken from the wizard") {
+        root["controllers"][0].erase("product_name");
+        putWizardEntry(root, entry, "zero-2", "Zero 2");
+        CHECK_FALSE(root["controllers"][0].contains("product_name"));
+    }
 }
 
 TEST_CASE("putWizardEntry appends a new entry with a fresh config_id", "[ConfigLoader]") {

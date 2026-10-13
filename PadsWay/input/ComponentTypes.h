@@ -273,8 +273,6 @@ static constexpr size_t kComponentCount = static_cast<size_t>(ComponentId::_Coun
 struct PhysicalController {
     std::string configId;   // ControllerConfig::config_id of the entry this was built from
     std::string name;
-    uint16_t    vid = 0;
-    uint16_t    pid = 0;
 
     // Radial deadzone/max applied to the combined virtual stick output in process() — see
     // ARCHITECTURE.md "Calibracion de entrada". Set from ControllerConfig::leftStickCalib/

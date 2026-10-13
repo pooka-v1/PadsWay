@@ -38,9 +38,13 @@ bool extractFakePadEntry(json& entry, std::string& error) {
         return false;
     }
     for (const auto& c : root["controllers"]) {
-        if (parseHex(c.value("vid", json())) == kFakePadVid && parseHex(c.value("pid", json())) == kFakePadPid) {
-            entry = c;
-            return true;
+        if (!c.contains("ids") || !c["ids"].is_array()) continue;
+        for (const auto& id : c["ids"]) {
+            if (parseHex(id.value("vid", json())) == kFakePadVid &&
+                parseHex(id.value("pid", json())) == kFakePadPid) {
+                entry = c;
+                return true;
+            }
         }
     }
     error = "no 054C:09CC (DualShock 4 USB) entry in " + source.string();

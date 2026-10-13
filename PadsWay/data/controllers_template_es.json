@@ -3,8 +3,10 @@
   "controllers": [
     {
       "config_id": "nombre-del-mando",
-      "vid": "XXXX",
-      "pid": "YYYY",
+      "_ids_doc": "Todos los VID/PID del mando en este modo (uno por conexion si cambia). 'product_name' opcional en la entrada (nombre HID comun); en un id solo si su nombre HID es distinto.",
+      "ids": [
+        { "vid": "XXXX", "pid": "YYYY" }
+      ],
       "source_name": "Nombre del mando",
       "mode": "hid",
       "layout_id": "8BitDo-Pro3",
