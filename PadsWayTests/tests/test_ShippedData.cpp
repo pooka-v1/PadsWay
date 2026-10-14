@@ -3,6 +3,7 @@
 #define NOMINMAX
 #endif
 #include "config/ConfigLoader.h"
+#include "config/ControllerModes.h"
 #include "macros/MacroParser.h"
 #include "input/TouchZones.h"
 #include "nlohmann/json.hpp"
@@ -148,6 +149,20 @@ TEST_CASE("Shipped controllers.json loads and every layout_id exists in pad_layo
             CAPTURE(id);
             CHECK(findLayout(layouts, id) != nullptr);
         }
+    }
+}
+
+TEST_CASE("Shipped known_controllers.json loads clean, one row per id", "[ShippedData]") {
+    // The loader skips bad rows silently for the user; here every shipped row must be valid.
+    REQUIRE_SHIPPED_DATA(dataDir);
+    std::vector<std::string> warnings;
+    const auto known = loadKnownControllers((dataDir / "known_controllers.json").string(), &warnings);
+    CHECK(warnings.empty());
+    REQUIRE_FALSE(known.empty());
+    std::set<std::pair<uint16_t, uint16_t>> seen;
+    for (const auto& id : known) {
+        CAPTURE(id.name);
+        CHECK(seen.insert({ id.vid, id.pid }).second);   // first hit wins: a repeat would be dead
     }
 }
 

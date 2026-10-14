@@ -144,6 +144,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="config\ConfigLoader.cpp" />
+    <ClCompile Include="config\ControllerModes.cpp" />
     <ClCompile Include="config\Strings.cpp" />
     <ClCompile Include="input\ComponentTypes.cpp" />
     <ClCompile Include="input\HIDScanner.cpp" />
@@ -190,6 +191,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="config\ConfigLoader.h" />
+    <ClInclude Include="config\ControllerModes.h" />
     <ClInclude Include="config\ControllerEntryWriter.h" />
     <ClInclude Include="config\Strings.h" />
     <ClInclude Include="input\ControllerConfig.h" />

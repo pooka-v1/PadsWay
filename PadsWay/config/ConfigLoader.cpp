@@ -1,4 +1,5 @@
 #include "ConfigLoader.h"
+#include "ControllerModes.h"
 #include "../nlohmann/json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -204,7 +205,7 @@ static std::string parseControllerMode(const json& entry, const std::string& pat
                                        const std::string& configId) {
     const std::string mode = entry.value("mode", std::string{});
     if (mode.empty() || mode == "hid") return {};
-    if (mode == "d" || mode == "x" || mode == "s") return mode;
+    if (isKnownControllerMode(mode)) return mode;
     throw std::runtime_error("Unknown mode '" + mode + "' in " + path + ": " + configId);
 }
 

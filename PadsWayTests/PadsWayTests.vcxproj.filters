@@ -39,6 +39,12 @@
     <ClCompile Include="..\PadsWay\config\ConfigLoader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="..\PadsWay\config\ControllerModes.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="tests\test_ControllerModes.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="..\PadsWay\ui\MacroStep.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>

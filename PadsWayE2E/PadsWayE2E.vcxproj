@@ -88,6 +88,7 @@
     <!-- Engine (everything PadEngine needs, no UI) + the Mapeador's model -->
     <ClCompile Include="..\PadsWay\bots\BotLoader.cpp" />
     <ClCompile Include="..\PadsWay\config\ConfigLoader.cpp" />
+    <ClCompile Include="..\PadsWay\config\ControllerModes.cpp" />
     <ClCompile Include="..\PadsWay\input\ComponentTypes.cpp" />
     <ClCompile Include="..\PadsWay\input\DeviceHub.cpp" />
     <ClCompile Include="..\PadsWay\input\HIDDevice.cpp" />
