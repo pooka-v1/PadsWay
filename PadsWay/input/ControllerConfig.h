@@ -244,7 +244,6 @@ struct ControllerConfig {
     std::vector<ControllerHidId> ids;
     std::string source_name;
     std::string mode;
-    std::string connection;    // "usb" / "bt" / "" = match any
     // BT/HID product name filter common to all ids — partial match, case-insensitive. Needed
     // because VID/PID pairs are shared across brands (045E:02E0 is both Pro 2 and Zero 2 in X-mode).
     std::string product_name;

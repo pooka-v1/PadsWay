@@ -90,7 +90,6 @@ void BindingWizard::start(const PadLayout& layout) {
     m_overlayLabels.clear();
     m_hasDpad  = false;
     m_dpadType.clear();
-    m_saveWithConnection = false;
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
 
     m_gyroPhase    = GyroPhase::Baseline;
@@ -176,16 +175,6 @@ void BindingWizard::renderNameController() {
     ImGui::Text("VID:%04X  PID:%04X", c.vid, c.pid);
     if (!c.productName.empty())
         ImGui::Text(tr("wizard.hid_name"), c.productName.c_str());
-    {
-        const char* conn = c.connectionType == "bt"  ? tr("wizard.conn_bt") :
-                           c.connectionType == "usb" ? tr("wizard.conn_usb") : tr("wizard.conn_unknown");
-        ImGui::Text(tr("wizard.connection"), conn);
-        ImGui::Checkbox(tr("wizard.specific_mapping"), &m_saveWithConnection);
-        if (m_saveWithConnection)
-            ImGui::TextDisabled(tr("wizard.mapping_specific"), conn);
-        else
-            ImGui::TextDisabled("%s", tr("wizard.mapping_generic"));
-    }
     ImGui::Spacing();
     ImGui::Text("%s", tr("wizard.display_name"));
     ImGui::SetNextItemWidth(-1.0f);
@@ -790,8 +779,7 @@ void BindingWizard::scanControllers() {
     // HID scan — all physical controllers use HID
     for (const auto& h : HIDScanner::scan()) {
         if (h.vid == 0x5650 && h.pid == 0x0001) continue;  // skip ViGEm
-        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
-                                                       h.connectionType, h.productName);
+        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid, h.productName);
         DetectedController c;
         c.vid            = h.vid;
         c.pid            = h.pid;
@@ -2215,8 +2203,6 @@ void BindingWizard::saveResult() {
     entry["source_name"] = m_nameBuf;
     entry["mode"]        = mode;
     entry["layout_id"]   = m_layout.id;
-    if (m_saveWithConnection && !ctrl.connectionType.empty())
-        entry["connection"] = ctrl.connectionType;
     if (!ctrl.productName.empty())
         entry["product_name"] = ctrl.productName;
 

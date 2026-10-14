@@ -232,7 +232,6 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         cfg.mode         = c.at("mode").get<std::string>();
         cfg.dpad         = c.value("dpad", "");
         cfg.layout_id    = c.value("layout_id", "");
-        cfg.connection    = c.value("connection",    "");
         cfg.product_name  = c.value("product_name", "");
         cfg.protocol      = c.value("protocol",     "");
         if (c.contains("context_bots") && c["context_bots"].is_array())
@@ -403,7 +402,6 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
-                                   const std::string& connection,
                                    const std::string& productName) {
     const ControllerConfig* best      = nullptr;
     int                     bestScore = -1;
@@ -430,13 +428,6 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
             else if (containsCI(productName, name))   score = (std::max)(score, 2);
         }
         if (score < 0) continue;
-
-        // connection: if entry declares it, incoming must match or we skip
-        if (!c.connection.empty()) {
-            if (connection.empty()) continue;
-            if (c.connection != connection) continue;
-            score += 2;
-        }
 
         if (score > bestScore) {
             bestScore = score;

@@ -15,15 +15,14 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path);
 // tracked by the returned config's config_id (see findConfigById).
 // Returns a pointer to the best-matching config, or nullptr if not found.
 // An entry matches through any of its ids (VID+PID, all alike) and scores as its best one.
-// Optional discriminators add to the score; entries that declare one but don't match are skipped.
-//   connection  (+2): "usb"/"bt" — transport type
-//   product_name(+2): partial case-insensitive match against the device's HID name — the id's own
-//                     product_name if it has one, else the entry's common one
+// product_name (+2) — the id's own if it has one, else the entry's common one — is a partial
+// case-insensitive match against the device's HID name; an id that declares it and doesn't match
+// is skipped. No connection filter: the PID already tells USB from BT when it changes, and the
+// same pad in the same mode maps the same either way (ARCHITECTURE.md "Tarea 6").
 // Ties keep the first entry in file order.
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
-                                   const std::string& connection   = "",
-                                   const std::string& productName  = "");
+                                   const std::string& productName = "");
 
 // "Which entry do I read/write?" — exact config_id lookup. nullptr if not found or id is empty.
 const ControllerConfig* findConfigById(const std::vector<ControllerConfig>& configs,

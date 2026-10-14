@@ -289,7 +289,6 @@ private:
     int    m_selectedCtrl  = -1;
 
     char   m_nameBuf[128]     = {};
-    bool   m_saveWithConnection = false; // save connection:"usb"/"bt" (specific) vs generic
 
     std::unordered_map<std::string, StateMapEntry> m_stateMap;
     std::vector<BindStep> m_steps;

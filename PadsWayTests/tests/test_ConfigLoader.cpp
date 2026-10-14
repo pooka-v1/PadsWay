@@ -31,7 +31,6 @@ TEST_CASE("loadControllerConfigs parses one controller", "[ConfigLoader]") {
           "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
           "source_name": "TestController",
           "mode": "gamepad",
-          "connection": "",
           "buttons": {
             "1": "A"
           },
@@ -165,27 +164,6 @@ TEST_CASE("findConfig matches exact VID/PID with no discriminators", "[ConfigLoa
     const auto* result = findConfig(configs, 0x1234, 0x5678);
     REQUIRE(result != nullptr);
     REQUIRE(result->config_id == "pad");
-}
-
-TEST_CASE("findConfig prefers connection match over generic", "[ConfigLoader]") {
-    std::vector<ControllerConfig> configs;
-    ControllerConfig usbCfg, btCfg;
-    usbCfg.ids = { { 0x1234, 0x5678 } }; usbCfg.connection = "usb";
-    btCfg.ids = { { 0x1234, 0x5678 } }; btCfg.connection = "";
-    configs.push_back(usbCfg);
-    configs.push_back(btCfg);
-    const auto* result = findConfig(configs, 0x1234, 0x5678, "usb");
-    REQUIRE(result != nullptr);
-    REQUIRE(result->connection == "usb");
-}
-
-TEST_CASE("findConfig skips entries with non-matching discriminators", "[ConfigLoader]") {
-    std::vector<ControllerConfig> configs;
-    ControllerConfig cfg;
-    cfg.ids = { { 0x1234, 0x5678 } }; cfg.connection = "usb";
-    configs.push_back(cfg);
-    const auto* result = findConfig(configs, 0x1234, 0x5678, "bt");
-    REQUIRE(result == nullptr);
 }
 
 TEST_CASE("findConfig returns nullptr for no matching VID/PID", "[ConfigLoader]") {
@@ -369,7 +347,7 @@ TEST_CASE("findConfig prefers a product_name match over the generic entry", "[Co
     configs[0].config_id = "named";   configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].product_name = "zero 2";
     configs[1].config_id = "generic"; configs[1].ids = { { 0x1234, 0x5678 } };
-    const auto* result = findConfig(configs, 0x1234, 0x5678, "", "8BitDo Zero 2 gamepad");
+    const auto* result = findConfig(configs, 0x1234, 0x5678, "8BitDo Zero 2 gamepad");
     REQUIRE(result != nullptr);
     CHECK(result->config_id == "named");
 }
@@ -379,7 +357,7 @@ TEST_CASE("findConfig falls back to the generic entry when product_name doesn't 
     configs[0].config_id = "named";   configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].product_name = "Zero 2";
     configs[1].config_id = "generic"; configs[1].ids = { { 0x1234, 0x5678 } };
-    const auto* result = findConfig(configs, 0x1234, 0x5678, "", "8BitDo Pro 2");
+    const auto* result = findConfig(configs, 0x1234, 0x5678, "8BitDo Pro 2");
     REQUIRE(result != nullptr);
     CHECK(result->config_id == "generic");
 }
@@ -389,19 +367,8 @@ TEST_CASE("findConfig skips an entry whose product_name doesn't match when there
     std::vector<ControllerConfig> configs(1);
     configs[0].config_id = "named"; configs[0].ids = { { 0x1234, 0x5678 } };
     configs[0].product_name = "Zero 2";
-    CHECK(findConfig(configs, 0x1234, 0x5678, "", "8BitDo Pro 2") == nullptr);
-    CHECK(findConfig(configs, 0x1234, 0x5678, "", "") == nullptr);   // no HID name at all
-}
-
-TEST_CASE("findConfig connection+product_name both matching beats connection only", "[ConfigLoader]") {
-    std::vector<ControllerConfig> configs(2);
-    configs[0].config_id = "conn-only"; configs[0].ids = { { 0x1234, 0x5678 } };
-    configs[0].connection = "usb";
-    configs[1].config_id = "conn-and-name"; configs[1].ids = { { 0x1234, 0x5678 } };
-    configs[1].connection = "usb"; configs[1].product_name = "DualSense";
-    const auto* result = findConfig(configs, 0x1234, 0x5678, "usb", "DualSense Wireless Controller");
-    REQUIRE(result != nullptr);
-    CHECK(result->config_id == "conn-and-name");
+    CHECK(findConfig(configs, 0x1234, 0x5678, "8BitDo Pro 2") == nullptr);
+    CHECK(findConfig(configs, 0x1234, 0x5678, "") == nullptr);   // no HID name at all
 }
 
 // ── ids — one entry, several hardware ids (ARCHITECTURE.md "Tarea 6") ─────────
@@ -426,18 +393,18 @@ TEST_CASE("findConfig: the common product_name applies to every id; an id's own 
     configs[1].config_id = "zero-2-x"; configs[1].product_name = "Zero 2";
     configs[1].ids = { { 0x045E, 0x02E0 } };
 
-    const auto* pro2  = findConfig(configs, 0x045E, 0x02E0, "", "8BitDo Pro 2");
-    const auto* zero2 = findConfig(configs, 0x045E, 0x02E0, "", "8BitDo Zero 2 gamepad");
-    const auto* usb   = findConfig(configs, 0x045E, 0x028E, "", "Pro2 USB pad");
+    const auto* pro2  = findConfig(configs, 0x045E, 0x02E0, "8BitDo Pro 2");
+    const auto* zero2 = findConfig(configs, 0x045E, 0x02E0, "8BitDo Zero 2 gamepad");
+    const auto* usb   = findConfig(configs, 0x045E, 0x028E, "Pro2 USB pad");
     REQUIRE(pro2  != nullptr);
     REQUIRE(zero2 != nullptr);
     REQUIRE(usb   != nullptr);
     CHECK(pro2->config_id  == "pro-2-x");
     CHECK(zero2->config_id == "zero-2-x");
     CHECK(usb->config_id   == "pro-2-x");
-    CHECK(findConfig(configs, 0x045E, 0x02E0, "", "Some Xbox pad") == nullptr);
+    CHECK(findConfig(configs, 0x045E, 0x02E0, "Some Xbox pad") == nullptr);
     // The id's own name replaces the common one, it isn't added to it.
-    CHECK(findConfig(configs, 0x045E, 0x028E, "", "8BitDo Pro 2") == nullptr);
+    CHECK(findConfig(configs, 0x045E, 0x028E, "8BitDo Pro 2") == nullptr);
 }
 
 TEST_CASE("loadControllerConfigs reads ids, each with an optional product_name", "[ConfigLoader]") {
