@@ -30,7 +30,7 @@ TEST_CASE("loadControllerConfigs parses one controller", "[ConfigLoader]") {
           "config_id": "test-controller",
           "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
           "source_name": "TestController",
-          "mode": "gamepad",
+          "mode": "x",
           "buttons": {
             "1": "A"
           },
@@ -50,7 +50,7 @@ TEST_CASE("loadControllerConfigs parses one controller", "[ConfigLoader]") {
     REQUIRE(cfg.ids[0].vid == 0x1234);
     REQUIRE(cfg.ids[0].pid == 0x5678);
     REQUIRE(cfg.source_name == "TestController");
-    REQUIRE(cfg.mode == "gamepad");
+    REQUIRE(cfg.mode == "x");
     REQUIRE(cfg.buttons.size() == 1);
     REQUIRE(cfg.buttons.at(1).name == "A");
 }
@@ -116,6 +116,42 @@ TEST_CASE("loadControllerConfigs throws on a duplicated config_id", "[ConfigLoad
             "mode": "hid", "buttons": {}, "axes": {} },
           { "config_id": "same", "ids": [ { "vid": "1234", "pid": "9999" } ], "source_name": "B",
             "mode": "hid", "buttons": {}, "axes": {} }
+      ]})"; }
+    CHECK_THROWS_AS(loadControllerConfigs(path), std::runtime_error);
+    std::remove(path.c_str());
+}
+
+TEST_CASE("loadControllerConfigs: mode is optional, \"hid\" means not declared", "[ConfigLoader]") {
+    // "mode" used to be the read API ("hid" everywhere); now it is the pad's mode (ARCHITECTURE.md
+    // "Tarea 6"). "hid" and a missing key both load as "" (no mode declared).
+    const std::string path = "test_tmp_controllers_mode.json";
+    { std::ofstream f(path);
+      f << R"({ "controllers": [
+          { "config_id": "legacy-hid", "ids": [ { "vid": "1234", "pid": "0001" } ], "source_name": "A",
+            "mode": "hid", "buttons": {}, "axes": {} },
+          { "config_id": "no-mode", "ids": [ { "vid": "1234", "pid": "0002" } ], "source_name": "B",
+            "buttons": {}, "axes": {} },
+          { "config_id": "d-mode", "ids": [ { "vid": "1234", "pid": "0003" } ], "source_name": "C",
+            "mode": "d", "buttons": {}, "axes": {} },
+          { "config_id": "s-mode", "ids": [ { "vid": "1234", "pid": "0004" } ], "source_name": "D",
+            "mode": "s", "buttons": {}, "axes": {} }
+      ]})"; }
+    auto result = loadControllerConfigs(path);
+    std::remove(path.c_str());
+    REQUIRE(result.size() == 4);
+    CHECK(result[0].mode.empty());
+    CHECK(result[1].mode.empty());
+    CHECK(result[2].mode == "d");
+    CHECK(result[3].mode == "s");
+}
+
+TEST_CASE("loadControllerConfigs throws on an unknown mode", "[ConfigLoader]") {
+    // A typo must fail at load, not read as "no mode" without anyone noticing.
+    const std::string path = "test_tmp_controllers_bad_mode.json";
+    { std::ofstream f(path);
+      f << R"({ "controllers": [
+          { "config_id": "bad-mode", "ids": [ { "vid": "1234", "pid": "5678" } ], "source_name": "A",
+            "mode": "X", "buttons": {}, "axes": {} }
       ]})"; }
     CHECK_THROWS_AS(loadControllerConfigs(path), std::runtime_error);
     std::remove(path.c_str());
@@ -1033,7 +1069,7 @@ static void writeBaseControllerFile(const std::string& path) {
             "config_id": "test-controller",
             "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
             "source_name": "TestController",
-            "mode": "gamepad",
+            "mode": "hid",
             "buttons": {},
             "axes": { "hid_x": { "target": "left_x" } },
             "axis_actions": {},
@@ -1079,7 +1115,7 @@ TEST_CASE("saveCalibration round-trips touch max", "[ConfigLoader]") {
             "config_id": "test-controller",
             "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
             "source_name": "TestController",
-            "mode": "gamepad",
+            "mode": "hid",
             "buttons": {},
             "axes": {},
             "axis_actions": {},
@@ -1114,7 +1150,7 @@ TEST_CASE("saveCalibration does not create an imu block on a no-IMU controller",
     { std::ofstream f(path); f << R"({
         "controllers": [{
             "config_id": "test-controller", "ids": [ { "vid": "0x1234", "pid": "0x5678" } ],
-            "source_name": "TestController", "mode": "gamepad", "buttons": {}, "axes": {}
+            "source_name": "TestController", "mode": "hid", "buttons": {}, "axes": {}
         }]
     })"; }
 
@@ -1167,10 +1203,10 @@ TEST_CASE("saveCalibration writes only the entry with that config_id", "[ConfigL
     { std::ofstream f(path); f << R"({
         "controllers": [
             { "config_id": "twin", "ids": [ { "vid": "0x1234", "pid": "0x5678" } ], "source_name": "Twin",
-              "mode": "gamepad", "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
+              "mode": "hid", "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
               "dpad_actions": {}, "stick_slots": {} },
             { "config_id": "twin-2", "ids": [ { "vid": "0x1234", "pid": "0x5678" } ], "source_name": "Twin",
-              "mode": "gamepad", "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
+              "mode": "hid", "buttons": {}, "axes": {}, "axis_actions": {}, "dpad_remap": {},
               "dpad_actions": {}, "stick_slots": {} }
         ]
     })"; }

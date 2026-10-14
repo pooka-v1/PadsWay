@@ -2190,8 +2190,6 @@ void BindingWizard::snapshotBaseline() {
 void BindingWizard::saveResult() {
     const auto& ctrl = m_controllers[m_selectedCtrl];
 
-    const std::string mode = "hid";
-
     // Build the new entry as JSON
     json entry;
     char vidStr[8], pidStr[8];
@@ -2201,7 +2199,6 @@ void BindingWizard::saveResult() {
     // (putWizardEntry).
     entry["ids"]         = json::array({ { { "vid", vidStr }, { "pid", pidStr } } });
     entry["source_name"] = m_nameBuf;
-    entry["mode"]        = mode;
     entry["layout_id"]   = m_layout.id;
     if (!ctrl.productName.empty())
         entry["product_name"] = ctrl.productName;

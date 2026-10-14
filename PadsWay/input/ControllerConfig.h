@@ -243,6 +243,8 @@ struct ControllerConfig {
     // empty in controllers.json.
     std::vector<ControllerHidId> ids;
     std::string source_name;
+    // The "software" family the pad speaks: "d" (generic HID / DirectInput), "x" (Xbox), "s" (Switch),
+    // or "" = not declared ("hid" in the file). Not the same as protocol (the decoder within it).
     std::string mode;
     // BT/HID product name filter common to all ids — partial match, case-insensitive. Needed
     // because VID/PID pairs are shared across brands (045E:02E0 is both Pro 2 and Zero 2 in X-mode).

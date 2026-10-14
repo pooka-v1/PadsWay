@@ -268,7 +268,7 @@ void PadEngine::monitorFunc() {
         for (auto& h : hidEntries) {
             if (vVid && h.vid == vVid && h.pid == vPid) continue;
             const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.productName);
-            if (!cfg || cfg->mode != "hid") continue;
+            if (!cfg) continue;
             DeviceCandidate c;
             c.hidPath        = h.path;
             c.vid            = h.vid;
@@ -431,7 +431,7 @@ void PadEngine::threadFunc() {
             const uint16_t vVid = m_virtualVid.load(), vPid = m_virtualPid.load();
             if (vVid && h.vid == vVid && h.pid == vPid) continue;
             const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.productName);
-            if (!c || c->mode != "hid") {
+            if (!c) {
                 spdlog::debug("[Scan] No config: VID={:04X} PID={:04X} conn='{}' name='{}'",
                               h.vid, h.pid, h.connectionType, h.productName);
                 continue;

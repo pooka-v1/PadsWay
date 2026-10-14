@@ -197,6 +197,17 @@ static std::unordered_map<int, ButtonAction> parseButtonsJson(const json& button
     return result;
 }
 
+// Reads an entry's "mode": the pad's family ("d"/"x"/"s"), or "" when none was declared. "hid" (the old read-API value every entry used to carry) and a missing key both mean
+// "not declared". Any other value throws, like a missing config_id: a typo must fail at load
+// instead of silently reading as "no mode" (ARCHITECTURE.md "Tarea 6", mode).
+static std::string parseControllerMode(const json& entry, const std::string& path,
+                                       const std::string& configId) {
+    const std::string mode = entry.value("mode", std::string{});
+    if (mode.empty() || mode == "hid") return {};
+    if (mode == "d" || mode == "x" || mode == "s") return mode;
+    throw std::runtime_error("Unknown mode '" + mode + "' in " + path + ": " + configId);
+}
+
 // ---------------------------------------------------------------------------
 
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
@@ -229,7 +240,7 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
             cfg.ids.push_back(std::move(id));
         }
         cfg.source_name  = c.at("source_name").get<std::string>();
-        cfg.mode         = c.at("mode").get<std::string>();
+        cfg.mode         = parseControllerMode(c, path, cfg.config_id);
         cfg.dpad         = c.value("dpad", "");
         cfg.layout_id    = c.value("layout_id", "");
         cfg.product_name  = c.value("product_name", "");
