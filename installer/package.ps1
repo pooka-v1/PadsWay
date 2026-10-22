@@ -9,7 +9,8 @@
     forgotten or leaked when staging by hand:
 
       Ships  : PadsWay.exe, factory data\ (pad_layouts.json, state_map.json,
-               strings\, virtualpad.json defaults, an EMPTY controllers.json),
+               known_controllers.json, strings\, virtualpad.json defaults, an EMPTY
+               controllers.json),
                images\, and the docs (README / MACROS / QUICK_START, LICENSE).
       Never  : the developer's real controllers.json, profiles\, macros.json,
                pad_layouts.json.bak, controller templates, bots\, or portable.txt.
@@ -60,7 +61,7 @@ foreach ($doc in 'README.md','README.es.md','MACROS.md','MACROS.es.md',
 }
 
 # --- 5. Factory data\ (whitelist: only shippable assets + safe defaults) -------
-foreach ($f in 'pad_layouts.json','state_map.json','virtualpad.json') {
+foreach ($f in 'pad_layouts.json','state_map.json','known_controllers.json','virtualpad.json') {
     Copy-Item (Join-Path $srcData $f) (Join-Path $stage "data\$f")
 }
 Copy-Item (Join-Path $srcData 'strings') -Destination (Join-Path $stage 'data') -Recurse

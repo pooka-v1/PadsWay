@@ -38,12 +38,18 @@ static float kHIDAxisValues(const RawHIDState& s, int i) {
 
 void BindingWizard::init(ID3D11Device* device,
                          const std::string& controllersPath,
-                         const std::string& stateMapPath) {
-    m_device          = device;
-    m_controllersPath = controllersPath;
-    m_stateMapPath    = stateMapPath;
+                         const std::string& stateMapPath,
+                         const std::string& knownControllersPath) {
+    m_device               = device;
+    m_controllersPath      = controllersPath;
+    m_stateMapPath         = stateMapPath;
+    m_knownControllersPath = knownControllersPath;
     m_canvasView.load(device);
     loadStateMap();
+    // Only feeds the proposed mode: a missing or broken file just means nothing gets preselected.
+    std::vector<std::string> knownWarnings;
+    m_knownControllers = loadKnownControllers(m_knownControllersPath, &knownWarnings);
+    for (const auto& w : knownWarnings) spdlog::warn("[Wizard] {}", w);
     loadArrows();
 }
 
@@ -91,6 +97,7 @@ void BindingWizard::start(const PadLayout& layout) {
     m_hasDpad  = false;
     m_dpadType.clear();
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
+    m_mode.clear();
 
     m_gyroPhase    = GyroPhase::Baseline;
     m_hasGyroStep  = false;
@@ -153,7 +160,9 @@ void BindingWizard::renderSelectController() {
     if (!canContinue) ImGui::BeginDisabled();
     if (ImGui::Button(trid("btn.continue", "selCtrl").c_str(), { 140.0f, 0.0f })) {
         const auto& c = m_controllers[m_selectedCtrl];
-        strncpy_s(m_nameBuf, c.name.c_str(), sizeof(m_nameBuf) - 1);
+        const std::string& proposedName = !c.entryName.empty() ? c.entryName : c.name;
+        strncpy_s(m_nameBuf, proposedName.c_str(), sizeof(m_nameBuf) - 1);
+        m_mode  = c.proposedMode;
         m_state = State::NameController;
     }
     if (!canContinue) ImGui::EndDisabled();
@@ -180,27 +189,112 @@ void BindingWizard::renderNameController() {
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputText("##cname", m_nameBuf, sizeof(m_nameBuf));
 
+    // Mode: always asked, the proposal (entry's own or deduced) only preselects it. It can't be
+    // detected over HID and it changes the buttons a pad has, so the user confirms it here.
+    ImGui::Spacing();
+    ImGui::Text("%s", tr("wizard.mode_label"));
+    static const struct { const char* mode; const char* labelKey; } kModes[] = {
+        { "d", "wizard.mode_d" },
+        { "x", "wizard.mode_x" },
+        { "s", "wizard.mode_s" },
+    };
+    for (const auto& m : kModes) {
+        if (ImGui::RadioButton((std::string(tr(m.labelKey)) + "##mode_" + m.mode).c_str(), m_mode == m.mode))
+            m_mode = m.mode;
+    }
+    ImGui::TextDisabled("%s", tr("wizard.mode_hint"));
+
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
     if (ImGui::Button(trid("btn.back", "name").c_str(), { 100.0f, 0.0f })) m_state = State::SelectController;
     ImGui::SameLine();
-    bool canContinue = (m_nameBuf[0] != '\0');
+    bool canContinue = (m_nameBuf[0] != '\0') && isKnownControllerMode(m_mode);
     if (!canContinue) ImGui::BeginDisabled();
     if (ImGui::Button(trid("btn.continue", "name").c_str(), { 140.0f, 0.0f })) {
-        buildSteps();
-        if (m_noStateCount > 0)
-            m_state = State::WarnNoState;
-        else {
-            m_state = State::Binding;
-            openReader();
-            beginStep();
-        }
+        // An existing entry gets replaced whole on save — ask before mapping, not after.
+        if (!m_controllers[m_selectedCtrl].configId.empty()) ImGui::OpenPopup(kConfirmRemapPopup);
+        else                                                 startBinding();
     }
     if (!canContinue) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button(trid("btn.cancel", "name").c_str(), { 100.0f, 0.0f })) cancel();
+
+    renderConfirmRemapPopup();
+}
+
+void BindingWizard::startBinding() {
+    buildSteps();
+    if (m_noStateCount > 0)
+        m_state = State::WarnNoState;
+    else {
+        m_state = State::Binding;
+        openReader();
+        beginStep();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared confirm popup + its questions
+// ---------------------------------------------------------------------------
+
+BindingWizard::ConfirmAnswer BindingWizard::renderConfirmPopup(const char* popupId, const char* titleKey,
+                                                               const std::string& message,
+                                                               const char* yesKey, const char* noKey) {
+    // Centered and fixed width, so the message wraps instead of stretching the popup across the
+    // screen. The visible title is translated; the "###" part keeps the popup's id stable.
+    constexpr float kPopupWidth = 460.0f;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, { 0.5f, 0.5f });
+    ImGui::SetNextWindowSize({ kPopupWidth, 0.0f });
+    const std::string title = std::string(tr(titleKey)) + popupId;
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+        return ConfirmAnswer::None;
+
+    ImGui::TextWrapped("%s", message.c_str());
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Button row centered, whether it holds 2 or 3 buttons: measure it first, then indent by half
+    // the space left over.
+    const std::string backLabel = trid("btn.back", "confirm");
+    const std::string yesLabel  = std::string(tr(yesKey)) + "##confirmYes";
+    const std::string noLabel   = noKey ? std::string(tr(noKey)) + "##confirmNo" : std::string();
+    constexpr float kBackWidth = 100.0f;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    auto buttonWidth = [&](const std::string& label) {
+        return ImGui::CalcTextSize(label.c_str(), nullptr, true).x + style.FramePadding.x * 2.0f;
+    };
+    float rowWidth = kBackWidth + style.ItemSpacing.x + buttonWidth(yesLabel);
+    if (noKey) rowWidth += style.ItemSpacing.x + buttonWidth(noLabel);
+    const float indent = (ImGui::GetContentRegionAvail().x - rowWidth) * 0.5f;
+    if (indent > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
+
+    ConfirmAnswer answer = ConfirmAnswer::None;
+    if (ImGui::Button(backLabel.c_str(), { kBackWidth, 0.0f })) answer = ConfirmAnswer::Back;
+    ImGui::SameLine();
+    if (ImGui::Button(yesLabel.c_str())) answer = ConfirmAnswer::Yes;
+    if (noKey) {
+        ImGui::SameLine();
+        if (ImGui::Button(noLabel.c_str())) answer = ConfirmAnswer::No;
+    }
+    if (answer != ConfirmAnswer::None) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return answer;
+}
+
+// The pad already has an entry: saving replaces it whole, Mapeador settings included (see
+// putWizardEntry). Yes = go on mapping; Back = stay on the name+mode screen, nothing changed.
+void BindingWizard::renderConfirmRemapPopup() {
+    const auto& c = m_controllers[m_selectedCtrl];
+    const std::string& entryLabel = !c.entryName.empty() ? c.entryName : c.configId;
+    char message[512];
+    snprintf(message, sizeof(message), tr("wizard.remap_message"), entryLabel.c_str());
+
+    if (renderConfirmPopup(kConfirmRemapPopup, "wizard.step_confirm_title", message, "wizard.remap_yes")
+            == ConfirmAnswer::Yes)
+        startBinding();
 }
 
 // ---------------------------------------------------------------------------
@@ -786,7 +880,13 @@ void BindingWizard::scanControllers() {
         c.productName    = h.productName;
         c.connectionType = h.connectionType;
         c.path           = h.path;
-        if (existing) c.configId = existing->config_id;
+        if (existing) {
+            c.configId  = existing->config_id;
+            c.entryName = existing->source_name;
+        }
+        c.proposedMode = (existing && !existing->mode.empty())
+                       ? existing->mode
+                       : deduceMode(h.vid, h.pid, h.productName, m_knownControllers, existingConfigs);
         // Hardware name takes priority — the config source_name may belong to a different
         // model that shares VID/PID (e.g. Pro 2 config showing for a Zero 2 device).
         c.name = !h.productName.empty() ? h.productName
@@ -2199,6 +2299,7 @@ void BindingWizard::saveResult() {
     // (putWizardEntry).
     entry["ids"]         = json::array({ { { "vid", vidStr }, { "pid", pidStr } } });
     entry["source_name"] = m_nameBuf;
+    entry["mode"]        = m_mode;
     entry["layout_id"]   = m_layout.id;
     if (!ctrl.productName.empty())
         entry["product_name"] = ctrl.productName;

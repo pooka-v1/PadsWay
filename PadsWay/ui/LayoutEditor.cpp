@@ -54,8 +54,9 @@ void LayoutEditor::init(ID3D11Device* device,
     m_layoutsPath = layoutsPath;
     m_canvasView.load(device);
     // controllers.json is user-writable (the wizard saves to it) → per-user folder;
-    // state_map.json is a read-only shipped asset → stays next to the exe.
-    m_wizard.init(device, Paths::userData("data/controllers.json"), "data/state_map.json");
+    // state_map.json and known_controllers.json are read-only shipped assets → stay next to the exe.
+    m_wizard.init(device, Paths::userData("data/controllers.json"), "data/state_map.json",
+                  "data/known_controllers.json");
 }
 
 void LayoutEditor::unload() {

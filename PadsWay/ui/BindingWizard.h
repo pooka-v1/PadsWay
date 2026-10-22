@@ -9,6 +9,7 @@
 #include "PadView.h"
 #include "PadLayout.h"
 #include "CounterByteDetector.h"
+#include "../config/ControllerModes.h"
 #include "../input/HIDScanner.h"
 #include "../input/RawHIDReader.h"
 #include "../imgui/imgui.h"
@@ -18,9 +19,12 @@
 // Call start() to launch, then render() every frame until isActive() returns false.
 class BindingWizard {
 public:
+    // knownControllersPath: data/known_controllers.json, the ids whose mode we know — feeds the
+    // mode proposed in the name+mode step (see ControllerModes.h).
     void init(ID3D11Device* device,
               const std::string& controllersPath,
-              const std::string& stateMapPath);
+              const std::string& stateMapPath,
+              const std::string& knownControllersPath);
     void unload();
 
     // Launch the wizard for the given layout.
@@ -39,7 +43,7 @@ private:
     enum class State {
         Idle,
         SelectController,   // pick connected controller
-        NameController,     // edit name + mode toggle
+        NameController,     // edit name + pick mode (d / x / s); confirm a re-map in a popup
         WarnNoState,        // warn about components with no state entry in state_map
         Binding,            // main binding loop
         Review,             // show all bindings, confirm or restart
@@ -79,6 +83,12 @@ private:
         // config_id of the entry findConfig() matched at scan time; empty = no entry yet, so
         // saveResult() creates one. A re-run of the wizard overwrites this entry.
         std::string configId;
+        // source_name of that entry, proposed again on a re-run instead of the HID name — so
+        // pressing Continue doesn't silently rename the pad. Empty = no entry yet.
+        std::string entryName;
+        // Mode preselected in the name+mode step: on a re-run, the entry's own (a re-run is how a
+        // wrong mode gets fixed, so it must not be overridden); otherwise deduceMode(). "" = none.
+        std::string proposedMode;
     };
 
     struct StateMapEntry {
@@ -152,8 +162,22 @@ private:
     };
 
     // ── Render sub-methods ───────────────────────────────────────────────────
+    // Answer given in the shared confirm popup this frame (None = popup closed or nothing pressed).
+    enum class ConfirmAnswer { None, Yes, No, Back };
+    // Shared modal confirm popup, drawn over the current wizard screen. Open it with
+    // ImGui::OpenPopup(popupId) and call this every frame from the same screen. Back always closes
+    // it and leaves the user where they were; yes / no (noKey = nullptr hides it) mean whatever
+    // the question needs — re-mapping a pad: yes = go on mapping; "another connection of...?"
+    // (6C step 4): yes = reuse that entry, no = map it as a new pad. Every text is a strings-file
+    // key except the already formatted message.
+    ConfirmAnswer renderConfirmPopup(const char* popupId, const char* titleKey, const std::string& message,
+                                     const char* yesKey, const char* noKey = nullptr);
     void renderSelectController();
     void renderNameController();
+    // The re-map question's popup, drawn by renderNameController().
+    void renderConfirmRemapPopup();
+    // ImGui id of that popup: "###" so the id ignores the translated title shown before it.
+    static constexpr const char* kConfirmRemapPopup = "###confirmRemap";
     void renderWarnNoState();
     void renderBinding();
     void renderReview();
@@ -163,6 +187,9 @@ private:
     void scanControllers();
     void loadStateMap();
     void buildSteps();
+    // Name+mode settled (and a re-map confirmed): builds the steps and goes to WarnNoState, or
+    // straight into Binding when every component has a state_map entry.
+    void startBinding();
     void beginStep();
     void commitButton(int physIndex);
     void commitAxis(const std::string& source, bool invert);
@@ -280,6 +307,8 @@ private:
     ID3D11Device* m_device = nullptr;
     std::string   m_controllersPath;
     std::string   m_stateMapPath;
+    std::string   m_knownControllersPath;
+    std::vector<KnownControllerId> m_knownControllers;   // loaded once in init()
 
     PadLayout m_layout;
     PadView   m_canvasView;
@@ -289,6 +318,9 @@ private:
     int    m_selectedCtrl  = -1;
 
     char   m_nameBuf[128]     = {};
+    // Mode chosen in the name+mode step: "d" / "x" / "s", "" until the user picks one (Continue
+    // stays disabled). Written to the entry's "mode" by saveResult().
+    std::string m_mode;
 
     std::unordered_map<std::string, StateMapEntry> m_stateMap;
     std::vector<BindStep> m_steps;
