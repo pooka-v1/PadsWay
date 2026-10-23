@@ -1,7 +1,11 @@
 #pragma once
 #include "ConfigLoader.h"   // makeConfigId
 #include "../nlohmann/json.hpp"
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,6 +49,42 @@ inline std::string putWizardEntry(nlohmann::json& root, nlohmann::json entry,
     entry["config_id"] = newId;
     controllers.push_back(std::move(entry));
     return newId;
+}
+
+// "¿Es otra conexión de…?" -> "Usar ese mapeo": the entry named configId also answers to this pad
+// from now on, mapping untouched. The new id carries its own product_name only when the pad's HID
+// name doesn't contain the entry's common one — findConfig would reject the pad otherwise (same
+// partial, case-insensitive match). An id already in the entry is left as is. Returns false
+// (root unchanged) when the entry isn't there.
+inline bool addIdToEntry(nlohmann::json& root, const std::string& configId,
+                         uint16_t vid, uint16_t pid, const std::string& productName) {
+    if (configId.empty() || !root.contains("controllers") || !root["controllers"].is_array())
+        return false;
+    auto containsCI = [](const std::string& haystack, const std::string& needle) {
+        auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+                              [](char a, char b) { return tolower((unsigned char)a)
+                                                        == tolower((unsigned char)b); });
+        return it != haystack.end();
+    };
+    char vidStr[8], pidStr[8];
+    snprintf(vidStr, sizeof(vidStr), "%04X", vid);
+    snprintf(pidStr, sizeof(pidStr), "%04X", pid);
+    for (auto& existing : root["controllers"]) {
+        if (existing.value("config_id", "") != configId) continue;
+        if (!existing.contains("ids") || !existing["ids"].is_array())
+            existing["ids"] = nlohmann::json::array();
+        for (const auto& id : existing["ids"]) {
+            const std::string idVid = id.value("vid", ""), idPid = id.value("pid", "");
+            if (_stricmp(idVid.c_str(), vidStr) == 0 && _stricmp(idPid.c_str(), pidStr) == 0) return true;
+        }
+        nlohmann::json id = { { "vid", vidStr }, { "pid", pidStr } };
+        const std::string common = existing.value("product_name", "");
+        if (!common.empty() && !productName.empty() && !containsCI(productName, common))
+            id["product_name"] = productName;
+        existing["ids"].push_back(std::move(id));
+        return true;
+    }
+    return false;
 }
 
 // "Separar este mando": takes the pad's vid/pid out of the "ids" of the entry named configId, so

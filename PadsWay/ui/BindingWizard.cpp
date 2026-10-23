@@ -214,15 +214,22 @@ void BindingWizard::renderNameController() {
     bool canContinue = (m_nameBuf[0] != '\0') && isKnownControllerMode(m_mode);
     if (!canContinue) ImGui::BeginDisabled();
     if (ImGui::Button(trid("btn.continue", "name").c_str(), { 140.0f, 0.0f })) {
-        // An existing entry gets replaced whole on save — ask before mapping, not after.
-        if (!m_controllers[m_selectedCtrl].configId.empty()) ImGui::OpenPopup(kConfirmRemapPopup);
-        else                                                 startBinding();
+        // An existing entry gets replaced whole on save — ask before mapping, not after. A pad
+        // without one may be another connection of an entry already mapped: offer to reuse it.
+        if (!m_controllers[m_selectedCtrl].configId.empty()) {
+            ImGui::OpenPopup(kConfirmRemapPopup);
+        } else {
+            findJoinCandidates();
+            if (!m_joinCandidates.empty()) ImGui::OpenPopup(kConfirmJoinPopup);
+            else                           startBinding();
+        }
     }
     if (!canContinue) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button(trid("btn.cancel", "name").c_str(), { 100.0f, 0.0f })) cancel();
 
     renderConfirmRemapPopup();
+    renderConfirmJoinPopup();
 }
 
 void BindingWizard::startBinding() {
@@ -242,7 +249,8 @@ void BindingWizard::startBinding() {
 
 BindingWizard::ConfirmAnswer BindingWizard::renderConfirmPopup(const char* popupId, const char* titleKey,
                                                                const std::string& message,
-                                                               const char* yesKey, const char* noKey) {
+                                                               const char* yesKey, const char* noKey,
+                                                               const std::function<void()>& body) {
     // Centered and fixed width, so the message wraps instead of stretching the popup across the
     // screen. The visible title is translated; the "###" part keeps the popup's id stable.
     constexpr float kPopupWidth = 460.0f;
@@ -253,6 +261,10 @@ BindingWizard::ConfirmAnswer BindingWizard::renderConfirmPopup(const char* popup
         return ConfirmAnswer::None;
 
     ImGui::TextWrapped("%s", message.c_str());
+    if (body) {
+        ImGui::Spacing();
+        body();
+    }
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -309,6 +321,33 @@ void BindingWizard::renderConfirmRemapPopup() {
         m_splitFromEntry = (answer == ConfirmAnswer::No);
         startBinding();
     }
+}
+
+// A pad without an entry, and entries with the same layout + mode: the user decides whether it's
+// another connection/version of one of them. One candidate is named in the text; several get a
+// list to pick from. Yes = reuse that entry's mapping (no mapping now); No = map it as a new pad.
+void BindingWizard::renderConfirmJoinPopup() {
+    if (m_joinCandidates.empty()) return;
+    std::string message;
+    std::function<void()> list;
+    if (m_joinCandidates.size() == 1) {
+        char buf[512];
+        snprintf(buf, sizeof(buf), tr("wizard.join_one"), m_joinCandidates[0].sourceName.c_str());
+        message = buf;
+    } else {
+        message = tr("wizard.join_many");
+        list = [this] {
+            for (int i = 0; i < (int)m_joinCandidates.size(); ++i) {
+                const std::string label = m_joinCandidates[i].sourceName + "##join" + std::to_string(i);
+                if (ImGui::RadioButton(label.c_str(), m_joinChoice == i)) m_joinChoice = i;
+            }
+        };
+    }
+
+    const ConfirmAnswer answer = renderConfirmPopup(kConfirmJoinPopup, "wizard.step_confirm_title", message,
+                                                    "wizard.join_yes", "wizard.join_new", list);
+    if      (answer == ConfirmAnswer::Yes) joinChosenEntry();
+    else if (answer == ConfirmAnswer::No)  startBinding();
 }
 
 // ---------------------------------------------------------------------------
@@ -2410,13 +2449,7 @@ void BindingWizard::saveResult() {
     }
 
     // Load existing controllers.json, replace or append
-    json root;
-    {
-        std::ifstream f(m_controllersPath);
-        if (f.is_open()) {
-            try { root = json::parse(f); } catch (...) {}
-        }
-    }
+    json root = loadControllersRoot();
 
     // Replace the entry this pad already had, whole (its config_id, resolved by findConfig() at
     // scan time — see scanControllers()), or append a new one with a fresh config_id. source_name
@@ -2432,11 +2465,48 @@ void BindingWizard::saveResult() {
         putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
     }
 
-    // Write back
-    std::ofstream f(m_controllersPath);
+    writeControllersRoot(root);
+}
+
+json BindingWizard::loadControllersRoot() const {
+    json root;
+    std::ifstream f(m_controllersPath);
     if (f.is_open()) {
-        f << root.dump(2);
-        m_state     = State::Idle;
-        m_savedFlag = true;
+        try { root = json::parse(f); } catch (...) {}
     }
+    return root;
+}
+
+bool BindingWizard::writeControllersRoot(const json& root) {
+    std::ofstream f(m_controllersPath);
+    if (!f.is_open()) return false;
+    f << root.dump(2);
+    m_state     = State::Idle;
+    m_savedFlag = true;
+    return true;
+}
+
+void BindingWizard::findJoinCandidates() {
+    m_joinCandidates.clear();
+    m_joinChoice = -1;
+    std::vector<ControllerConfig> configs;
+    try { configs = loadControllerConfigs(m_controllersPath); } catch (...) { return; }
+    for (const auto& cfg : configs) {
+        if (cfg.layout_id != m_layout.id || cfg.mode != m_mode) continue;
+        m_joinCandidates.push_back({ cfg.config_id, !cfg.source_name.empty() ? cfg.source_name : cfg.config_id });
+    }
+    if (!m_joinCandidates.empty()) m_joinChoice = 0;
+}
+
+void BindingWizard::joinChosenEntry() {
+    if (m_joinChoice < 0 || m_joinChoice >= (int)m_joinCandidates.size()) return;
+    const auto& ctrl = m_controllers[m_selectedCtrl];
+    const std::string& configId = m_joinCandidates[m_joinChoice].configId;
+    json root = loadControllersRoot();
+    if (!addIdToEntry(root, configId, ctrl.vid, ctrl.pid, ctrl.productName)) {
+        spdlog::warn("Wizard: entry '{}' to join is gone from controllers.json", configId);
+        return;
+    }
+    if (writeControllersRoot(root))
+        spdlog::info("Wizard: {:04X}:{:04X} joined entry '{}'", ctrl.vid, ctrl.pid, configId);
 }

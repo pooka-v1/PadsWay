@@ -1621,3 +1621,37 @@ TEST_CASE("splitIdFromEntry refuses and changes nothing when it can't split", "[
     SECTION("empty config_id")      { CHECK_FALSE(splitIdFromEntry(root, "", 0x2DC8, 0x3230)); }
     CHECK(root == before);
 }
+
+// ── addIdToEntry — "¿Es otra conexión de…?" -> "Usar ese mapeo" ────────────────
+
+TEST_CASE("addIdToEntry adds the pad's id and leaves the mapping", "[ConfigLoader]") {
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [
+        { "config_id": "zero-2", "product_name": "Zero 2",
+          "ids": [ { "vid": "2DC8", "pid": "3230" } ],
+          "buttons": { "1": { "physical": "a", "virtual": "b" } } }
+    ] })");
+    nlohmann::json expected = root["controllers"][0];
+
+    SECTION("HID name contains the common one: no product_name of its own") {
+        CHECK(addIdToEntry(root, "zero-2", 0x2DC8, 0x9018, "8BitDo ZERO 2 gamepad"));
+        expected["ids"].push_back({ { "vid", "2DC8" }, { "pid", "9018" } });
+    }
+    SECTION("HID name that doesn't: the id carries it") {
+        CHECK(addIdToEntry(root, "zero-2", 0x2DC8, 0x9018, "Other name"));
+        expected["ids"].push_back({ { "vid", "2DC8" }, { "pid", "9018" }, { "product_name", "Other name" } });
+    }
+    SECTION("id already there (letter case aside): unchanged") {
+        root["controllers"][0]["ids"][0]["vid"] = "2dc8";
+        expected = root["controllers"][0];
+        CHECK(addIdToEntry(root, "zero-2", 0x2DC8, 0x3230, "Zero 2"));
+    }
+    CHECK(root["controllers"][0] == expected);
+}
+
+TEST_CASE("addIdToEntry refuses an unknown entry", "[ConfigLoader]") {
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [ { "config_id": "pad", "ids": [] } ] })");
+    const nlohmann::json before = root;
+    CHECK_FALSE(addIdToEntry(root, "gone", 0x2DC8, 0x9018, "Pad"));
+    CHECK_FALSE(addIdToEntry(root, "", 0x2DC8, 0x9018, "Pad"));
+    CHECK(root == before);
+}

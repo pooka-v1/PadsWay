@@ -5,6 +5,7 @@
 #include <array>
 #include <chrono>
 #include <memory>
+#include <functional>
 #include <unordered_map>
 #include "PadView.h"
 #include "PadLayout.h"
@@ -13,6 +14,7 @@
 #include "../input/HIDScanner.h"
 #include "../input/RawHIDReader.h"
 #include "../imgui/imgui.h"
+#include "../nlohmann/json.hpp"
 
 // Guides the user through binding a physical controller to a layout.
 // The wizard replaces the normal 3-panel editor while it is active.
@@ -172,9 +174,11 @@ private:
     // it and leaves the user where they were; yes / no (noKey = nullptr hides it) mean whatever
     // the question needs — re-mapping a pad: yes = go on mapping; "another connection of...?"
     // (6C step 4): yes = reuse that entry, no = map it as a new pad. Every text is a strings-file
-    // key except the already formatted message.
+    // key except the already formatted message. body (optional) draws extra widgets between the
+    // message and the buttons — e.g. the list of entries to pick from.
     ConfirmAnswer renderConfirmPopup(const char* popupId, const char* titleKey, const std::string& message,
-                                     const char* yesKey, const char* noKey = nullptr);
+                                     const char* yesKey, const char* noKey = nullptr,
+                                     const std::function<void()>& body = {});
     void renderSelectController();
     void renderNameController();
     // The re-map question's popup, drawn by renderNameController(). On an entry shared by several
@@ -182,6 +186,10 @@ private:
     void renderConfirmRemapPopup();
     // ImGui id of that popup: "###" so the id ignores the translated title shown before it.
     static constexpr const char* kConfirmRemapPopup = "###confirmRemap";
+    // "Is this pad another connection of...?" popup, drawn by renderNameController(): opened on
+    // Continue for a pad without an entry when m_joinCandidates isn't empty.
+    void renderConfirmJoinPopup();
+    static constexpr const char* kConfirmJoinPopup = "###confirmJoin";
     void renderWarnNoState();
     void renderBinding();
     void renderReview();
@@ -276,10 +284,21 @@ private:
     // finishGyroStep(): overlay label, cooldown, ++m_currentStep, beginStep().
     void finishTouchSurfaceStep();
 
+    // Entries the pad could be another connection/version of: same layout and same mode as picked
+    // in the name+mode step (never by name or config_id — see ARCHITECTURE.md, Tarea 6, "Paso
+    // condicional"). Fills m_joinCandidates and preselects the first one.
+    void findJoinCandidates();
+    // "Usar ese mapeo": adds the pad's id to the chosen entry, saves and closes — no mapping.
+    void joinChosenEntry();
+
     void skipStep();
     void goBack();
     void cancel();
     void saveResult();
+    // controllers.json as JSON (empty when missing or unparsable), and writing it back. Writing
+    // ends the wizard and raises the saved flag; returns false if the file can't be opened.
+    nlohmann::json loadControllersRoot() const;
+    bool writeControllersRoot(const nlohmann::json& root);
 
     // ── Input capture ────────────────────────────────────────────────────────
     // Shared "Continuar" control for the gyro and touch_surface sub-phases: draws the button
@@ -329,6 +348,15 @@ private:
     // shared entry and saves the pad as a new one. Nothing changes until then — cancelling the
     // wizard leaves the shared entry as it was.
     bool m_splitFromEntry = false;
+
+    // Candidates for "is this another connection of...?" (findJoinCandidates) and the one picked
+    // in its popup (-1 = none).
+    struct JoinCandidate {
+        std::string configId;
+        std::string sourceName;
+    };
+    std::vector<JoinCandidate> m_joinCandidates;
+    int m_joinChoice = -1;
 
     std::unordered_map<std::string, StateMapEntry> m_stateMap;
     std::vector<BindStep> m_steps;
