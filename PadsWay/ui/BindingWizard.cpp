@@ -98,6 +98,7 @@ void BindingWizard::start(const PadLayout& layout) {
     m_dpadType.clear();
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
     m_mode.clear();
+    m_splitFromEntry = false;
 
     m_gyroPhase    = GyroPhase::Baseline;
     m_hasGyroStep  = false;
@@ -286,15 +287,28 @@ BindingWizard::ConfirmAnswer BindingWizard::renderConfirmPopup(const char* popup
 
 // The pad already has an entry: saving replaces it whole, Mapeador settings included (see
 // putWizardEntry). Yes = go on mapping; Back = stay on the name+mode screen, nothing changed.
+// An entry shared by several ids (other connections/pads joined to it) gets a shorter text and a
+// third button: Yes re-maps it for all of them, No splits this pad off into a new entry.
 void BindingWizard::renderConfirmRemapPopup() {
     const auto& c = m_controllers[m_selectedCtrl];
     const std::string& entryLabel = !c.entryName.empty() ? c.entryName : c.configId;
+    const int others = c.entryIdCount - 1;
     char message[512];
-    snprintf(message, sizeof(message), tr("wizard.remap_message"), entryLabel.c_str());
+    if (others <= 0)
+        snprintf(message, sizeof(message), tr("wizard.remap_message"), entryLabel.c_str());
+    else if (others == 1)
+        snprintf(message, sizeof(message), tr("wizard.remap_shared_one"), entryLabel.c_str());
+    else
+        snprintf(message, sizeof(message), tr("wizard.remap_shared_many"), entryLabel.c_str(), others);
 
-    if (renderConfirmPopup(kConfirmRemapPopup, "wizard.step_confirm_title", message, "wizard.remap_yes")
-            == ConfirmAnswer::Yes)
+    const ConfirmAnswer answer = (others <= 0)
+        ? renderConfirmPopup(kConfirmRemapPopup, "wizard.step_confirm_title", message, "wizard.remap_yes")
+        : renderConfirmPopup(kConfirmRemapPopup, "wizard.step_confirm_title", message,
+                             "wizard.remap_shared_yes", "wizard.remap_split");
+    if (answer == ConfirmAnswer::Yes || answer == ConfirmAnswer::No) {
+        m_splitFromEntry = (answer == ConfirmAnswer::No);
         startBinding();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -881,8 +895,9 @@ void BindingWizard::scanControllers() {
         c.connectionType = h.connectionType;
         c.path           = h.path;
         if (existing) {
-            c.configId  = existing->config_id;
-            c.entryName = existing->source_name;
+            c.configId     = existing->config_id;
+            c.entryName    = existing->source_name;
+            c.entryIdCount = static_cast<int>(existing->ids.size());
         }
         c.proposedMode = (existing && !existing->mode.empty())
                        ? existing->mode
@@ -2407,7 +2422,15 @@ void BindingWizard::saveResult() {
     // scan time — see scanControllers()), or append a new one with a fresh config_id. source_name
     // is never the key: it's a display label. The id is made once and a re-run keeps it —
     // renaming the pad doesn't change it.
-    putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
+    // Split off ("Separar este mando"): the shared entry stops answering to this pad's id and keeps
+    // its mapping; the pad goes in as a new entry. If the id can't be taken out (see
+    // splitIdFromEntry), it's still saved as new rather than overwriting the shared mapping.
+    if (m_splitFromEntry) {
+        splitIdFromEntry(root, ctrl.configId, ctrl.vid, ctrl.pid);
+        putWizardEntry(root, std::move(entry), "", m_nameBuf);
+    } else {
+        putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
+    }
 
     // Write back
     std::ofstream f(m_controllersPath);

@@ -86,6 +86,9 @@ private:
         // source_name of that entry, proposed again on a re-run instead of the HID name — so
         // pressing Continue doesn't silently rename the pad. Empty = no entry yet.
         std::string entryName;
+        // How many ids that entry answers to: more than one = shared with other connections/pads,
+        // so the re-map popup also offers to split this pad off (see m_splitFromEntry).
+        int         entryIdCount = 0;
         // Mode preselected in the name+mode step: on a re-run, the entry's own (a re-run is how a
         // wrong mode gets fixed, so it must not be overridden); otherwise deduceMode(). "" = none.
         std::string proposedMode;
@@ -174,7 +177,8 @@ private:
                                      const char* yesKey, const char* noKey = nullptr);
     void renderSelectController();
     void renderNameController();
-    // The re-map question's popup, drawn by renderNameController().
+    // The re-map question's popup, drawn by renderNameController(). On an entry shared by several
+    // ids it also offers "split this pad off" (sets m_splitFromEntry).
     void renderConfirmRemapPopup();
     // ImGui id of that popup: "###" so the id ignores the translated title shown before it.
     static constexpr const char* kConfirmRemapPopup = "###confirmRemap";
@@ -321,6 +325,10 @@ private:
     // Mode chosen in the name+mode step: "d" / "x" / "s", "" until the user picks one (Continue
     // stays disabled). Written to the entry's "mode" by saveResult().
     std::string m_mode;
+    // "Separar este mando" picked in the re-map popup: saveResult() takes the pad's id out of its
+    // shared entry and saves the pad as a new one. Nothing changes until then — cancelling the
+    // wizard leaves the shared entry as it was.
+    bool m_splitFromEntry = false;
 
     std::unordered_map<std::string, StateMapEntry> m_stateMap;
     std::vector<BindStep> m_steps;

@@ -1,6 +1,7 @@
 #pragma once
 #include "ConfigLoader.h"   // makeConfigId
 #include "../nlohmann/json.hpp"
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -44,4 +45,32 @@ inline std::string putWizardEntry(nlohmann::json& root, nlohmann::json entry,
     entry["config_id"] = newId;
     controllers.push_back(std::move(entry));
     return newId;
+}
+
+// "Separar este mando": takes the pad's vid/pid out of the "ids" of the entry named configId, so
+// that entry stops answering to it and the wizard can append the pad as a new entry. The rest of
+// the entry (its mapping, its other ids) is untouched. Refuses (returns false, root unchanged)
+// when the entry isn't there, has no such id, or would be left without ids — an entry must keep
+// at least one (load error otherwise).
+inline bool splitIdFromEntry(nlohmann::json& root, const std::string& configId,
+                             uint16_t vid, uint16_t pid) {
+    if (configId.empty() || !root.contains("controllers") || !root["controllers"].is_array())
+        return false;
+    // Ids are hex strings ("2DC8"); compared as numbers so letter case doesn't matter.
+    auto hexValue = [](const nlohmann::json& id, const char* key) -> long {
+        if (!id.contains(key) || !id[key].is_string()) return -1;
+        try { return static_cast<long>(std::stoul(id[key].get<std::string>(), nullptr, 16)); }
+        catch (...) { return -1; }
+    };
+    for (auto& existing : root["controllers"]) {
+        if (existing.value("config_id", "") != configId) continue;
+        if (!existing.contains("ids") || !existing["ids"].is_array()) return false;
+        nlohmann::json kept = nlohmann::json::array();
+        for (const auto& id : existing["ids"])
+            if (hexValue(id, "vid") != vid || hexValue(id, "pid") != pid) kept.push_back(id);
+        if (kept.size() == existing["ids"].size() || kept.empty()) return false;
+        existing["ids"] = std::move(kept);
+        return true;
+    }
+    return false;
 }

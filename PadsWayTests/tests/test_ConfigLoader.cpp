@@ -1591,3 +1591,33 @@ TEST_CASE("putWizardEntry creates the controllers array when the file had none",
     REQUIRE(root["controllers"].is_array());
     CHECK(root["controllers"].size() == 1);
 }
+
+// ── splitIdFromEntry — "Separar este mando" ────────────────────────────────────
+
+TEST_CASE("splitIdFromEntry takes the pad's id out and leaves the rest of the entry", "[ConfigLoader]") {
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [
+        { "config_id": "zero-2",
+          "ids": [ { "vid": "2DC8", "pid": "3230" }, { "vid": "2dc8", "pid": "9018" } ],
+          "buttons": { "1": { "physical": "a", "virtual": "b" } } }
+    ] })");
+    nlohmann::json expected = root["controllers"][0];
+    expected["ids"] = nlohmann::json::parse(R"([ { "vid": "2DC8", "pid": "3230" } ])");
+
+    CHECK(splitIdFromEntry(root, "zero-2", 0x2DC8, 0x9018));   // lower-case hex matches too
+    CHECK(root["controllers"][0] == expected);
+}
+
+TEST_CASE("splitIdFromEntry refuses and changes nothing when it can't split", "[ConfigLoader]") {
+    nlohmann::json root = nlohmann::json::parse(R"({ "controllers": [
+        { "config_id": "pad", "ids": [ { "vid": "2DC8", "pid": "6009" } ] },
+        { "config_id": "zero-2",
+          "ids": [ { "vid": "2DC8", "pid": "3230" }, { "vid": "2DC8", "pid": "9018" } ] }
+    ] })");
+    const nlohmann::json before = root;
+
+    SECTION("last id of the entry") { CHECK_FALSE(splitIdFromEntry(root, "pad", 0x2DC8, 0x6009)); }
+    SECTION("id not in the entry")  { CHECK_FALSE(splitIdFromEntry(root, "zero-2", 0x2DC8, 0x6009)); }
+    SECTION("unknown entry")        { CHECK_FALSE(splitIdFromEntry(root, "gone", 0x2DC8, 0x3230)); }
+    SECTION("empty config_id")      { CHECK_FALSE(splitIdFromEntry(root, "", 0x2DC8, 0x3230)); }
+    CHECK(root == before);
+}
