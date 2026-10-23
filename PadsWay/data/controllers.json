@@ -74,7 +74,7 @@
         }
       ],
       "layout_id": "8BitDo-Pro3",
-      "mode": "hid",
+      "mode": "x",
       "source_name": "8BitDo Pro 3 (X-mode)"
     },
     {
@@ -217,7 +217,7 @@
         "gyro_z_offset": 21
       },
       "layout_id": "8BitDo-Pro2",
-      "mode": "hid",
+      "mode": "d",
       "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (D-mode)",
       "stick_calibration": {
@@ -329,7 +329,7 @@
         }
       ],
       "layout_id": "8BitDo-Pro2",
-      "mode": "hid",
+      "mode": "x",
       "product_name": "8BitDo Pro 2",
       "source_name": "8BitDo Pro 2 (X-mode)",
       "stick_calibration": {
@@ -429,7 +429,7 @@
         }
       ],
       "layout_id": "Logitech-F310-Dmode",
-      "mode": "hid",
+      "mode": "d",
       "source_name": "Logitech F310 (D-mode)"
     },
     {
@@ -506,7 +506,7 @@
         }
       ],
       "layout_id": "Logitech-F310-Xmode",
-      "mode": "hid",
+      "mode": "x",
       "source_name": "Logitech F310 (x-mode)"
     },
     {
@@ -576,7 +576,7 @@
         }
       ],
       "layout_id": "8BitDo-Zero2",
-      "mode": "hid",
+      "mode": "x",
       "product_name": "8BitDo Zero 2 gamepad",
       "source_name": "8BitDo Zero 2 (X-mode)"
     },
@@ -651,7 +651,7 @@
         }
       ],
       "layout_id": "8BitDo-Zero2",
-      "mode": "hid",
+      "mode": "d",
       "product_name": "8BitDo Zero 2 gamepad",
       "source_name": "8BitDo Zero 2 (D-mode)"
     },
@@ -795,7 +795,7 @@
         "gyro_z_offset": 17
       },
       "layout_id": "dualshock4",
-      "mode": "hid",
+      "mode": "d",
       "product_name": "Wireless Controller",
       "source_name": "DualShock 4 v2",
       "stick_calibration": {
@@ -1063,7 +1063,7 @@
         "gyro_z_offset": 21
       },
       "layout_id": "8BitDo-Pro3",
-      "mode": "hid",
+      "mode": "d",
       "product_name": "8BitDo Pro 3",
       "source_name": "8BitDo Pro 3 (D-mode)",
       "stick_calibration": {
@@ -1214,7 +1214,7 @@
         "gyro_z_offset": 20
       },
       "layout_id": "Dual Sense",
-      "mode": "hid",
+      "mode": "d",
       "product_name": "DualSense Wireless Controller",
       "source_name": "DualSense",
       "stick_calibration": {
