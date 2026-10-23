@@ -2406,22 +2406,18 @@ void BindingWizard::saveResult() {
     }
     entry["axes"] = axes;
 
-    // Analog dpad: generate axis_actions from the two captured axes.
-    // Convention: positive Y = down, positive X = right.
-    // Invert flag (already absorbed into axes) flips both halves.
+    // Analog dpad: generate axis_actions from the two captured axes. They act on the value AFTER
+    // the axis's invert flag (the engine, the physical pad and the calibration all read it so):
+    // the wizard sets invert so that positive Y = up and positive X = right, whatever the device
+    // sends. So the halves are fixed — never swapped by invert again, or a device that reads one
+    // axis the other way round got a virtual d-pad opposite to its physical one.
     {
         json axActions = json::object();
         for (const auto& a : m_boundAxes) {
             if (!a.isAnalogDpad) continue;
-            bool isY = (a.target.find("_y") != std::string::npos);
-            // Base assumption: raw positive = down/right. The invert flag (set by the wizard
-            // when the device sends positive for down) swaps pos/neg so the final axis_actions
-            // always read: left_y_pos→dpad_up, left_y_neg→dpad_down (joystick convention).
-            std::string posDir = isY ? "dpad_down" : "dpad_right";
-            std::string negDir = isY ? "dpad_up"   : "dpad_left";
-            if (a.invert) std::swap(posDir, negDir);
-            axActions[a.target + "_pos"] = { {"virtual", posDir} };
-            axActions[a.target + "_neg"] = { {"virtual", negDir} };
+            const bool isY = (a.target.find("_y") != std::string::npos);
+            axActions[a.target + "_pos"] = { {"virtual", isY ? "dpad_up"   : "dpad_right"} };
+            axActions[a.target + "_neg"] = { {"virtual", isY ? "dpad_down" : "dpad_left"} };
         }
         if (!axActions.empty()) entry["axis_actions"] = axActions;
     }
