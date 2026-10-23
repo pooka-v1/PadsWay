@@ -1605,10 +1605,27 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
         const RawHIDState& cur = m_axisLastRead;
         float bestDelta = 0.0f;
         int   bestAxis  = -1;
+        // X-mode trigger step: some pads expose the triggers twice (Pro 2 X-mode over BT: a
+        // combined half-axis plus separate full axes; over USB only the combined one). The separate
+        // one travels twice as far and would win, leaving an entry that doesn't work over the other
+        // connection — so a half-axis (rests centered, goes to one end) that really moved wins. By
+        // behavior, never by axis name; if none moved, the biggest mover wins as usual.
+        const bool preferHalfAxis = curIsTrigger && m_mode == "x";
+        float bestHalfDelta = 0.0f;
+        int   bestHalfAxis  = -1;
         for (int i = 0; i < 8; ++i) {
             if (alreadyBound(kHIDAxisNames[i])) continue;
             float delta = std::abs(kHIDAxisValues(cur, i) - kHIDAxisValues(m_axisBaseline, i));
             if (delta > bestDelta) { bestDelta = delta; bestAxis = i; }
+            const bool restsCentered = std::abs(kHIDAxisValues(m_axisBaseline, i)) < kCombinedTriggerRestMax;
+            if (preferHalfAxis && restsCentered && delta > bestHalfDelta) {
+                bestHalfDelta = delta;
+                bestHalfAxis  = i;
+            }
+        }
+        if (bestHalfAxis >= 0 && bestHalfDelta >= kAxisNoiseFloor) {
+            bestDelta = bestHalfDelta;
+            bestAxis  = bestHalfAxis;
         }
         float deltaSigned = (bestAxis >= 0)
             ? kHIDAxisValues(cur, bestAxis) - kHIDAxisValues(m_axisBaseline, bestAxis)
