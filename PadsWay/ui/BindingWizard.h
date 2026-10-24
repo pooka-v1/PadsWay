@@ -5,22 +5,28 @@
 #include <array>
 #include <chrono>
 #include <memory>
+#include <functional>
 #include <unordered_map>
 #include "PadView.h"
 #include "PadLayout.h"
 #include "CounterByteDetector.h"
+#include "../config/ControllerModes.h"
 #include "../input/HIDScanner.h"
 #include "../input/RawHIDReader.h"
 #include "../imgui/imgui.h"
+#include "../nlohmann/json.hpp"
 
 // Guides the user through binding a physical controller to a layout.
 // The wizard replaces the normal 3-panel editor while it is active.
 // Call start() to launch, then render() every frame until isActive() returns false.
 class BindingWizard {
 public:
+    // knownControllersPath: data/known_controllers.json, the ids whose mode we know — feeds the
+    // mode proposed in the name+mode step (see ControllerModes.h).
     void init(ID3D11Device* device,
               const std::string& controllersPath,
-              const std::string& stateMapPath);
+              const std::string& stateMapPath,
+              const std::string& knownControllersPath);
     void unload();
 
     // Launch the wizard for the given layout.
@@ -39,7 +45,7 @@ private:
     enum class State {
         Idle,
         SelectController,   // pick connected controller
-        NameController,     // edit name + mode toggle
+        NameController,     // edit name + pick mode (d / x / s); confirm a re-map in a popup
         WarnNoState,        // warn about components with no state entry in state_map
         Binding,            // main binding loop
         Review,             // show all bindings, confirm or restart
@@ -79,6 +85,15 @@ private:
         // config_id of the entry findConfig() matched at scan time; empty = no entry yet, so
         // saveResult() creates one. A re-run of the wizard overwrites this entry.
         std::string configId;
+        // source_name of that entry, proposed again on a re-run instead of the HID name — so
+        // pressing Continue doesn't silently rename the pad. Empty = no entry yet.
+        std::string entryName;
+        // How many ids that entry answers to: more than one = shared with other connections/pads,
+        // so the re-map popup also offers to split this pad off (see m_splitFromEntry).
+        int         entryIdCount = 0;
+        // Mode preselected in the name+mode step: on a re-run, the entry's own (a re-run is how a
+        // wrong mode gets fixed, so it must not be overridden); otherwise deduceMode(). "" = none.
+        std::string proposedMode;
     };
 
     struct StateMapEntry {
@@ -152,8 +167,29 @@ private:
     };
 
     // ── Render sub-methods ───────────────────────────────────────────────────
+    // Answer given in the shared confirm popup this frame (None = popup closed or nothing pressed).
+    enum class ConfirmAnswer { None, Yes, No, Back };
+    // Shared modal confirm popup, drawn over the current wizard screen. Open it with
+    // ImGui::OpenPopup(popupId) and call this every frame from the same screen. Back always closes
+    // it and leaves the user where they were; yes / no (noKey = nullptr hides it) mean whatever
+    // the question needs — re-mapping a pad: yes = go on mapping; "another connection of...?"
+    // (6C step 4): yes = reuse that entry, no = map it as a new pad. Every text is a strings-file
+    // key except the already formatted message. body (optional) draws extra widgets between the
+    // message and the buttons — e.g. the list of entries to pick from.
+    ConfirmAnswer renderConfirmPopup(const char* popupId, const char* titleKey, const std::string& message,
+                                     const char* yesKey, const char* noKey = nullptr,
+                                     const std::function<void()>& body = {});
     void renderSelectController();
     void renderNameController();
+    // The re-map question's popup, drawn by renderNameController(). On an entry shared by several
+    // ids it also offers "split this pad off" (sets m_splitFromEntry).
+    void renderConfirmRemapPopup();
+    // ImGui id of that popup: "###" so the id ignores the translated title shown before it.
+    static constexpr const char* kConfirmRemapPopup = "###confirmRemap";
+    // "Is this pad another connection of...?" popup, drawn by renderNameController(): opened on
+    // Continue for a pad without an entry when m_joinCandidates isn't empty.
+    void renderConfirmJoinPopup();
+    static constexpr const char* kConfirmJoinPopup = "###confirmJoin";
     void renderWarnNoState();
     void renderBinding();
     void renderReview();
@@ -163,6 +199,9 @@ private:
     void scanControllers();
     void loadStateMap();
     void buildSteps();
+    // Name+mode settled (and a re-map confirmed): builds the steps and goes to WarnNoState, or
+    // straight into Binding when every component has a state_map entry.
+    void startBinding();
     void beginStep();
     void commitButton(int physIndex);
     void commitAxis(const std::string& source, bool invert);
@@ -245,10 +284,21 @@ private:
     // finishGyroStep(): overlay label, cooldown, ++m_currentStep, beginStep().
     void finishTouchSurfaceStep();
 
+    // Entries the pad could be another connection/version of: same layout and same mode as picked
+    // in the name+mode step (never by name or config_id — see ARCHITECTURE.md, Tarea 6, "Paso
+    // condicional"). Fills m_joinCandidates and preselects the first one.
+    void findJoinCandidates();
+    // "Usar ese mapeo": adds the pad's id to the chosen entry, saves and closes — no mapping.
+    void joinChosenEntry();
+
     void skipStep();
     void goBack();
     void cancel();
     void saveResult();
+    // controllers.json as JSON (empty when missing or unparsable), and writing it back. Writing
+    // ends the wizard and raises the saved flag; returns false if the file can't be opened.
+    nlohmann::json loadControllersRoot() const;
+    bool writeControllersRoot(const nlohmann::json& root);
 
     // ── Input capture ────────────────────────────────────────────────────────
     // Shared "Continuar" control for the gyro and touch_surface sub-phases: draws the button
@@ -280,6 +330,8 @@ private:
     ID3D11Device* m_device = nullptr;
     std::string   m_controllersPath;
     std::string   m_stateMapPath;
+    std::string   m_knownControllersPath;
+    std::vector<KnownControllerId> m_knownControllers;   // loaded once in init()
 
     PadLayout m_layout;
     PadView   m_canvasView;
@@ -289,7 +341,22 @@ private:
     int    m_selectedCtrl  = -1;
 
     char   m_nameBuf[128]     = {};
-    bool   m_saveWithConnection = false; // save connection:"usb"/"bt" (specific) vs generic
+    // Mode chosen in the name+mode step: "d" / "x" / "s", "" until the user picks one (Continue
+    // stays disabled). Written to the entry's "mode" by saveResult().
+    std::string m_mode;
+    // "Separar este mando" picked in the re-map popup: saveResult() takes the pad's id out of its
+    // shared entry and saves the pad as a new one. Nothing changes until then — cancelling the
+    // wizard leaves the shared entry as it was.
+    bool m_splitFromEntry = false;
+
+    // Candidates for "is this another connection of...?" (findJoinCandidates) and the one picked
+    // in its popup (-1 = none).
+    struct JoinCandidate {
+        std::string configId;
+        std::string sourceName;
+    };
+    std::vector<JoinCandidate> m_joinCandidates;
+    int m_joinChoice = -1;
 
     std::unordered_map<std::string, StateMapEntry> m_stateMap;
     std::vector<BindStep> m_steps;

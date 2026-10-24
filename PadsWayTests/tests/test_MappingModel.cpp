@@ -303,9 +303,9 @@ TEST_CASE("MappingModel::reload picks the entry by configId when VID/PID repeat"
     // id, the second one is reachable too.
     MappingModel model;
     ControllerConfig cfg1, cfg2;
-    cfg1.config_id = "pro-2-x-mode";  cfg1.vid = 0x045E; cfg1.pid = 0x02E0;
+    cfg1.config_id = "pro-2-x-mode";  cfg1.ids = { { 0x045E, 0x02E0 } };
     cfg1.buttons[1] = ButtonAction{ButtonActionType::VirtualButton, "b", "a"};
-    cfg2.config_id = "zero-2-x-mode"; cfg2.vid = 0x045E; cfg2.pid = 0x02E0;
+    cfg2.config_id = "zero-2-x-mode"; cfg2.ids = { { 0x045E, 0x02E0 } };
     ButtonAction kbAction{ButtonActionType::Keyboard};
     kbAction.physical = "a";
     kbAction.keys = {"alt", "tab"};

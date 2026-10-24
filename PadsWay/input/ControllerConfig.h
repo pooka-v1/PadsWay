@@ -222,18 +222,33 @@ struct TriggerCalibration {
     float max      = 1.0f;
 };
 
+// One hardware id an entry answers to. A pad in one mode can have several — one per connection
+// or hardware revision (Zero 2 D-mode is 2DC8:3230 by BT and 2DC8:9018 by USB), all with the same
+// mapping. See ARCHITECTURE.md "Tarea 6".
+struct ControllerHidId {
+    uint16_t    vid = 0;
+    uint16_t    pid = 0;
+    // Only for an id whose HID name differs from the entry's common one: replaces
+    // ControllerConfig::product_name for this id. Empty = use the entry's.
+    std::string product_name;
+};
+
 struct ControllerConfig {
     // Stable identity of this entry, required in controllers.json. VID/PID only answer "which pad
     // is this?" once, at detection; every later read/write of the entry (Mapeador, calibration,
     // engine reloads) goes through config_id. A slug of source_name made once by the wizard —
     // renaming the pad doesn't change it. See ARCHITECTURE.md "Tarea 6".
     std::string config_id;
-    uint16_t    vid = 0;
-    uint16_t    pid = 0;
+    // Every VID/PID this entry answers to, all alike (findConfig() tries each). Required, never
+    // empty in controllers.json.
+    std::vector<ControllerHidId> ids;
     std::string source_name;
+    // The "software" family the pad speaks: "d" (generic HID / DirectInput), "x" (Xbox), "s" (Switch),
+    // or "" = not declared ("hid" in the file). Not the same as protocol (the decoder within it).
     std::string mode;
-    std::string connection;    // "usb" / "bt" / "" = match any
-    std::string product_name;  // BT/HID product name filter — partial match, case-insensitive
+    // BT/HID product name filter common to all ids — partial match, case-insensitive. Needed
+    // because VID/PID pairs are shared across brands (045E:02E0 is both Pro 2 and Zero 2 in X-mode).
+    std::string product_name;
     // How to talk to this pad — see input/ControllerProtocolRegistry.h. Empty (absent in the JSON)
     // = by hardware: the family its VID/PID belongs to, generic_hid (HidP) for every other pad.
     // A known name forces that protocol instead.

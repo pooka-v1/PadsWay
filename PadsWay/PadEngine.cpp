@@ -267,8 +267,8 @@ void PadEngine::monitorFunc() {
         std::vector<DeviceCandidate> candidates;
         for (auto& h : hidEntries) {
             if (vVid && h.vid == vVid && h.pid == vPid) continue;
-            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.connectionType, h.productName);
-            if (!cfg || cfg->mode != "hid") continue;
+            const ControllerConfig* cfg = findConfig(configs, h.vid, h.pid, h.productName);
+            if (!cfg) continue;
             DeviceCandidate c;
             c.hidPath        = h.path;
             c.vid            = h.vid;
@@ -430,8 +430,8 @@ void PadEngine::threadFunc() {
         for (auto& h : HIDScanner::scan()) {
             const uint16_t vVid = m_virtualVid.load(), vPid = m_virtualPid.load();
             if (vVid && h.vid == vVid && h.pid == vPid) continue;
-            const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.connectionType, h.productName);
-            if (!c || c->mode != "hid") {
+            const ControllerConfig* c = findConfig(configs, h.vid, h.pid, h.productName);
+            if (!c) {
                 spdlog::debug("[Scan] No config: VID={:04X} PID={:04X} conn='{}' name='{}'",
                               h.vid, h.pid, h.connectionType, h.productName);
                 continue;
@@ -932,6 +932,18 @@ void PadEngine::threadFunc() {
         // Button-mapping hot-reload: pick up controllers.json changes saved by the mapping editor.
         if (m_configsDirty.exchange(false)) {
             { std::lock_guard<std::mutex> lock(m_mutex); configs = m_configs; }
+            // The entry the pad belongs to can change under it: the wizard's "Separar este mando"
+            // moves its id to a new entry. Re-identify it the way the scan did (selected.name is the
+            // HID product name it was scanned with); the Mapeador and calibration follow
+            // m_activeDevice.configId, so they switch to the new entry too.
+            if (const ControllerConfig* owner = findConfig(configs, selected.vid, selected.pid, selected.name);
+                owner && owner->config_id != selected.configId) {
+                spdlog::info("Active pad moved from config '{}' to '{}'", selected.configId, owner->config_id);
+                selected.configId = owner->config_id;
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_activeDevice.configId = selected.configId;
+                m_activeLayoutId        = owner->layout_id;
+            }
             // cfgBase pointed into the old configs — re-find it in the refreshed copy.
             cfgBase = findConfigById(configs, selected.configId);
             if (cfgBase) {

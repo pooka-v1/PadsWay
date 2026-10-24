@@ -26,6 +26,9 @@
     <ClCompile Include="config\ConfigLoader.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="config\ControllerModes.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="input\HIDScanner.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -152,6 +155,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="config\ConfigLoader.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="config\ControllerModes.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="config\ControllerEntryWriter.h">

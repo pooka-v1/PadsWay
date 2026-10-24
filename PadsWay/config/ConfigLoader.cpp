@@ -1,4 +1,5 @@
 #include "ConfigLoader.h"
+#include "ControllerModes.h"
 #include "../nlohmann/json.hpp"
 #include <algorithm>
 #include <cctype>
@@ -197,6 +198,17 @@ static std::unordered_map<int, ButtonAction> parseButtonsJson(const json& button
     return result;
 }
 
+// Reads an entry's "mode": the pad's family ("d"/"x"/"s"), or "" when none was declared. "hid" (the old read-API value every entry used to carry) and a missing key both mean
+// "not declared". Any other value throws, like a missing config_id: a typo must fail at load
+// instead of silently reading as "no mode" (ARCHITECTURE.md "Tarea 6", mode).
+static std::string parseControllerMode(const json& entry, const std::string& path,
+                                       const std::string& configId) {
+    const std::string mode = entry.value("mode", std::string{});
+    if (mode.empty() || mode == "hid") return {};
+    if (isKnownControllerMode(mode)) return mode;
+    throw std::runtime_error("Unknown mode '" + mode + "' in " + path + ": " + configId);
+}
+
 // ---------------------------------------------------------------------------
 
 std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
@@ -218,13 +230,20 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
         cfg.config_id    = c["config_id"].get<std::string>();
         if (findConfigById(result, cfg.config_id))
             throw std::runtime_error("Duplicate config_id in " + path + ": " + cfg.config_id);
-        cfg.vid          = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
-        cfg.pid          = static_cast<uint16_t>(std::stoul(c.at("pid").get<std::string>(), nullptr, 16));
+        // Required too: an entry without ids can never be matched to a pad.
+        if (!c.contains("ids") || !c["ids"].is_array() || c["ids"].empty())
+            throw std::runtime_error("Controller entry without ids in " + path + ": " + cfg.config_id);
+        for (const auto& idJson : c["ids"]) {
+            ControllerHidId id;
+            id.vid          = static_cast<uint16_t>(std::stoul(idJson.at("vid").get<std::string>(), nullptr, 16));
+            id.pid          = static_cast<uint16_t>(std::stoul(idJson.at("pid").get<std::string>(), nullptr, 16));
+            id.product_name = idJson.value("product_name", "");
+            cfg.ids.push_back(std::move(id));
+        }
         cfg.source_name  = c.at("source_name").get<std::string>();
-        cfg.mode         = c.at("mode").get<std::string>();
+        cfg.mode         = parseControllerMode(c, path, cfg.config_id);
         cfg.dpad         = c.value("dpad", "");
         cfg.layout_id    = c.value("layout_id", "");
-        cfg.connection    = c.value("connection",    "");
         cfg.product_name  = c.value("product_name", "");
         cfg.protocol      = c.value("protocol",     "");
         if (c.contains("context_bots") && c["context_bots"].is_array())
@@ -395,7 +414,6 @@ std::vector<ControllerConfig> loadControllerConfigs(const std::string& path) {
 
 const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
                                    uint16_t vid, uint16_t pid,
-                                   const std::string& connection,
                                    const std::string& productName) {
     const ControllerConfig* best      = nullptr;
     int                     bestScore = -1;
@@ -411,23 +429,17 @@ const ControllerConfig* findConfig(const std::vector<ControllerConfig>& configs,
     };
 
     for (const auto& c : configs) {
-        if (c.vid != vid || c.pid != pid) continue;
-
-        int score = 0;
-
-        // connection: if entry declares it, incoming must match or we skip
-        if (!c.connection.empty()) {
-            if (connection.empty()) continue;
-            if (c.connection != connection) continue;
-            score += 2;
+        // The entry scores as its best-matching id, -1 = none matches. product_name (the id's own,
+        // else the entry's common one) is partial and case-insensitive against the device's HID
+        // name; if declared and the device name doesn't contain it, that id doesn't match.
+        int score = -1;
+        for (const auto& id : c.ids) {
+            if (id.vid != vid || id.pid != pid) continue;
+            const std::string& name = id.product_name.empty() ? c.product_name : id.product_name;
+            if (name.empty())                         score = (std::max)(score, 0);
+            else if (containsCI(productName, name))   score = (std::max)(score, 2);
         }
-
-        // product_name: partial case-insensitive match against the device's HID name.
-        // If the entry declares it and the device name doesn't contain it → skip.
-        if (!c.product_name.empty()) {
-            if (!containsCI(productName, c.product_name)) continue;
-            score += 2;
-        }
+        if (score < 0) continue;
 
         if (score > bestScore) {
             bestScore = score;
@@ -1148,8 +1160,6 @@ static PhysicalDpadDir resolveDpadDir(DpadDir dir,
 static PhysicalController parsePhysicalController(const json& c) {
     PhysicalController ctrl;
     ctrl.configId = c.value("config_id", "");
-    ctrl.vid  = static_cast<uint16_t>(std::stoul(c.at("vid").get<std::string>(), nullptr, 16));
-    ctrl.pid  = static_cast<uint16_t>(std::stoul(c.at("pid").get<std::string>(), nullptr, 16));
     ctrl.name = c.value("source_name", "");
 
     auto setBase = [&](ComponentId id, PhysicalComponent comp) {

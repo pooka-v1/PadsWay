@@ -38,12 +38,18 @@ static float kHIDAxisValues(const RawHIDState& s, int i) {
 
 void BindingWizard::init(ID3D11Device* device,
                          const std::string& controllersPath,
-                         const std::string& stateMapPath) {
-    m_device          = device;
-    m_controllersPath = controllersPath;
-    m_stateMapPath    = stateMapPath;
+                         const std::string& stateMapPath,
+                         const std::string& knownControllersPath) {
+    m_device               = device;
+    m_controllersPath      = controllersPath;
+    m_stateMapPath         = stateMapPath;
+    m_knownControllersPath = knownControllersPath;
     m_canvasView.load(device);
     loadStateMap();
+    // Only feeds the proposed mode: a missing or broken file just means nothing gets preselected.
+    std::vector<std::string> knownWarnings;
+    m_knownControllers = loadKnownControllers(m_knownControllersPath, &knownWarnings);
+    for (const auto& w : knownWarnings) spdlog::warn("[Wizard] {}", w);
     loadArrows();
 }
 
@@ -90,8 +96,9 @@ void BindingWizard::start(const PadLayout& layout) {
     m_overlayLabels.clear();
     m_hasDpad  = false;
     m_dpadType.clear();
-    m_saveWithConnection = false;
     memset(m_nameBuf, 0, sizeof(m_nameBuf));
+    m_mode.clear();
+    m_splitFromEntry = false;
 
     m_gyroPhase    = GyroPhase::Baseline;
     m_hasGyroStep  = false;
@@ -154,7 +161,9 @@ void BindingWizard::renderSelectController() {
     if (!canContinue) ImGui::BeginDisabled();
     if (ImGui::Button(trid("btn.continue", "selCtrl").c_str(), { 140.0f, 0.0f })) {
         const auto& c = m_controllers[m_selectedCtrl];
-        strncpy_s(m_nameBuf, c.name.c_str(), sizeof(m_nameBuf) - 1);
+        const std::string& proposedName = !c.entryName.empty() ? c.entryName : c.name;
+        strncpy_s(m_nameBuf, proposedName.c_str(), sizeof(m_nameBuf) - 1);
+        m_mode  = c.proposedMode;
         m_state = State::NameController;
     }
     if (!canContinue) ImGui::EndDisabled();
@@ -176,20 +185,25 @@ void BindingWizard::renderNameController() {
     ImGui::Text("VID:%04X  PID:%04X", c.vid, c.pid);
     if (!c.productName.empty())
         ImGui::Text(tr("wizard.hid_name"), c.productName.c_str());
-    {
-        const char* conn = c.connectionType == "bt"  ? tr("wizard.conn_bt") :
-                           c.connectionType == "usb" ? tr("wizard.conn_usb") : tr("wizard.conn_unknown");
-        ImGui::Text(tr("wizard.connection"), conn);
-        ImGui::Checkbox(tr("wizard.specific_mapping"), &m_saveWithConnection);
-        if (m_saveWithConnection)
-            ImGui::TextDisabled(tr("wizard.mapping_specific"), conn);
-        else
-            ImGui::TextDisabled("%s", tr("wizard.mapping_generic"));
-    }
     ImGui::Spacing();
     ImGui::Text("%s", tr("wizard.display_name"));
     ImGui::SetNextItemWidth(-1.0f);
     ImGui::InputText("##cname", m_nameBuf, sizeof(m_nameBuf));
+
+    // Mode: always asked, the proposal (entry's own or deduced) only preselects it. It can't be
+    // detected over HID and it changes the buttons a pad has, so the user confirms it here.
+    ImGui::Spacing();
+    ImGui::Text("%s", tr("wizard.mode_label"));
+    static const struct { const char* mode; const char* labelKey; } kModes[] = {
+        { "d", "wizard.mode_d" },
+        { "x", "wizard.mode_x" },
+        { "s", "wizard.mode_s" },
+    };
+    for (const auto& m : kModes) {
+        if (ImGui::RadioButton((std::string(tr(m.labelKey)) + "##mode_" + m.mode).c_str(), m_mode == m.mode))
+            m_mode = m.mode;
+    }
+    ImGui::TextDisabled("%s", tr("wizard.mode_hint"));
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -197,21 +211,143 @@ void BindingWizard::renderNameController() {
 
     if (ImGui::Button(trid("btn.back", "name").c_str(), { 100.0f, 0.0f })) m_state = State::SelectController;
     ImGui::SameLine();
-    bool canContinue = (m_nameBuf[0] != '\0');
+    bool canContinue = (m_nameBuf[0] != '\0') && isKnownControllerMode(m_mode);
     if (!canContinue) ImGui::BeginDisabled();
     if (ImGui::Button(trid("btn.continue", "name").c_str(), { 140.0f, 0.0f })) {
-        buildSteps();
-        if (m_noStateCount > 0)
-            m_state = State::WarnNoState;
-        else {
-            m_state = State::Binding;
-            openReader();
-            beginStep();
+        // An existing entry gets replaced whole on save — ask before mapping, not after. A pad
+        // without one may be another connection of an entry already mapped: offer to reuse it.
+        if (!m_controllers[m_selectedCtrl].configId.empty()) {
+            ImGui::OpenPopup(kConfirmRemapPopup);
+        } else {
+            findJoinCandidates();
+            if (!m_joinCandidates.empty()) ImGui::OpenPopup(kConfirmJoinPopup);
+            else                           startBinding();
         }
     }
     if (!canContinue) ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button(trid("btn.cancel", "name").c_str(), { 100.0f, 0.0f })) cancel();
+
+    renderConfirmRemapPopup();
+    renderConfirmJoinPopup();
+}
+
+void BindingWizard::startBinding() {
+    buildSteps();
+    if (m_noStateCount > 0)
+        m_state = State::WarnNoState;
+    else {
+        m_state = State::Binding;
+        openReader();
+        beginStep();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared confirm popup + its questions
+// ---------------------------------------------------------------------------
+
+BindingWizard::ConfirmAnswer BindingWizard::renderConfirmPopup(const char* popupId, const char* titleKey,
+                                                               const std::string& message,
+                                                               const char* yesKey, const char* noKey,
+                                                               const std::function<void()>& body) {
+    // Centered and fixed width, so the message wraps instead of stretching the popup across the
+    // screen. The visible title is translated; the "###" part keeps the popup's id stable.
+    constexpr float kPopupWidth = 460.0f;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, { 0.5f, 0.5f });
+    ImGui::SetNextWindowSize({ kPopupWidth, 0.0f });
+    const std::string title = std::string(tr(titleKey)) + popupId;
+    if (!ImGui::BeginPopupModal(title.c_str(), nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+        return ConfirmAnswer::None;
+
+    ImGui::TextWrapped("%s", message.c_str());
+    if (body) {
+        ImGui::Spacing();
+        body();
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Button row centered, whether it holds 2 or 3 buttons: measure it first, then indent by half
+    // the space left over.
+    const std::string backLabel = trid("btn.back", "confirm");
+    const std::string yesLabel  = std::string(tr(yesKey)) + "##confirmYes";
+    const std::string noLabel   = noKey ? std::string(tr(noKey)) + "##confirmNo" : std::string();
+    constexpr float kBackWidth = 100.0f;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    auto buttonWidth = [&](const std::string& label) {
+        return ImGui::CalcTextSize(label.c_str(), nullptr, true).x + style.FramePadding.x * 2.0f;
+    };
+    float rowWidth = kBackWidth + style.ItemSpacing.x + buttonWidth(yesLabel);
+    if (noKey) rowWidth += style.ItemSpacing.x + buttonWidth(noLabel);
+    const float indent = (ImGui::GetContentRegionAvail().x - rowWidth) * 0.5f;
+    if (indent > 0.0f) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
+
+    ConfirmAnswer answer = ConfirmAnswer::None;
+    if (ImGui::Button(backLabel.c_str(), { kBackWidth, 0.0f })) answer = ConfirmAnswer::Back;
+    ImGui::SameLine();
+    if (ImGui::Button(yesLabel.c_str())) answer = ConfirmAnswer::Yes;
+    if (noKey) {
+        ImGui::SameLine();
+        if (ImGui::Button(noLabel.c_str())) answer = ConfirmAnswer::No;
+    }
+    if (answer != ConfirmAnswer::None) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return answer;
+}
+
+// The pad already has an entry: saving replaces it whole, Mapeador settings included (see
+// putWizardEntry). Yes = go on mapping; Back = stay on the name+mode screen, nothing changed.
+// An entry shared by several ids (other connections/pads joined to it) gets a shorter text and a
+// third button: Yes re-maps it for all of them, No splits this pad off into a new entry.
+void BindingWizard::renderConfirmRemapPopup() {
+    const auto& c = m_controllers[m_selectedCtrl];
+    const std::string& entryLabel = !c.entryName.empty() ? c.entryName : c.configId;
+    const int others = c.entryIdCount - 1;
+    char message[512];
+    if (others <= 0)
+        snprintf(message, sizeof(message), tr("wizard.remap_message"), entryLabel.c_str());
+    else if (others == 1)
+        snprintf(message, sizeof(message), tr("wizard.remap_shared_one"), entryLabel.c_str());
+    else
+        snprintf(message, sizeof(message), tr("wizard.remap_shared_many"), entryLabel.c_str(), others);
+
+    const ConfirmAnswer answer = (others <= 0)
+        ? renderConfirmPopup(kConfirmRemapPopup, "wizard.step_confirm_title", message, "wizard.remap_yes")
+        : renderConfirmPopup(kConfirmRemapPopup, "wizard.step_confirm_title", message,
+                             "wizard.remap_shared_yes", "wizard.remap_split");
+    if (answer == ConfirmAnswer::Yes || answer == ConfirmAnswer::No) {
+        m_splitFromEntry = (answer == ConfirmAnswer::No);
+        startBinding();
+    }
+}
+
+// A pad without an entry, and entries with the same layout + mode: the user decides whether it's
+// another connection/version of one of them. One candidate is named in the text; several get a
+// list to pick from. Yes = reuse that entry's mapping (no mapping now); No = map it as a new pad.
+void BindingWizard::renderConfirmJoinPopup() {
+    if (m_joinCandidates.empty()) return;
+    std::string message;
+    std::function<void()> list;
+    if (m_joinCandidates.size() == 1) {
+        char buf[512];
+        snprintf(buf, sizeof(buf), tr("wizard.join_one"), m_joinCandidates[0].sourceName.c_str());
+        message = buf;
+    } else {
+        message = tr("wizard.join_many");
+        list = [this] {
+            for (int i = 0; i < (int)m_joinCandidates.size(); ++i) {
+                const std::string label = m_joinCandidates[i].sourceName + "##join" + std::to_string(i);
+                if (ImGui::RadioButton(label.c_str(), m_joinChoice == i)) m_joinChoice = i;
+            }
+        };
+    }
+
+    const ConfirmAnswer answer = renderConfirmPopup(kConfirmJoinPopup, "wizard.step_confirm_title", message,
+                                                    "wizard.join_yes", "wizard.join_new", list);
+    if      (answer == ConfirmAnswer::Yes) joinChosenEntry();
+    else if (answer == ConfirmAnswer::No)  startBinding();
 }
 
 // ---------------------------------------------------------------------------
@@ -790,15 +926,21 @@ void BindingWizard::scanControllers() {
     // HID scan — all physical controllers use HID
     for (const auto& h : HIDScanner::scan()) {
         if (h.vid == 0x5650 && h.pid == 0x0001) continue;  // skip ViGEm
-        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid,
-                                                       h.connectionType, h.productName);
+        const ControllerConfig* existing = findConfig(existingConfigs, h.vid, h.pid, h.productName);
         DetectedController c;
         c.vid            = h.vid;
         c.pid            = h.pid;
         c.productName    = h.productName;
         c.connectionType = h.connectionType;
         c.path           = h.path;
-        if (existing) c.configId = existing->config_id;
+        if (existing) {
+            c.configId     = existing->config_id;
+            c.entryName    = existing->source_name;
+            c.entryIdCount = static_cast<int>(existing->ids.size());
+        }
+        c.proposedMode = (existing && !existing->mode.empty())
+                       ? existing->mode
+                       : deduceMode(h.vid, h.pid, h.productName, m_knownControllers, existingConfigs);
         // Hardware name takes priority — the config source_name may belong to a different
         // model that shares VID/PID (e.g. Pro 2 config showing for a Zero 2 device).
         c.name = !h.productName.empty() ? h.productName
@@ -1463,10 +1605,27 @@ bool BindingWizard::captureAxis(std::string& outSource, bool& outInvert, bool in
         const RawHIDState& cur = m_axisLastRead;
         float bestDelta = 0.0f;
         int   bestAxis  = -1;
+        // X-mode trigger step: some pads expose the triggers twice (Pro 2 X-mode over BT: a
+        // combined half-axis plus separate full axes; over USB only the combined one). The separate
+        // one travels twice as far and would win, leaving an entry that doesn't work over the other
+        // connection — so a half-axis (rests centered, goes to one end) that really moved wins. By
+        // behavior, never by axis name; if none moved, the biggest mover wins as usual.
+        const bool preferHalfAxis = curIsTrigger && m_mode == "x";
+        float bestHalfDelta = 0.0f;
+        int   bestHalfAxis  = -1;
         for (int i = 0; i < 8; ++i) {
             if (alreadyBound(kHIDAxisNames[i])) continue;
             float delta = std::abs(kHIDAxisValues(cur, i) - kHIDAxisValues(m_axisBaseline, i));
             if (delta > bestDelta) { bestDelta = delta; bestAxis = i; }
+            const bool restsCentered = std::abs(kHIDAxisValues(m_axisBaseline, i)) < kCombinedTriggerRestMax;
+            if (preferHalfAxis && restsCentered && delta > bestHalfDelta) {
+                bestHalfDelta = delta;
+                bestHalfAxis  = i;
+            }
+        }
+        if (bestHalfAxis >= 0 && bestHalfDelta >= kAxisNoiseFloor) {
+            bestDelta = bestHalfDelta;
+            bestAxis  = bestHalfAxis;
         }
         float deltaSigned = (bestAxis >= 0)
             ? kHIDAxisValues(cur, bestAxis) - kHIDAxisValues(m_axisBaseline, bestAxis)
@@ -2202,20 +2361,17 @@ void BindingWizard::snapshotBaseline() {
 void BindingWizard::saveResult() {
     const auto& ctrl = m_controllers[m_selectedCtrl];
 
-    const std::string mode = "hid";
-
     // Build the new entry as JSON
     json entry;
     char vidStr[8], pidStr[8];
     snprintf(vidStr, sizeof(vidStr), "%04X", ctrl.vid);
     snprintf(pidStr, sizeof(pidStr), "%04X", ctrl.pid);
-    entry["vid"]         = vidStr;
-    entry["pid"]         = pidStr;
+    // Only the id the pad came in by; a re-run on an existing entry keeps that entry's ids instead
+    // (putWizardEntry).
+    entry["ids"]         = json::array({ { { "vid", vidStr }, { "pid", pidStr } } });
     entry["source_name"] = m_nameBuf;
-    entry["mode"]        = mode;
+    entry["mode"]        = m_mode;
     entry["layout_id"]   = m_layout.id;
-    if (m_saveWithConnection && !ctrl.connectionType.empty())
-        entry["connection"] = ctrl.connectionType;
     if (!ctrl.productName.empty())
         entry["product_name"] = ctrl.productName;
 
@@ -2250,22 +2406,18 @@ void BindingWizard::saveResult() {
     }
     entry["axes"] = axes;
 
-    // Analog dpad: generate axis_actions from the two captured axes.
-    // Convention: positive Y = down, positive X = right.
-    // Invert flag (already absorbed into axes) flips both halves.
+    // Analog dpad: generate axis_actions from the two captured axes. They act on the value AFTER
+    // the axis's invert flag (the engine, the physical pad and the calibration all read it so):
+    // the wizard sets invert so that positive Y = up and positive X = right, whatever the device
+    // sends. So the halves are fixed — never swapped by invert again, or a device that reads one
+    // axis the other way round got a virtual d-pad opposite to its physical one.
     {
         json axActions = json::object();
         for (const auto& a : m_boundAxes) {
             if (!a.isAnalogDpad) continue;
-            bool isY = (a.target.find("_y") != std::string::npos);
-            // Base assumption: raw positive = down/right. The invert flag (set by the wizard
-            // when the device sends positive for down) swaps pos/neg so the final axis_actions
-            // always read: left_y_pos→dpad_up, left_y_neg→dpad_down (joystick convention).
-            std::string posDir = isY ? "dpad_down" : "dpad_right";
-            std::string negDir = isY ? "dpad_up"   : "dpad_left";
-            if (a.invert) std::swap(posDir, negDir);
-            axActions[a.target + "_pos"] = { {"virtual", posDir} };
-            axActions[a.target + "_neg"] = { {"virtual", negDir} };
+            const bool isY = (a.target.find("_y") != std::string::npos);
+            axActions[a.target + "_pos"] = { {"virtual", isY ? "dpad_up"   : "dpad_right"} };
+            axActions[a.target + "_neg"] = { {"virtual", isY ? "dpad_down" : "dpad_left"} };
         }
         if (!axActions.empty()) entry["axis_actions"] = axActions;
     }
@@ -2310,25 +2462,64 @@ void BindingWizard::saveResult() {
     }
 
     // Load existing controllers.json, replace or append
-    json root;
-    {
-        std::ifstream f(m_controllersPath);
-        if (f.is_open()) {
-            try { root = json::parse(f); } catch (...) {}
-        }
-    }
+    json root = loadControllersRoot();
 
     // Replace the entry this pad already had, whole (its config_id, resolved by findConfig() at
     // scan time — see scanControllers()), or append a new one with a fresh config_id. source_name
     // is never the key: it's a display label. The id is made once and a re-run keeps it —
     // renaming the pad doesn't change it.
-    putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
-
-    // Write back
-    std::ofstream f(m_controllersPath);
-    if (f.is_open()) {
-        f << root.dump(2);
-        m_state     = State::Idle;
-        m_savedFlag = true;
+    // Split off ("Separar este mando"): the shared entry stops answering to this pad's id and keeps
+    // its mapping; the pad goes in as a new entry. If the id can't be taken out (see
+    // splitIdFromEntry), it's still saved as new rather than overwriting the shared mapping.
+    if (m_splitFromEntry) {
+        splitIdFromEntry(root, ctrl.configId, ctrl.vid, ctrl.pid);
+        putWizardEntry(root, std::move(entry), "", m_nameBuf);
+    } else {
+        putWizardEntry(root, std::move(entry), ctrl.configId, m_nameBuf);
     }
+
+    writeControllersRoot(root);
+}
+
+json BindingWizard::loadControllersRoot() const {
+    json root;
+    std::ifstream f(m_controllersPath);
+    if (f.is_open()) {
+        try { root = json::parse(f); } catch (...) {}
+    }
+    return root;
+}
+
+bool BindingWizard::writeControllersRoot(const json& root) {
+    std::ofstream f(m_controllersPath);
+    if (!f.is_open()) return false;
+    f << root.dump(2);
+    m_state     = State::Idle;
+    m_savedFlag = true;
+    return true;
+}
+
+void BindingWizard::findJoinCandidates() {
+    m_joinCandidates.clear();
+    m_joinChoice = -1;
+    std::vector<ControllerConfig> configs;
+    try { configs = loadControllerConfigs(m_controllersPath); } catch (...) { return; }
+    for (const auto& cfg : configs) {
+        if (cfg.layout_id != m_layout.id || cfg.mode != m_mode) continue;
+        m_joinCandidates.push_back({ cfg.config_id, !cfg.source_name.empty() ? cfg.source_name : cfg.config_id });
+    }
+    if (!m_joinCandidates.empty()) m_joinChoice = 0;
+}
+
+void BindingWizard::joinChosenEntry() {
+    if (m_joinChoice < 0 || m_joinChoice >= (int)m_joinCandidates.size()) return;
+    const auto& ctrl = m_controllers[m_selectedCtrl];
+    const std::string& configId = m_joinCandidates[m_joinChoice].configId;
+    json root = loadControllersRoot();
+    if (!addIdToEntry(root, configId, ctrl.vid, ctrl.pid, ctrl.productName)) {
+        spdlog::warn("Wizard: entry '{}' to join is gone from controllers.json", configId);
+        return;
+    }
+    if (writeControllersRoot(root))
+        spdlog::info("Wizard: {:04X}:{:04X} joined entry '{}'", ctrl.vid, ctrl.pid, configId);
 }

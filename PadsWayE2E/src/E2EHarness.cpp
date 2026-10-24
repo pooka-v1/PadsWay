@@ -111,7 +111,7 @@ bool E2EHarness::start(std::string& error) {
     }
     error = "engine never reached Running on the fake DS4. Engine status: '" + m_engine->getStatus() +
             "'. Fake pad seen by HIDScanner as name='" + fakeHid.productName + "' connection='" +
-            fakeHid.connectionType + "' — compare with the DS4 entry's product_name/connection.";
+            fakeHid.connectionType + "' — compare with the DS4 entry's product_name/ids.";
     return false;
 }
 
