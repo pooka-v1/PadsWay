@@ -515,9 +515,13 @@ void AppWindow::renderScannerDeviceList() {
             else
                 snprintf(label, sizeof(label), "[HID] VID:%04X PID:%04X", dev.vid, dev.pid);
 
+            // Two nodes of the same model (e.g. one pad over USB and BT at once) share the label;
+            // the index keeps their ImGui IDs apart.
+            ImGui::PushID(i);
             bool sel = (m_hidSelected == i);
             if (ImGui::Selectable(label, sel, 0, { 0, 0 }))
                 m_hidSelected = i;
+            ImGui::PopID();
             ImGui::SameLine();
             if (cfg)
                 ImGui::TextDisabled("  %s  VID:%04X PID:%04X", cfg->source_name.c_str(), dev.vid, dev.pid);
