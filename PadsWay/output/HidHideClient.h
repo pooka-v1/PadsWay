@@ -24,11 +24,12 @@ public:
     void addSelfToWhitelist();
 
     // Hide a physical device (add to blacklist) by the HID interface path PadsWay opened.
-    // Looks up the device instance path via SetupDI.
+    // Looks up the device instance path via SetupDI. If the HID node hangs from an XUSB node
+    // (wired Xbox-style driver, e.g. xusb22), that node is hidden too: XInput reads it, not the HID one.
     // Remembers what was hidden so unhideDevice() can undo it.
     void hideDevice(const std::string& hidDevicePath);
 
-    // Remove the device hidden by hideDevice() from the blacklist.
+    // Remove the device(s) hidden by hideDevice() from the blacklist.
     // Called automatically by the destructor.
     void unhideDevice();
 
@@ -48,6 +49,6 @@ private:
     void                      setFilterActive(bool active);
 
     HANDLE       m_handle             = INVALID_HANDLE_VALUE;
-    std::wstring m_hiddenInstancePath;   // empty if nothing hidden by us
+    std::vector<std::wstring> m_hiddenInstancePaths;   // HID node + its XUSB node if any; empty = none
     bool         m_weActivated        = false;  // true if we enabled filtering
 };
