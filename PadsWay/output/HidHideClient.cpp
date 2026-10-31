@@ -2,6 +2,7 @@
 #include "../Log.h"
 
 #include <setupapi.h>
+#include <cfgmgr32.h>
 #include <algorithm>
 
 static std::string toUtf8(const std::wstring& ws) {
@@ -51,6 +52,7 @@ static bool isOwnExe(const std::wstring& path, const std::wstring& runningExeLea
 }
 
 #pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "cfgmgr32.lib")
 
 // ---------------------------------------------------------------------------
 // MULTI_SZ helpers
@@ -243,25 +245,70 @@ static std::wstring instancePathFromInterface(const std::string& hidDevicePath) 
     return result;
 }
 
+// True if a device node belongs to one of the Xbox-style classes whose XUSB interface XInput reads.
+// HidHide filters both classes, so such a node can be hidden like a HID one.
+static bool isXusbClassNode(DEVINST node) {
+    wchar_t classGuid[64] = {};
+    ULONG   size = sizeof(classGuid);
+    if (CM_Get_DevNode_Registry_PropertyW(node, CM_DRP_CLASSGUID, nullptr, classGuid, &size, 0) != CR_SUCCESS)
+        return false;
+    return _wcsicmp(classGuid, L"{d61ca365-5af4-4486-998b-9db4734c6ca3}") == 0     // XnaComposite (xusb22)
+        || _wcsicmp(classGuid, L"{05f5cfe2-4733-4950-a6bb-07aad01a3a84}") == 0;    // XboxComposite
+}
+
+// Instance path of the XUSB node a HID node hangs from, or empty if it has none. A pad on a wired
+// Xbox-style driver (xusb22: Pro 3 X-mode receiver, Pro 2 X-mode USB) shows up as
+//   USB\...&MI_00 (XnaComposite, xusb22)  ->  USB\...&IG_xx (HidUsb)  ->  HID\...&IG_xx (what we open)
+// and XInput — Steam among others — reads the XUSB node, so hiding only the HID one is not enough.
+// A few levels up covers that chain; pads without such a node (DualSense, D-mode, xinputhid over BT,
+// whose XUSB interface is on the HID node itself) find none and stay as before.
+static std::wstring xusbAncestorOf(const std::wstring& instanceId) {
+    DEVINST node = 0;
+    if (CM_Locate_DevNodeW(&node, const_cast<DEVINSTID_W>(instanceId.c_str()), CM_LOCATE_DEVNODE_NORMAL)
+            != CR_SUCCESS)
+        return {};
+    constexpr int kMaxLevels = 3;
+    for (int level = 0; level < kMaxLevels; ++level) {
+        DEVINST parent = 0;
+        if (CM_Get_Parent(&parent, node, 0) != CR_SUCCESS) return {};
+        node = parent;
+        if (!isXusbClassNode(node)) continue;
+        wchar_t id[MAX_DEVICE_ID_LEN] = {};
+        if (CM_Get_Device_IDW(node, id, MAX_DEVICE_ID_LEN, 0) != CR_SUCCESS) return {};
+        return id;
+    }
+    return {};
+}
+
 void HidHideClient::hideDevice(const std::string& hidDevicePath) {
     if (!isAvailable()) return;
 
-    m_hiddenInstancePath = instancePathFromInterface(hidDevicePath);
-    if (m_hiddenInstancePath.empty()) {
+    const std::wstring hidInstance = instancePathFromInterface(hidDevicePath);
+    if (hidInstance.empty()) {
         spdlog::warn("[HidHide] Instance path not found for {}", hidDevicePath);
         return;
     }
+    m_hiddenInstancePaths = { hidInstance };
+    const std::wstring xusbInstance = xusbAncestorOf(hidInstance);
+    if (!xusbInstance.empty())
+        m_hiddenInstancePaths.push_back(xusbInstance);
 
-    auto list = getList(kIoctlGetBlacklist);
-    for (const auto& s : list)
-        if (_wcsicmp(s.c_str(), m_hiddenInstancePath.c_str()) == 0) {
-            spdlog::debug("[HidHide] Device already in blacklist: {}", toUtf8(m_hiddenInstancePath));
-            return;
+    auto list    = getList(kIoctlGetBlacklist);
+    bool changed = false;
+    for (const auto& id : m_hiddenInstancePaths) {
+        const bool listed = std::any_of(list.begin(), list.end(), [&](const std::wstring& s) {
+            return _wcsicmp(s.c_str(), id.c_str()) == 0;
+        });
+        if (listed) {
+            spdlog::debug("[HidHide] Device already in blacklist: {}", toUtf8(id));
+            continue;
         }
-
-    list.push_back(m_hiddenInstancePath);
+        list.push_back(id);
+        changed = true;
+        spdlog::info("[HidHide] Device hidden: {}", toUtf8(id));
+    }
+    if (!changed) return;
     setList(kIoctlSetBlacklist, list);
-    spdlog::info("[HidHide] Device hidden: {}", toUtf8(m_hiddenInstancePath));
 
     if (!isFilterActive()) {
         setFilterActive(true);
@@ -270,22 +317,24 @@ void HidHideClient::hideDevice(const std::string& hidDevicePath) {
 }
 
 void HidHideClient::unhideDevice() {
-    if (!isAvailable() || m_hiddenInstancePath.empty()) return;
+    if (!isAvailable() || m_hiddenInstancePaths.empty()) return;
 
     auto list = getList(kIoctlGetBlacklist);
-    auto it   = std::find_if(list.begin(), list.end(), [&](const std::wstring& s) {
-        return _wcsicmp(s.c_str(), m_hiddenInstancePath.c_str()) == 0;
-    });
+    const size_t before = list.size();
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const std::wstring& s) {
+        return std::any_of(m_hiddenInstancePaths.begin(), m_hiddenInstancePaths.end(),
+            [&](const std::wstring& id) { return _wcsicmp(s.c_str(), id.c_str()) == 0; });
+    }), list.end());
 
-    if (it == list.end()) {
-        m_hiddenInstancePath.clear();
+    if (list.size() == before) {
+        m_hiddenInstancePaths.clear();
         return;
     }
 
-    list.erase(it);
     setList(kIoctlSetBlacklist, list);
-    spdlog::info("[HidHide] Device unhidden: {}", toUtf8(m_hiddenInstancePath));
-    m_hiddenInstancePath.clear();
+    for (const auto& id : m_hiddenInstancePaths)
+        spdlog::info("[HidHide] Device unhidden: {}", toUtf8(id));
+    m_hiddenInstancePaths.clear();
 
     if (m_weActivated) {
         setFilterActive(false);
