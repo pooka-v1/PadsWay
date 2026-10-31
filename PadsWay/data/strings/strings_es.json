@@ -21,6 +21,7 @@
         "copy":     "Copiar",
         "new":      "Nuevo",
         "activate": "Activar",
+        "release":  "Liberar",
         "ranges":   "Rangos",
         "edit":       "Editar",
         "edit_macro": "Editar inline..."
@@ -28,6 +29,7 @@
     "engine": {
         "connected":      "Conectado - %s",
         "select_ctrl":    "Selecciona un controlador:",
+        "release_tooltip": "Suelta este mando: deja de usarlo y vuelve a ser visible para el resto del sistema.\nEl mando virtual sigue activo hasta que elijas otro.",
         "waiting":        "Esperando dispositivo...",
         "stopped":        "Motor detenido",
         "status":         "Estado: %s",
