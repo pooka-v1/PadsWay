@@ -21,6 +21,7 @@
         "copy":     "Copy",
         "new":      "New",
         "activate": "Activate",
+        "release":  "Release",
         "ranges":   "Ranges",
         "edit":       "Edit",
         "edit_macro": "Edit inline..."
@@ -28,6 +29,7 @@
     "engine": {
         "connected":      "Connected - %s",
         "select_ctrl":    "Select a controller:",
+        "release_tooltip": "Let go of this pad: stop using it and make it visible to the rest of the system again.\nThe virtual pad stays up until you pick another one.",
         "waiting":        "Waiting for device...",
         "stopped":        "Engine stopped",
         "status":         "Status: %s",

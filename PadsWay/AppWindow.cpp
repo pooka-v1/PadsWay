@@ -275,6 +275,17 @@ void AppWindow::renderEngineTab() {
                 ImGui::TextColored({ 0.3f, 1.0f, 0.3f, 1.0f }, "  >");
                 ImGui::SameLine();
                 ImGui::Text("[HID]  %s    VID:%04X  PID:%04X", hwName.c_str(), dev.vid, dev.pid);
+                // Let go of the pad without needing another one to switch to (e.g. a BT pad that
+                // died of low battery and stayed taken).
+                if (connected) {
+                    ImGui::SameLine();
+                    char releaseLabel[64];
+                    snprintf(releaseLabel, sizeof(releaseLabel), "%s##release%d", tr("btn.release"), i);
+                    if (ImGui::SmallButton(releaseLabel))
+                        m_engine.requestRelease();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", tr("engine.release_tooltip"));
+                }
             } else {
                 ImGui::Text("   ");
                 ImGui::SameLine();

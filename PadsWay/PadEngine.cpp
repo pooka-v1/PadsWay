@@ -469,11 +469,28 @@ void PadEngine::threadFunc() {
         return sameConfig;
     };
 
+    // Set when the user released the active pad: nothing is auto-selected (not even a lone pad, nor
+    // the released one coming back) until the user picks one. Cleared by that pick.
+    bool releasedByUser = false;
+    // Whether two candidate lists hold the same pads (by HID path) — used to refresh the list shown
+    // while waiting after a release, so pads turned on/off meanwhile appear/disappear.
+    auto samePads = [](const std::vector<DeviceCandidate>& a, const std::vector<DeviceCandidate>& b) {
+        if (a.size() != b.size()) return false;
+        for (const auto& da : a) {
+            bool found = false;
+            for (const auto& db : b)
+                if (_stricmp(da.hidPath.c_str(), db.hidPath.c_str()) == 0) { found = true; break; }
+            if (!found) return false;
+        }
+        return true;
+    };
+
     // =========================================================================
     // Outer loop — re-entered on each device switch
     // =========================================================================
     while (m_running) {
         m_switchPending.store(false);
+        m_releasePending.store(false);   // a release only means something while Running
 
         // ── Device selection ─────────────────────────────────────────────────
         DeviceCandidate selected;
@@ -513,7 +530,7 @@ void PadEngine::threadFunc() {
                     continue;
                 }
 
-                if (allCandidates.size() == 1 && lostPad.hidPath.empty()) {
+                if (allCandidates.size() == 1 && lostPad.hidPath.empty() && !releasedByUser) {
                     selected = allCandidates[0];
                     spdlog::info("Auto-selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
@@ -522,20 +539,30 @@ void PadEngine::threadFunc() {
                     { std::lock_guard<std::mutex> lock(m_mutex); m_candidates = allCandidates; }
                     m_selectedIndex.store(-1);
                     m_phase.store(EnginePhase::WaitingSelection);
-                    setStatus(lostPad.hidPath.empty()
-                        ? "Multiple controllers detected — select one in the Engine tab"
-                        : "Waiting for " + lostPad.name + " — or select another in the Engine tab");
+                    if (releasedByUser)
+                        setStatus("Controller released — select one in the Engine tab");
+                    else
+                        setStatus(lostPad.hidPath.empty()
+                            ? "Multiple controllers detected — select one in the Engine tab"
+                            : "Waiting for " + lostPad.name + " — or select another in the Engine tab");
 
                     // While a lost pad is awaited, look for it now and then: if it comes back,
-                    // take it without waiting for the user to pick.
+                    // take it without waiting for the user to pick. After a release, rescan as well,
+                    // so the list follows pads turned on/off (e.g. the released one dying).
                     ULONGLONG nextLostCheckMs = GetTickCount64() + 1000;
+                    bool padsChanged = false;
                     while (m_running && m_selectedIndex.load() < 0) {
                         applyPendingOutputSwitch();
-                        if (!lostPad.hidPath.empty() && GetTickCount64() >= nextLostCheckMs) {
+                        const bool recheck = !lostPad.hidPath.empty() || releasedByUser;
+                        if (recheck && GetTickCount64() >= nextLostCheckMs) {
                             nextLostCheckMs = GetTickCount64() + 1000;
                             const std::vector<DeviceCandidate> now = scanCandidates();   // back points into it
                             if (const DeviceCandidate* back = findLostPad(now)) {
                                 selected = *back;
+                                break;
+                            }
+                            if (releasedByUser && !samePads(now, allCandidates)) {
+                                padsChanged = true;
                                 break;
                             }
                         }
@@ -543,6 +570,11 @@ void PadEngine::threadFunc() {
                     }
 
                     if (!m_running) return;
+
+                    if (padsChanged) {   // back to the top of the scan loop with a fresh list
+                        m_phase.store(EnginePhase::Scanning);
+                        continue;
+                    }
 
                     if (selected.vid != 0) {   // the lost pad came back while waiting
                         lostPad = {};
@@ -560,6 +592,7 @@ void PadEngine::threadFunc() {
                     }
                     selected = allCandidates[idx];
                     lostPad  = {};   // the user chose: stop waiting for the lost one
+                    releasedByUser = false;
                     spdlog::info("User selected: {} [VID={:04X} PID={:04X}]",
                         selected.name, selected.vid, selected.pid);
                 }
@@ -865,7 +898,7 @@ void PadEngine::threadFunc() {
     bool         lostDevice        = false;  // set when device disconnects unexpectedly
     int          reconnectTries    = 0;
 
-    while (m_running && !m_switchPending.load()) {
+    while (m_running && !m_switchPending.load() && !m_releasePending.load()) {
         applyPendingOutputSwitch();   // recreate the virtual target if the UI asked to
         // Profile hot-swap: detect change or explicit reload request.
         std::string newProfile = getProfilePath();
@@ -1477,6 +1510,21 @@ void PadEngine::threadFunc() {
             spdlog::info("[Reconnect] Scanning for device...");
             setStatus("Device disconnected — scanning...");
             // preSelected stays empty → outer loop rescans normally
+        } else if (m_releasePending.exchange(false)) {
+            // The user let go of this pad: show it to the rest of the system again and wait for a
+            // pick. A switch requested in the same instant loses — the release was the last word.
+            m_switchPending.store(false);
+            m_hidHide.unhideDevice();
+            releasedByUser = true;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_activeDevice = {};
+                m_activeLayoutId.clear();
+            }
+            spdlog::info("[Release] Released: {} [VID={:04X} PID={:04X}]",
+                selected.name, selected.vid, selected.pid);
+            setStatus(std::string("Released: ") + selected.name);
+            // preSelected stays empty → outer loop rescans, without auto-selecting
         } else {
             // Switch was requested: read the target and pre-select it for next iteration
             DeviceCandidate target;

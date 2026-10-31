@@ -84,6 +84,9 @@ public:
     std::vector<DeviceCandidate> getAvailableDevices() const;  // live list from monitor thread
     void        selectDevice(int index);    // call from UI during WaitingSelection
     void        requestSwitch(int index);   // switch to available device[index] while Running
+    // Let go of the active pad while Running: close it, unhide it and wait for the user to pick a
+    // pad (no auto-select). The virtual pad stays up, with no source, until then.
+    void        requestRelease() { m_releasePending.store(true); }
     DeviceCandidate getActiveDevice() const;
     GamepadState          getLastState()        const;
     GamepadState          getLastVirtualState() const;  // state actually sent to ViGEm (post-bot/macro)
@@ -165,6 +168,8 @@ private:
     // Switch-in-hot: set by requestSwitch(), consumed by threadFunc()
     std::atomic<bool>  m_switchPending  { false };
     DeviceCandidate    m_switchTarget;  // protected by m_mutex
+    // Release: set by requestRelease(), consumed by threadFunc()
+    std::atomic<bool>  m_releasePending { false };
 
     void setDevice(const std::string& s);
     void setStatus(const std::string& s);
