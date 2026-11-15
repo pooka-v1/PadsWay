@@ -85,7 +85,17 @@ private:
     std::unordered_map<USHORT, ValueRange> m_valueCaps;
     std::unordered_map<USHORT, USHORT>     m_usagePage;
 
+    // Ghost BT node detection (see BluetoothLink.h): Windows may keep the node of a pad switched
+    // off, so reads just time out forever instead of failing. After a silence, the BT stack is
+    // asked whether the link is still up. Silence alone proves nothing: on-change-only pads
+    // (X-mode behind xinputhid) can stay quiet for minutes while alive.
+    std::string       m_btAddress;            // empty = not BT, or address not found → never checked
+    ULONGLONG         m_lastReportTick    = 0;
+    ULONGLONG         m_lastLinkCheckTick = 0;
+
     // Issues the next overlapped ReadFile into m_pendingBuf. False = device gone.
     bool startRead();
     void closeHandles();
+    // True when the pad has been silent long enough and the BT stack says its link is down.
+    bool btLinkLost();
 };

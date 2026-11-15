@@ -1,4 +1,5 @@
 #include "HIDDevice.h"
+#include "BluetoothLink.h"
 #include "../Log.h"
 #include <hidsdi.h>
 #include <algorithm>
@@ -6,6 +7,14 @@
 #pragma comment(lib, "hid.lib")
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_preparsed))
+
+namespace {
+// A live Sony pad reports every few ms over BT, so 2 s without reports is already abnormal; the
+// link check then repeats at most once per second (BluetoothGetDeviceInfo is a system call, and
+// on-change-only pads keep this loop running while idle).
+constexpr ULONGLONG kBtSilenceBeforeLinkCheckMs = 2000;
+constexpr ULONGLONG kBtLinkCheckIntervalMs      = 1000;
+} // namespace
 
 // ---------------------------------------------------------------------------
 
@@ -119,6 +128,10 @@ HIDDevice::HIDDevice(const std::string& path, const std::string& name, Access ac
     spdlog::info("[HIDDevice] Opened: {}  ReportLen={}  ValueCaps={}  BtnCaps={}  Write={}",
         name.empty() ? path : name, m_inputReportLen, numCaps, numBtnCaps, m_canWrite);
 
+    if (m_transport == HidTransport::Bluetooth)
+        m_btAddress = BluetoothLink::addressOfInterfacePath(path);
+    m_lastReportTick = GetTickCount64();
+
     m_connected = true;
 }
 
@@ -171,8 +184,15 @@ HIDDevice::ReadResult HIDDevice::read(int timeoutMs)
 
     // Timeout: the read is NOT cancelled — it stays pending, so a report arriving while the
     // caller is busy (processing, Sleep) is still caught and picked up by the next call.
-    if (WaitForSingleObject(m_event, static_cast<DWORD>(timeoutMs)) != WAIT_OBJECT_0)
+    if (WaitForSingleObject(m_event, static_cast<DWORD>(timeoutMs)) != WAIT_OBJECT_0) {
+        if (btLinkLost()) {
+            spdlog::warn("[HIDDevice] No reports and BT link down (pad switched off, ghost node): addr={}",
+                         m_btAddress);
+            closeHandles();
+            return ReadResult::Disconnected;
+        }
         return ReadResult::Timeout;
+    }
 
     m_readPending = false;
     DWORD bytesRead = 0;
@@ -182,7 +202,8 @@ HIDDevice::ReadResult HIDDevice::read(int timeoutMs)
     }
 
     std::copy(m_pendingBuf.begin(), m_pendingBuf.begin() + bytesRead, m_reportBuf.begin());
-    m_lastBytesRead = static_cast<ULONG>(bytesRead);
+    m_lastBytesRead  = static_cast<ULONG>(bytesRead);
+    m_lastReportTick = GetTickCount64();
 
     // Re-arm before returning, so there is no window without a pending read. If the device is
     // gone this fails; m_readPending stays false and the next call reports Disconnected.
@@ -203,6 +224,18 @@ bool HIDDevice::startRead()
         return true;
     }
     return false;
+}
+
+bool HIDDevice::btLinkLost()
+{
+    if (m_btAddress.empty()) return false;
+    const ULONGLONG now = GetTickCount64();
+    if (now - m_lastReportTick    < kBtSilenceBeforeLinkCheckMs) return false;
+    if (now - m_lastLinkCheckTick < kBtLinkCheckIntervalMs)      return false;
+    m_lastLinkCheckTick = now;
+    // Unknown (stack didn't answer) counts as alive: only a definite "link down" drops the pad.
+    const BluetoothLink::DeviceState state = BluetoothLink::queryDevice(m_btAddress);
+    return state.known && !state.connected;
 }
 
 // ---------------------------------------------------------------------------

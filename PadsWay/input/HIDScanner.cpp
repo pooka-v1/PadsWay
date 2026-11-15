@@ -1,18 +1,15 @@
 #include "HIDScanner.h"
+#include "BluetoothLink.h"
 #include "HidChannel.h"   // hidTransportFromPath
 #include "ControllerProtocolRegistry.h"   // protocolForHardware
 #include "../Log.h"
 #include <setupapi.h>
 #include <hidsdi.h>
-#include <cfgmgr32.h>
-#include <BluetoothAPIs.h>
 #include <algorithm>
 #include <cstdio>
 
 #pragma comment(lib, "hid.lib")
 #pragma comment(lib, "setupapi.lib")
-#pragma comment(lib, "cfgmgr32.lib")
-#pragma comment(lib, "Bthprops.lib")
 
 namespace {
 
@@ -22,24 +19,6 @@ namespace {
 constexpr BYTE  kDs4PairingFeatureId       = 0x12;
 constexpr BYTE  kDualSensePairingFeatureId = 0x09;
 constexpr USHORT kPairingFeatureMinLen     = 7;   // report ID + 6 address bytes
-
-// BT address of a BT HID node, from its BTHENUM parent's instance ID:
-//   BTHENUM\{...}\7&xxx&x&AABBCCDDEEFF_00000001  ->  "AABBCCDDEEFF" (12 hex chars before the
-// last '_'). Empty if the parent or the address isn't found.
-std::string btAddressOfBtNode(DEVINST devInst) {
-    DEVINST parentInst = 0;
-    if (CM_Get_Parent(&parentInst, devInst, 0) != CR_SUCCESS) return {};
-    char parentId[512] = {};
-    if (CM_Get_Device_IDA(parentInst, parentId, sizeof(parentId), 0) != CR_SUCCESS) return {};
-
-    std::string idStr = parentId;
-    for (auto& c : idStr) c = (char)toupper((unsigned char)c);
-    auto lastUs = idStr.rfind('_');
-    if (lastUs == std::string::npos || lastUs < 12) return {};
-    std::string mac = idStr.substr(lastUs - 12, 12);
-    for (char c : mac) if (!isxdigit((unsigned char)c)) return {};
-    return mac;
-}
 
 // BT address of a Sony pad's USB node, read live from its pairing-info feature report (reading
 // needs no write access). Empty for any other pad, or if the pad doesn't answer.
@@ -146,27 +125,13 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         std::string btAddress;
         bool btLinkDown = false;
         if (isBt) {
-            btAddress = btAddressOfBtNode(devInfoData.DevInst);
+            btAddress = BluetoothLink::addressOfBtNode(devInfoData.DevInst);
             if (!btAddress.empty()) {
-                // Build BLUETOOTH_ADDRESS: MAC string "AABBCCDDEEFF"
-                // → rgBytes[5]=0xAA … rgBytes[0]=0xFF (LSB-first)
-                BLUETOOTH_ADDRESS btAddr = {};
-                for (int b = 0; b < 6; ++b)
-                    btAddr.rgBytes[b] = (BYTE)strtol(btAddress.substr((5 - b) * 2, 2).c_str(), nullptr, 16);
-                BLUETOOTH_DEVICE_INFO btInfo = {};
-                btInfo.dwSize  = sizeof(btInfo);
-                btInfo.Address = btAddr;
-                if (BluetoothGetDeviceInfo(nullptr, &btInfo) == ERROR_SUCCESS) {
-                    // Windows can keep the HID node of a pad that was switched off (ghost node, no
-                    // reports). The BT stack still knows the link is gone. fConnected carries flags
-                    // (e.g. 0x20), not a clean TRUE: test against zero only.
-                    btLinkDown = (btInfo.fConnected == 0);
-                    if (btInfo.szName[0]) {
-                        char narrow[256] = {};
-                        WideCharToMultiByte(CP_UTF8, 0, btInfo.szName, -1,
-                                            narrow, sizeof(narrow), nullptr, nullptr);
-                        productName = narrow;
-                    }
+                // A pad switched off can leave a ghost HID node behind (see BluetoothLink.h).
+                const BluetoothLink::DeviceState btState = BluetoothLink::queryDevice(btAddress);
+                if (btState.known) {
+                    btLinkDown  = !btState.connected;
+                    productName = btState.name;
                 }
             }
         } else {
