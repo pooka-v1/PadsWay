@@ -144,6 +144,7 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         // from the BTHENUM parent node and ask BluetoothGetDeviceInfo for it.
         std::string productName;
         std::string btAddress;
+        bool btLinkDown = false;
         if (isBt) {
             btAddress = btAddressOfBtNode(devInfoData.DevInst);
             if (!btAddress.empty()) {
@@ -155,12 +156,17 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
                 BLUETOOTH_DEVICE_INFO btInfo = {};
                 btInfo.dwSize  = sizeof(btInfo);
                 btInfo.Address = btAddr;
-                if (BluetoothGetDeviceInfo(nullptr, &btInfo) == ERROR_SUCCESS
-                        && btInfo.szName[0]) {
-                    char narrow[256] = {};
-                    WideCharToMultiByte(CP_UTF8, 0, btInfo.szName, -1,
-                                        narrow, sizeof(narrow), nullptr, nullptr);
-                    productName = narrow;
+                if (BluetoothGetDeviceInfo(nullptr, &btInfo) == ERROR_SUCCESS) {
+                    // Windows can keep the HID node of a pad that was switched off (ghost node, no
+                    // reports). The BT stack still knows the link is gone. fConnected carries flags
+                    // (e.g. 0x20), not a clean TRUE: test against zero only.
+                    btLinkDown = (btInfo.fConnected == 0);
+                    if (btInfo.szName[0]) {
+                        char narrow[256] = {};
+                        WideCharToMultiByte(CP_UTF8, 0, btInfo.szName, -1,
+                                            narrow, sizeof(narrow), nullptr, nullptr);
+                        productName = narrow;
+                    }
                 }
             }
         } else {
@@ -178,6 +184,14 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         }
 
         CloseHandle(h);
+
+        // Ghost BT node: listing it would offer a dead pad, and the BT/USB dedupe below would hide
+        // the live USB node of the same pad behind it.
+        if (btLinkDown) {
+            spdlog::debug("[HIDScanner] Skipped BT node with link down (ghost): VID={:04X} PID={:04X} addr={}",
+                          attribs.VendorID, attribs.ProductID, btAddress);
+            continue;
+        }
 
         std::string connType = isBt ? "bt" : "usb";
 
