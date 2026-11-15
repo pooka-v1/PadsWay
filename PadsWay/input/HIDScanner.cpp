@@ -129,10 +129,8 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
             if (!btAddress.empty()) {
                 // A pad switched off can leave a ghost HID node behind (see BluetoothLink.h).
                 const BluetoothLink::DeviceState btState = BluetoothLink::queryDevice(btAddress);
-                if (btState.known) {
-                    btLinkDown  = !btState.connected;
-                    productName = btState.name;
-                }
+                btLinkDown  = BluetoothLink::isLinkDown(btState);
+                productName = btState.name;
             }
         } else {
             btAddress = btAddressOfSonyUsbNode(h, attribs.VendorID, attribs.ProductID,
@@ -174,22 +172,9 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
 
     SetupDiDestroyDeviceInfoList(devInfo);
 
-    // One pad over BT and USB at once (Sony pads keep their BT link with the cable in): keep only the
-    // BT node — the pad keeps sending over BT, and pulling the cable then changes nothing. Matched by
-    // address, never by VID/PID, so a second pad of the same model on the cable still shows.
-    // Addresses collected first: remove_if moves elements around, so it must not read result itself.
-    std::vector<std::string> btNodeAddresses;
-    for (const auto& dev : result)
-        if (dev.connectionType == "bt" && !dev.btAddress.empty())
-            btNodeAddresses.push_back(dev.btAddress);
-    result.erase(std::remove_if(result.begin(), result.end(), [&](const DeviceInfo& dev) {
-        if (dev.connectionType != "usb" || dev.btAddress.empty()) return false;
-        if (std::find(btNodeAddresses.begin(), btNodeAddresses.end(), dev.btAddress)
-                == btNodeAddresses.end()) return false;
-        spdlog::debug("[HIDScanner] Hidden USB node of a pad already on BT: VID={:04X} PID={:04X} addr={}",
-                      dev.vid, dev.pid, dev.btAddress);
-        return true;
-    }), result.end());
+    // One pad over BT and USB at once: keep only the BT node — the pad keeps sending over BT, and
+    // pulling the cable then changes nothing.
+    BluetoothLink::dropUsbTwinsOfBtNodes(result);
 
     return result;
 }

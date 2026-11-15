@@ -1,9 +1,10 @@
 #include "BluetoothLink.h"
+#include "../Log.h"
 #include <setupapi.h>
 #include <BluetoothAPIs.h>
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <vector>
 
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "cfgmgr32.lib")
@@ -11,20 +12,52 @@
 
 namespace BluetoothLink {
 
-// BTHENUM\{...}\7&xxx&x&AABBCCDDEEFF_C00000000  ->  "AABBCCDDEEFF" (12 hex chars before the last '_').
+// --- Pure rules -------------------------------------------------------------------------------
+
+std::string addressFromInstanceId(std::string_view instanceId) {
+    const auto lastUs = instanceId.rfind('_');
+    if (lastUs == std::string_view::npos || lastUs < 12) return {};
+    std::string mac(instanceId.substr(lastUs - 12, 12));
+    for (auto& c : mac) {
+        if (!isxdigit(static_cast<unsigned char>(c))) return {};
+        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+    }
+    return mac;
+}
+
+bool isLinkDown(const DeviceState& state) {
+    return state.known && !state.connected;
+}
+
+bool isLinkCheckDue(ULONGLONG nowMs, ULONGLONG lastReportMs, ULONGLONG lastCheckMs) {
+    return nowMs - lastReportMs >= kSilenceBeforeLinkCheckMs
+        && nowMs - lastCheckMs  >= kLinkCheckIntervalMs;
+}
+
+void dropUsbTwinsOfBtNodes(std::vector<HIDScanner::DeviceInfo>& devices) {
+    // Addresses collected first: remove_if moves elements around, so it must not read devices itself.
+    std::vector<std::string> btNodeAddresses;
+    for (const auto& dev : devices)
+        if (dev.connectionType == "bt" && !dev.btAddress.empty())
+            btNodeAddresses.push_back(dev.btAddress);
+    devices.erase(std::remove_if(devices.begin(), devices.end(), [&](const HIDScanner::DeviceInfo& dev) {
+        if (dev.connectionType != "usb" || dev.btAddress.empty()) return false;
+        if (std::find(btNodeAddresses.begin(), btNodeAddresses.end(), dev.btAddress)
+                == btNodeAddresses.end()) return false;
+        spdlog::debug("[HIDScanner] Hidden USB node of a pad already on BT: VID={:04X} PID={:04X} addr={}",
+                      dev.vid, dev.pid, dev.btAddress);
+        return true;
+    }), devices.end());
+}
+
+// --- Queries (Windows) ------------------------------------------------------------------------
+
 std::string addressOfBtNode(DEVINST devInst) {
     DEVINST parentInst = 0;
     if (CM_Get_Parent(&parentInst, devInst, 0) != CR_SUCCESS) return {};
     char parentId[512] = {};
     if (CM_Get_Device_IDA(parentInst, parentId, sizeof(parentId), 0) != CR_SUCCESS) return {};
-
-    std::string idStr = parentId;
-    for (auto& c : idStr) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
-    auto lastUs = idStr.rfind('_');
-    if (lastUs == std::string::npos || lastUs < 12) return {};
-    std::string mac = idStr.substr(lastUs - 12, 12);
-    for (char c : mac) if (!isxdigit(static_cast<unsigned char>(c))) return {};
-    return mac;
+    return addressFromInstanceId(parentId);
 }
 
 std::string addressOfInterfacePath(const std::string& interfacePath) {

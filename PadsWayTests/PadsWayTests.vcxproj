@@ -170,6 +170,8 @@
     <ClCompile Include="..\PadsWay\input\XInputFeed.cpp" />
     <ClCompile Include="tests\test_XInputFeed.cpp" />
     <ClCompile Include="tests\test_CounterByteDetector.cpp" />
+    <ClCompile Include="..\PadsWay\input\BluetoothLink.cpp" />
+    <ClCompile Include="tests\test_BluetoothLink.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="catch2\catch_amalgamated.hpp" />

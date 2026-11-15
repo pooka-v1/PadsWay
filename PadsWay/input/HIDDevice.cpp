@@ -8,14 +8,6 @@
 
 #define PREPARSED  (static_cast<PHIDP_PREPARSED_DATA>(m_preparsed))
 
-namespace {
-// A live Sony pad reports every few ms over BT, so 2 s without reports is already abnormal; the
-// link check then repeats at most once per second (BluetoothGetDeviceInfo is a system call, and
-// on-change-only pads keep this loop running while idle).
-constexpr ULONGLONG kBtSilenceBeforeLinkCheckMs = 2000;
-constexpr ULONGLONG kBtLinkCheckIntervalMs      = 1000;
-} // namespace
-
 // ---------------------------------------------------------------------------
 
 HIDDevice::HIDDevice(const std::string& path, const std::string& name, Access access)
@@ -230,12 +222,9 @@ bool HIDDevice::btLinkLost()
 {
     if (m_btAddress.empty()) return false;
     const ULONGLONG now = GetTickCount64();
-    if (now - m_lastReportTick    < kBtSilenceBeforeLinkCheckMs) return false;
-    if (now - m_lastLinkCheckTick < kBtLinkCheckIntervalMs)      return false;
+    if (!BluetoothLink::isLinkCheckDue(now, m_lastReportTick, m_lastLinkCheckTick)) return false;
     m_lastLinkCheckTick = now;
-    // Unknown (stack didn't answer) counts as alive: only a definite "link down" drops the pad.
-    const BluetoothLink::DeviceState state = BluetoothLink::queryDevice(m_btAddress);
-    return state.known && !state.connected;
+    return BluetoothLink::isLinkDown(BluetoothLink::queryDevice(m_btAddress));
 }
 
 // ---------------------------------------------------------------------------
