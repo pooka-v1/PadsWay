@@ -29,6 +29,9 @@
     <ClCompile Include="config\ControllerModes.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
+    <ClCompile Include="input\BluetoothLink.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
     <ClCompile Include="input\HIDScanner.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
@@ -167,6 +170,9 @@
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="input\IInputSource.h">
+      <Filter>Archivos de encabezado</Filter>
+    </ClInclude>
+    <ClInclude Include="input\BluetoothLink.h">
       <Filter>Archivos de encabezado</Filter>
     </ClInclude>
     <ClInclude Include="input\HIDScanner.h">

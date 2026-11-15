@@ -1,15 +1,49 @@
 #include "HIDScanner.h"
+#include "BluetoothLink.h"
 #include "HidChannel.h"   // hidTransportFromPath
+#include "ControllerProtocolRegistry.h"   // protocolForHardware
 #include "../Log.h"
 #include <setupapi.h>
 #include <hidsdi.h>
-#include <cfgmgr32.h>
-#include <BluetoothAPIs.h>
+#include <algorithm>
+#include <cstdio>
 
 #pragma comment(lib, "hid.lib")
 #pragma comment(lib, "setupapi.lib")
-#pragma comment(lib, "cfgmgr32.lib")
-#pragma comment(lib, "Bthprops.lib")
+
+namespace {
+
+// Sony pads keep their BT link when a USB cable goes in, so Windows shows two nodes of one pad.
+// Over USB the pad only tells its BT address through its pairing-info feature report: bytes [1..6],
+// LSB first (same layout Linux hid-playstation reads).
+constexpr BYTE  kDs4PairingFeatureId       = 0x12;
+constexpr BYTE  kDualSensePairingFeatureId = 0x09;
+constexpr USHORT kPairingFeatureMinLen     = 7;   // report ID + 6 address bytes
+
+// BT address of a Sony pad's USB node, read live from its pairing-info feature report (reading
+// needs no write access). Empty for any other pad, or if the pad doesn't answer.
+std::string btAddressOfSonyUsbNode(HANDLE h, USHORT vid, USHORT pid, USHORT featureLen) {
+    const std::string_view protocol = protocolForHardware(vid, pid);
+    BYTE reportId = 0;
+    if      (protocol == kDualShock4Protocol) reportId = kDs4PairingFeatureId;
+    else if (protocol == kDualSenseProtocol)  reportId = kDualSensePairingFeatureId;
+    else return {};
+    if (featureLen < kPairingFeatureMinLen) return {};
+
+    // HidD_GetFeature wants the descriptor's full feature length, not the report's own.
+    std::vector<BYTE> buf(featureLen, 0);
+    buf[0] = reportId;
+    if (!HidD_GetFeature(h, buf.data(), featureLen)) return {};
+
+    const BYTE* lsbFirst = buf.data() + 1;
+    if (std::all_of(lsbFirst, lsbFirst + 6, [](BYTE b) { return b == 0; })) return {};
+    char mac[13] = {};
+    for (int b = 0; b < 6; ++b)
+        snprintf(mac + b * 2, 3, "%02X", lsbFirst[5 - b]);
+    return mac;
+}
+
+} // namespace
 
 std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
     std::vector<DeviceInfo> result;
@@ -85,44 +119,22 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         bool isBt = (hidTransportFromPath(path) == HidTransport::Bluetooth);
 
         // For BT devices the HID interface node has a generic class-driver name.
-        // The real manufacturer name is in the BTHENUM parent node's instance ID:
-        //   BTHENUM\{...}\7&xxx&x&AABBCCDDEEFF_00000001
-        // We extract the BT MAC (12 hex chars before the last underscore) and use
-        // BluetoothGetDeviceInfo to read the name Windows stored at pairing time.
+        // The real name is the one Windows stored at pairing time: we take the pad's BT address
+        // from the BTHENUM parent node and ask BluetoothGetDeviceInfo for it.
         std::string productName;
+        std::string btAddress;
+        bool btLinkDown = false;
         if (isBt) {
-            DEVINST parentInst = 0;
-            if (CM_Get_Parent(&parentInst, devInfoData.DevInst, 0) == CR_SUCCESS) {
-                char parentId[512] = {};
-                if (CM_Get_Device_IDA(parentInst, parentId, sizeof(parentId), 0) == CR_SUCCESS) {
-                    // Find the 12-char hex BT address before the last '_' in the instance ID
-                    std::string idStr = parentId;
-                    for (auto& c : idStr) c = (char)toupper((unsigned char)c);
-                    auto lastUs = idStr.rfind('_');
-                    if (lastUs != std::string::npos && lastUs >= 12) {
-                        std::string mac = idStr.substr(lastUs - 12, 12);
-                        bool valid = true;
-                        for (char c : mac) if (!isxdigit((unsigned char)c)) { valid = false; break; }
-                        if (valid) {
-                            // Build BLUETOOTH_ADDRESS: MAC string "AABBCCDDEEFF"
-                            // → rgBytes[5]=0xAA … rgBytes[0]=0xFF (LSB-first)
-                            BLUETOOTH_ADDRESS btAddr = {};
-                            for (int b = 0; b < 6; ++b)
-                                btAddr.rgBytes[b] = (BYTE)strtol(mac.substr((5 - b) * 2, 2).c_str(), nullptr, 16);
-                            BLUETOOTH_DEVICE_INFO btInfo = {};
-                            btInfo.dwSize  = sizeof(btInfo);
-                            btInfo.Address = btAddr;
-                            if (BluetoothGetDeviceInfo(nullptr, &btInfo) == ERROR_SUCCESS
-                                    && btInfo.szName[0]) {
-                                char narrow[256] = {};
-                                WideCharToMultiByte(CP_UTF8, 0, btInfo.szName, -1,
-                                                    narrow, sizeof(narrow), nullptr, nullptr);
-                                productName = narrow;
-                            }
-                        }
-                    }
-                }
+            btAddress = BluetoothLink::addressOfBtNode(devInfoData.DevInst);
+            if (!btAddress.empty()) {
+                // A pad switched off can leave a ghost HID node behind (see BluetoothLink.h).
+                const BluetoothLink::DeviceState btState = BluetoothLink::queryDevice(btAddress);
+                btLinkDown  = BluetoothLink::isLinkDown(btState);
+                productName = btState.name;
             }
+        } else {
+            btAddress = btAddressOfSonyUsbNode(h, attribs.VendorID, attribs.ProductID,
+                                               caps.FeatureReportByteLength);
         }
         // Fallback (USB, or BT lookup failed): HidD_GetProductString.
         if (productName.empty()) {
@@ -136,6 +148,14 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
 
         CloseHandle(h);
 
+        // Ghost BT node: listing it would offer a dead pad, and the BT/USB dedupe below would hide
+        // the live USB node of the same pad behind it.
+        if (btLinkDown) {
+            spdlog::debug("[HIDScanner] Skipped BT node with link down (ghost): VID={:04X} PID={:04X} addr={}",
+                          attribs.VendorID, attribs.ProductID, btAddress);
+            continue;
+        }
+
         std::string connType = isBt ? "bt" : "usb";
 
         DeviceInfo dev;
@@ -146,9 +166,15 @@ std::vector<HIDScanner::DeviceInfo> HIDScanner::scan() {
         dev.path           = std::move(path);
         dev.productName    = std::move(productName);
         dev.connectionType = std::move(connType);
+        dev.btAddress      = std::move(btAddress);
         result.push_back(std::move(dev));
     }
 
     SetupDiDestroyDeviceInfoList(devInfo);
+
+    // One pad over BT and USB at once: keep only the BT node — the pad keeps sending over BT, and
+    // pulling the cable then changes nothing.
+    BluetoothLink::dropUsbTwinsOfBtNodes(result);
+
     return result;
 }
